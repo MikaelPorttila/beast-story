@@ -2414,6 +2414,81 @@ function tickHoldStage(dt: number): void {
   }
 }
 
+// THE DROVE GROUND — Act 1's boss arena (issue #151). Open country outside Stonewatch, and NOT a prop
+// of this quest: Act 4 fights `enemy:guardian/land` on the same ground (game-story.md §4), so nothing
+// about the terrain, the town or the roads knows a boss is standing here. Kill it and the ground is
+// what it was.
+const BOSS_STAGE_ENEMY = "bellwether";
+/**
+ * How far out of Stonewatch it grazes, world units.
+ *
+ * 90 is past the town's own extent and its safe zone and far enough that
+ * crossing it on foot is a walk you notice — which is the point of a boss the
+ * story gates behind a mount — while staying inside `DESPAWN_DIST` of a hero who
+ * has come out to meet it.
+ */
+const BOSS_STAGE_OUT = 90;
+/** How near the arena the hero must be for the animal to be put out. Under the despawn radius. */
+const BOSS_STAGE_REACH = 70;
+let bossStagePollIn = 0;
+
+/** Where the herd is: a fixed bearing off the town, so the arena is the same place every session. */
+function droveGround(): { x: number; y: number; z: number } | null {
+  const town = world.towns.get("stonewatch");
+  if (!town) {
+    return null;
+  }
+  // AWAY FROM THE GATE, so the walk out is across open country rather than back up the road the
+  // player arrived on. The bearing is derived from the town's own gate and never stored.
+  const away = Math.atan2(town.x - town.gateX, town.z - town.gateZ);
+  const x = town.x + Math.sin(away) * BOSS_STAGE_OUT;
+  const z = town.z + Math.cos(away) * BOSS_STAGE_OUT;
+  return { x, y: world.getHeight(x, z), z };
+}
+
+function tickBossStage(dt: number): void {
+  bossStagePollIn -= dt;
+  if (bossStagePollIn > 0) {
+    return;
+  }
+  bossStagePollIn = PRACTICE_POLL;
+  if (zones.id !== "overworld") {
+    return;
+  }
+  const asset = content.get<QuestData>("quest:land/the-bellwether");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  if (content.state.progress(asset.id, "defeat-bellwether") >= 1) {
+    return;
+  }
+  const spot = droveGround();
+  if (!spot) {
+    return;
+  }
+  // Same rule as the Hold's floor: an enemy further than `DESPAWN_DIST` from the hero is swept the
+  // slice it is made, so the herd's leader is put out when somebody has come far enough to see it.
+  if (
+    !inReach(
+      spot.x,
+      spot.y,
+      spot.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      BOSS_STAGE_REACH,
+      30,
+      30,
+    )
+  ) {
+    return;
+  }
+  if (combat.enemies.some((e) => e.targetable && e.species === BOSS_STAGE_ENEMY)) {
+    return;
+  }
+  combat.spawnOne(BOSS_STAGE_ENEMY, spot.x, spot.z);
+}
+
 // The camera looks through the pinned crosshair, so its forward vector IS the crosshair ray. A module scratch because casting must not allocate.
 const _aim = new THREE.Vector3();
 // Steer strength for a shot fired down the crosshair, as a fraction of full lock-on: 0.35 closes a small aiming
@@ -4758,6 +4833,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // On the slice for the clock's reason: a quest's stage dressing is part of the world.
   tickPracticeBeast(dt);
   tickHoldStage(dt);
+  tickBossStage(dt);
   tickWaypoints(dt);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
@@ -6641,6 +6717,14 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
     species: e.species,
     biome: world.biomeAt(e.position.x, e.position.z),
   })),
+});
+
+// WHERE THE STORY DRESSES A SCENE. Both are DERIVED — the Hold's floor from its seed, the drove ground
+// from Stonewatch's own gate — so a probe walks to whatever the game chose instead of keeping a second
+// copy of the arithmetic that put it there.
+(window as unknown as { __dbgQuestSites: () => unknown }).__dbgQuestSites = () => ({
+  holdFloor: holdFloorSpot(),
+  droveGround: droveGround(),
 });
 
 // THE STANDING STONES: where they are, which are lit, and which one a faint would use from here — the

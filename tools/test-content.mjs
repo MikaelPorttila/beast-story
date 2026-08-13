@@ -177,6 +177,9 @@ const SKYHAVEN = { id: "skyhaven", carried: true, order: 3 };
 /** Redbriar's miller, who closes The Mill Road (issue #149). */
 const MERA = "mera";
 
+/** Stonewatch's warden, who opens and closes the act's last quest (issue #151). */
+const COIL = "coil/stonewatch";
+
 /** The three who live on it, in load order. */
 const SKYFOLK = ["sky-pilot", "sky-gardener", "sky-lamplighter"];
 
@@ -211,6 +214,7 @@ const ACT1_QUESTS = [
   "quest:land/the-first-bond",
   "quest:land/the-mill-road",
   "quest:land/the-red-thread",
+  "quest:land/the-bellwether",
 ];
 
 /** What a boot holds: the world, then the campaign that is set in it. */
@@ -555,10 +559,11 @@ async function consoleClosed(tries = 40) {
     c.assets,
     {
       town: 4,
-      npc: 5,
+      npc: 6,
       biome: 8,
-      // +1: `enemy:thread-anchor`, the story enemy `story-land` brings (issue #150).
-      enemy: 4 + WILD_BEASTS.length,
+      // +2: `enemy:thread-anchor` (issue #150) and `enemy:bellwether` (issue
+      // #151), the two enemies `story-land` brings with it.
+      enemy: 5 + WILD_BEASTS.length,
       quest: ACT1_QUESTS.length,
       music: 2,
     },
@@ -569,16 +574,17 @@ async function consoleClosed(tries = 40) {
   // filtered one is deliberate: a carried town that stopped reaching the world
   // is exactly as much a regression as a sited one that did.
   eq(c.resolved.towns, [...TOWNS.map((t) => t.id), SKYHAVEN.id], "towns that reached the world");
-  eq(c.resolved.npcs, [GAIN.id, MERA, ...SKYFOLK], "npcs that reached the world");
+  eq(c.resolved.npcs, [GAIN.id, MERA, COIL, ...SKYFOLK], "npcs that reached the world");
   // The pre-migration three FIRST and in their old order, then the wild beasts.
   // Same argument as the towns above: asserting the whole list rather than a
   // filtered one is what makes "a wild beast stopped reaching the world" as
   // much of a regression as a Gloopling doing so.
-  // `story-land` brings one of its own — the thread anchor at the Hold's floor
-  // (issue #150) — and it is LAST because the campaign loads after core.
+  // `story-land` brings two of its own — the act's boss and the thread anchor at
+  // the Hold's floor — and they come LAST because the campaign loads after core,
+  // in the order the package declares them.
   eq(
     c.resolved.enemies,
-    [...ENEMIES.map((e) => e.id), ...WILD_BEASTS, "thread-anchor"],
+    [...ENEMIES.map((e) => e.id), ...WILD_BEASTS, "bellwether", "thread-anchor"],
     "enemy species that reached the world",
   );
   eq(viaImport.biomes, BIOMES, "biome ids");

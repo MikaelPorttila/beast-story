@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { VoxelModel, shade } from "../core/voxel";
 import { MAX_STEP_UP, inRise } from "../core/types";
 import { CarrierRide } from "../world/carriers";
 import { BeastAnimClock } from "../beasts/framework";
@@ -21,8 +20,8 @@ import {
   type BiomeData,
   type EnemyCapture,
   type EnemyData,
-  type EnemyVariant,
 } from "../content";
+import { ENEMY_MODELS, type EnemyModel } from "./enemy-models";
 import { displayKey, reportContentIssue } from "../core/content-bridge";
 import type { VFX } from "./vfx";
 
@@ -59,17 +58,8 @@ export function variantForHeight(dh: number): number {
   return 0;
 }
 
-type Variant = EnemyVariant;
-
-// A beast body is a `BeastSpecies` rig and posing it needs the whole `BeastRig`,
-// so the rig comes back rather than being rebuilt on the far side of the seam.
-export interface EnemyBody {
-  readonly parts: Record<string, THREE.Object3D>;
-  /** Set by a `beast-…` builder: this wild thing IS a companion species. */
-  readonly beast?: { readonly species: BeastSpecies; readonly rig: BeastRig };
-}
-
-export type EnemyModel = (root: THREE.Group, v: Variant) => EnemyBody;
+// The shapes live in enemy-models.ts, which knows nothing about content — see its header.
+export type { EnemyBody, EnemyModel } from "./enemy-models";
 
 export interface EnemySpec {
   readonly id: EnemySpeciesId;
@@ -105,7 +95,7 @@ export function enemySpecies(): readonly EnemySpec[] {
         pkg: asset.pkg,
         source: asset.source,
         field: "data.model",
-        fix: `one of ${[...MODELS.keys()].join(", ")}`,
+        fix: `one of ${[...ENEMY_MODELS.keys()].join(", ")}`,
       });
       continue;
     }
@@ -209,148 +199,6 @@ export function spawnTableReport(): Record<string, { enemy: string; chance: numb
 export function speciesOf(id: EnemySpeciesId): EnemySpec | undefined {
   enemySpecies();
   return cachedById.get(id);
-}
-
-function buildGloopling(root: THREE.Group, v: Variant): EnemyBody {
-  const m = new VoxelModel();
-  m.ellipsoid(0, 3.4, 0, 5.2, 3.4, 4.8, v.dark);
-  m.ellipsoid(0, 4.5, 0, 4.7, 3.4, 4.3, v.main);
-  m.ellipsoid(0, 3.0, 2.7, 2.8, 2.0, 2.3, v.belly);
-  m.set(0, 8, 0, v.main);
-  m.set(0, 9, 0, v.main);
-  m.set(1, 9, 0, v.main);
-  for (const sx of [-2, 2]) {
-    m.set(sx, 4, 4, v.accent);
-    m.set(sx, 5, 4, v.accent);
-    m.set(sx, 6, 4, 0xf4fbff);
-  }
-  m.set(-1, 3, 4, v.accent);
-  m.set(0, 2, 4, v.accent);
-  m.set(1, 3, 4, v.accent);
-  m.set(-4, 4, 3, 0xff9aa4);
-  m.set(4, 4, 3, 0xff9aa4);
-  const mesh = m.build(0.1);
-  const body = new THREE.Group();
-  body.add(mesh);
-  root.add(body);
-  return { parts: { body } };
-}
-
-function buildSnortle(root: THREE.Group, v: Variant): EnemyBody {
-  const bm = new VoxelModel();
-  bm.ellipsoid(0, 4.2, -0.5, 3.8, 3.4, 5.4, v.main);
-  bm.ellipsoid(0, 2.8, -0.5, 3.2, 2.2, 4.6, v.belly);
-  for (let z = -4; z <= 3; z++) {
-    bm.set(0, 8, z, v.dark);
-  }
-  for (let z = -2; z <= 1; z++) {
-    bm.set(0, 9, z, v.dark);
-  }
-  bm.set(0, 5, -7, v.dark);
-  bm.set(0, 6, -7, v.dark);
-  bm.set(0, 7, -6, v.dark);
-  const bodyMesh = bm.build(0.1);
-  const body = new THREE.Group();
-  body.position.y = 0.3;
-  body.add(bodyMesh);
-  root.add(body);
-
-  const hm = new VoxelModel();
-  hm.box(0, -2, 0, 2, 2, 3, v.main);
-  hm.box(0, -2, 3, 1, 0, 5, v.accent);
-  hm.set(1, -1, 5, shade(v.accent, 0.55));
-  hm.set(0, -1, 5, shade(v.accent, 0.55));
-  hm.set(2, -1, 3, 0xf5efe0);
-  hm.set(2, 0, 4, 0xf5efe0);
-  hm.set(2, 1, 4, 0xf5efe0);
-  hm.box(2, 2, 0, 2, 4, 1, v.dark);
-  hm.set(2, 1, 2, 0x14161c);
-  hm.mirrorX();
-  const headMesh = hm.build(0.1);
-  headMesh.position.set(0, -0.22, 0.16);
-  const head = new THREE.Group();
-  head.position.set(0, 0.76, 0.52);
-  head.add(headMesh);
-  root.add(head);
-
-  const parts: Record<string, THREE.Object3D> = { body, head };
-  const legPositions: Array<[string, number, number]> = [
-    ["legFL", -0.2, 0.3],
-    ["legFR", 0.2, 0.3],
-    ["legBL", -0.2, -0.34],
-    ["legBR", 0.2, -0.34],
-  ];
-  for (const [key, lx, lz] of legPositions) {
-    const lm = new VoxelModel();
-    lm.box(0, 1, 0, 1, 3, 1, v.dark);
-    lm.box(0, 0, 0, 1, 0, 1, shade(v.dark, 0.6));
-    const legMesh = lm.build(0.1);
-    legMesh.position.y = -0.42;
-    const leg = new THREE.Group();
-    leg.position.set(lx, 0.42, lz);
-    leg.add(legMesh);
-    root.add(leg);
-    parts[key] = leg;
-  }
-  return { parts };
-}
-
-function buildPeckitWing(v: Variant, sign: number): THREE.Mesh {
-  const wm = new VoxelModel();
-  for (let x = 1; x <= 6; x++) {
-    const z0 = x <= 3 ? -1 : -1;
-    const z1 = x <= 3 ? 2 : 1;
-    const col = x <= 3 ? v.main : v.dark;
-    for (let z = z0; z <= z1; z++) {
-      wm.set(x * sign, 0, z, col);
-    }
-  }
-  wm.set(7 * sign, 0, 0, v.dark);
-  wm.set(7 * sign, 0, -1, v.dark);
-  return wm.build(0.1, false);
-}
-
-function buildPeckit(root: THREE.Group, v: Variant): EnemyBody {
-  const bm = new VoxelModel();
-  bm.ellipsoid(0, 3, -0.5, 2.4, 2.4, 3.6, v.main);
-  bm.ellipsoid(0, 2.2, 1.4, 1.7, 1.5, 1.7, v.belly);
-  bm.box(-1, 3, -6, 1, 3, -4, v.main);
-  bm.set(-2, 3, -6, v.dark);
-  bm.set(2, 3, -6, v.dark);
-  bm.set(-1, 0, 0, v.accent);
-  bm.set(1, 0, 0, v.accent);
-  const bodyMesh = bm.build(0.1);
-  const body = new THREE.Group();
-  body.position.y = 0.3;
-  body.add(bodyMesh);
-  root.add(body);
-
-  const hm = new VoxelModel();
-  hm.ellipsoid(0, 2, 0, 2.1, 2.0, 2.1, v.main);
-  hm.box(0, 2, 2, 0, 2, 4, v.accent);
-  hm.set(2, 2, 1, 0xf3efe2);
-  hm.set(-2, 2, 1, 0xf3efe2);
-  hm.set(2, 2, 2, 0x14141c);
-  hm.set(-2, 2, 2, 0x14141c);
-  hm.set(0, 4, 0, v.dark);
-  hm.set(0, 5, -1, v.dark);
-  const headMesh = hm.build(0.1);
-  headMesh.position.y = -0.18;
-  const head = new THREE.Group();
-  head.position.set(0, 0.72, 0.34);
-  head.add(headMesh);
-  body.add(head);
-
-  const wingL = new THREE.Group();
-  wingL.position.set(-0.2, 0.34, 0.05);
-  wingL.add(buildPeckitWing(v, -1));
-  body.add(wingL);
-  const wingR = new THREE.Group();
-  wingR.position.set(0.2, 0.34, 0.05);
-  wingR.add(buildPeckitWing(v, 1));
-  body.add(wingR);
-
-  return { parts: { body, head, wingL, wingR } };
 }
 
 /**
@@ -1259,15 +1107,9 @@ export class Enemy implements Damageable {
 }
 
 // ONE place a builder is named — the registration loop reads this map.
-const MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
-  ["gloopling", buildGloopling],
-  ["snortle", buildSnortle],
-  ["peckit", buildPeckit],
-]);
-
 // Published at module load, before `bootstrapContent()`, so a bad `model` name
 // is an `unknown-factory` finding rather than an undefined lookup at spawn.
-for (const [name, model] of MODELS) {
+for (const [name, model] of ENEMY_MODELS) {
   defineFactory(ENEMY_MODEL_KIND, name, model);
 }
 

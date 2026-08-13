@@ -259,6 +259,66 @@
     },
 
     {
+      "id": "npc:coil/stonewatch",
+      "schema": 1,
+      "name": { "key": "npc.coil.name" },
+      "tags": ["resident", "quest-giver"],
+      "data": {
+        "town": "town:stonewatch",
+        "body": "coil",
+        "homeOffset": 10,
+        "acrossFocus": false,
+        "talk": [
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/the-bellwether", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:land/the-bellwether",
+                  "objective": "defeat-bellwether"
+                }
+              ]
+            },
+            "line": { "key": "npc.coil.q5.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:land/the-bellwether" }]
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/the-red-thread", "status": "completed" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:land/the-bellwether", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:land/the-bellwether", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.coil.q5.offer" },
+            "actions": [
+              { "do": "quest.start", "quest": "quest:land/the-bellwether" },
+              {
+                "do": "progress.add",
+                "quest": "quest:land/the-bellwether",
+                "objective": "meet-the-warden"
+              }
+            ]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:land/the-bellwether", "status": "active" },
+            "line": { "key": "npc.coil.q5.busy" }
+          },
+          {
+            "when": { "test": "flag", "flag": "sea-revealed" },
+            "line": { "key": "npc.coil.after" }
+          },
+          { "line": { "key": "npc.coil.greeting" } }
+        ]
+      }
+    },
+
+    {
       "id": "npc:sky-pilot",
       "schema": 1,
       "name": { "key": "npc.skyPilot.name" },

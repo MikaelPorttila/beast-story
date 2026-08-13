@@ -83,6 +83,7 @@ const GLASS = 0xbfe4ef;
 const FLAME = 0xffc247;
 const WATER = 0x5fa8d8;
 const LEAF = 0x6fae4a;
+const LEATHER = 0x6b4a2e;
 const SACK = 0xbda878; // undyed hessian
 const SACK_D = 0x9a8659;
 const FLOUR = 0xece4d2;
@@ -219,6 +220,17 @@ function buildCan(): VoxelModel {
   v.box(1, -3, 1, 2, -2, 3, IRON_L);
   v.set(2, -3, 4, WATER);
   v.set(-1, 1, -1, LEAF);
+  return v;
+}
+
+/** A drove-warden's staff: a shaft with an iron crook and a strap at the grip. */
+function buildCrook(): VoxelModel {
+  const v = new VoxelModel();
+  v.box(-1, -7, -1, 0, 5, 0, BELT);
+  v.box(-1, 5, -1, 0, 7, 0, IRON);
+  v.box(-1, 7, 0, 0, 8, 2, IRON);
+  v.box(-1, 6, 2, 0, 7, 3, IRON_L);
+  v.set(-1, -1, 1, LEATHER);
   return v;
 }
 
@@ -446,6 +458,33 @@ export const SKY_LAMPLIGHTER_BODY = bodyFor({
   reach: 0.75,
   scan: 0.24,
   gaze: -0.04,
+});
+
+/**
+ * WARDEN SELA COIL — Stonewatch's drove warden (issue #151), and the one person
+ * in Act 1 who already knows what the shards are.
+ *
+ * Watch-green over a leather jerkin, iron-grey hair cropped short, and a
+ * drove-warden's crook she leans on rather than works with — the longest reach
+ * of the four and the slowest period, because she is watching a herd she can no
+ * longer trust and everyone else here is doing a job.
+ *
+ * She reappears in Act 2 as `npc:coil/kelphold` (game-story.md §2), which is a
+ * second PLACEMENT of this body and this display name, not a second character.
+ */
+export const COIL_BODY = bodyFor({
+  cloth: 0x4f6b4a,
+  clothD: 0x3a5137,
+  legs: 0x4a4239,
+  hair: 0xb9b4a8,
+  hairD: 0x8d887c,
+  prop: buildCrook,
+  propZ: 0.15,
+  propX: 0.09,
+  period: 6.2,
+  reach: 0.3,
+  scan: 0.4,
+  gaze: -0.08,
 });
 
 /**

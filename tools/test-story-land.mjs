@@ -43,6 +43,13 @@
 //      Acts 2 and 3 inherit, filtered to their own species. `first-bond` is set
 //      by the turn-in and the counter stops at the one the quest asked for.
 //
+// SECTION 11 — QUEST 5, `quest:land/the-bellwether`, the act's boss and the
+// seam out of Act 1: the warden opens it, the herd's leader is put out on open
+// country outside Stonewatch when the player comes to meet it, the arena is
+// re-enterable with the boss dead (Act 4 needs that ground again), and the
+// turn-in sets `sea-revealed` and `act-1-complete` — the act closes on flags,
+// never on a counter.
+//
 // SECTION 10 — QUEST 4, `quest:land/the-red-thread`, the act's dungeon: going
 // down is an objective, the hold's floor is STAGED while the quest is live (a
 // generated zone has nowhere to author a prop), freeing the Sproutle is the
@@ -83,6 +90,9 @@ const QUEST4 = "quest:land/the-red-thread";
 const SHARD_ITEM = "red-shard";
 /** What the thread is wound onto — killing it is what frees the animal. */
 const ANCHOR = "thread-anchor";
+const QUEST5 = "quest:land/the-bellwether";
+/** The animal the rest of the valley is following. */
+const BOSS = "bellwether";
 /** The three enemies with no `capture` block — see `what-corrupted-means` in the package. */
 const CORRUPTED = "gloopling";
 
@@ -119,6 +129,7 @@ const state = async () => {
   const id2 = "quest:land/the-first-bond";
   const id3 = "quest:land/the-mill-road";
   const id4 = "quest:land/the-red-thread";
+  const id5 = "quest:land/the-bellwether";
   // The serialised document omits empty collections and untouched counters.
   const status = (q) => doc.quests?.[q] ?? "unknown";
   const at = (q, o) => doc.progress?.[`${q}/${o}`] ?? 0;
@@ -136,6 +147,10 @@ const state = async () => {
     freed: at(id4, "free-the-sproutle"),
     shard: at(id4, "recover-shard"),
     discoveredHold: (doc.discovered ?? []).includes("zone:hold"),
+    status5: status(id5),
+    metWarden: at(id5, "meet-the-warden"),
+    slain: at(id5, "defeat-bellwether"),
+    discoveredStonewatch: (doc.discovered ?? []).includes("town:stonewatch"),
     flags: doc.flags ?? [],
     discovered: (doc.discovered ?? []).includes("town:encampment"),
     discoveredRedbriar: (doc.discovered ?? []).includes("town:redbriar"),
@@ -720,6 +735,100 @@ async function goToWild(species) {
   check(
     results.redThread.turnIn.paid === 60,
     `the reward paid ${results.redThread.turnIn.paid} Cubloons, not the 60 the quest promises`,
+  );
+}
+
+// ---------- 11. the bellwether, and the seam out of Act 1 -------------------
+// THE LAST QUEST OF THE ACT, and the assertions are about the SEAM as much as
+// the fight:
+//
+//   17. THE GATE, BOTH WAYS. The quest is on no shelf while The Red Thread is
+//       unfinished and offered by the warden the moment it is done.
+//   18. THE ARENA IS OPEN COUNTRY. The Bellwether stands on the drove ground
+//       outside Stonewatch, is put out when the player comes to meet it, and
+//       leaves nothing behind — the ground is re-enterable with the boss dead,
+//       which is what Act 4 needs of it.
+//   19. THE ACT CLOSES ON FLAGS, not on a counter: `sea-revealed` and
+//       `act-1-complete`, both set by the turn-in, plus the discovery.
+{
+  const before = await tabOf(QUEST5);
+  results.bellwether = { tabBeforePrereq: before };
+  // Section 10 finished The Red Thread, so this reads the AFTER half; the BEFORE
+  // half is section 5's shape and is asserted there for quest 2. What is left to
+  // prove here is that the warden — and only the warden — opens it.
+  const offer = await talkTo("coil/stonewatch");
+  await endTalk();
+  let s = await state();
+  results.bellwether.offer = { line: offer, status: s.status5 };
+  check(offer !== null, "Warden Coil is not standing in Stonewatch");
+  check(s.status5 === "active", `${QUEST5} is "${s.status5}" after the warden offered it`);
+
+  // 18. THE ARENA. Walk out of the town on the bearing the stage uses, which is
+  // away from the gate, and let the herd's leader be put out.
+  // WHERE THE GAME PUT IT, not where this file would have: the arena is derived
+  // from Stonewatch's own gate, and a probe that recomputed the bearing would be
+  // asserting its own copy of that arithmetic.
+  const at = await dbg(() => window.__dbgQuestSites().droveGround);
+  await dbg((p) => window.__dbgTp(p.x, p.z), at);
+  let boss = null;
+  for (let i = 0; i < 20 && !boss; i++) {
+    await adv(1);
+    boss = (await dbg(() => window.__dbgBodies())).enemies.find((e) => e.species === BOSS) ?? null;
+  }
+  s = await state();
+  results.bellwether.arena = { at, boss, metWarden: s.metWarden };
+  check(boss !== null, "no Bellwether was ever put out on the drove ground");
+  // Hearing her out is the quest's own first objective, and her offer row is
+  // what ticked it — the same shape quest 1's `talk-to-gain` has.
+  check(s.metWarden === 1, `meet-the-warden is ${s.metWarden} after hearing her out, not 1`);
+
+  // The kill, through the same death every enemy dies (drops, xp, the fact).
+  const killed = await dbg((sp) => window.__dbgKillEnemy(sp), BOSS);
+  await adv(0.5);
+  s = await state();
+  results.bellwether.kill = { killed, slain: s.slain };
+  check(s.slain === 1, `defeat-bellwether is ${s.slain} with the boss dead, not 1`);
+
+  // AND THE GROUND SURVIVES IT: walk away, come back, and there is no second
+  // Bellwether and nothing left standing. Act 4 stages its own boss here.
+  await dbg((p) => window.__dbgTp(p.x + 260, p.z), at);
+  await adv(2);
+  await dbg((p) => window.__dbgTp(p.x, p.z), at);
+  await adv(3);
+  const again = (await dbg(() => window.__dbgBodies())).enemies.filter((e) => e.species === BOSS);
+  results.bellwether.reenter = { standing: again.length };
+  check(again.length === 0, `the arena put out ${again.length} more Bellwethers after its death`);
+
+  // 19. THE SEAM.
+  const beforeShards = await purse();
+  const line = await talkTo("coil/stonewatch");
+  await endTalk();
+  const done = await state();
+  results.bellwether.turnIn = {
+    line,
+    status: done.status5,
+    flags: done.flags,
+    discovered: done.discoveredStonewatch,
+    paid: (await purse()) - beforeShards,
+  };
+  check(done.status5 === "completed", `${QUEST5} is "${done.status5}" after the turn-in`);
+  check(done.flags.includes("sea-revealed"), "sea-revealed was not set — Act 2 has no key");
+  check(done.flags.includes("act-1-complete"), "act-1-complete was not set");
+  check(done.discovered === true, "town:stonewatch was not discovered");
+  check(
+    results.bellwether.turnIn.paid === 120,
+    `the reward paid ${results.bellwether.turnIn.paid} Cubloons, not the 120 the quest promises`,
+  );
+  // NOTHING IS LEFT ON THE SHELF: with the act closed, no main quest of arc
+  // `land` is still offered or active. Act 2's own gate is asserted by its
+  // package when it ships (#144) — `quest:sea/salt-and-rope` does not exist yet.
+  const left = (await journal()).filter(
+    (e) => e.category === "main" && (e.tab === "active" || e.tab === "available"),
+  );
+  results.bellwether.leftOver = left.map((e) => e.id);
+  check(
+    left.length === 0,
+    `the act closed with main quests still on the shelf: ${JSON.stringify(results.bellwether.leftOver)}`,
   );
 }
 
