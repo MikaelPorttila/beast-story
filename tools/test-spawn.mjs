@@ -330,7 +330,55 @@ const setSearch = async (text) => {
   await doSpawn("structures", "*clear");
 }
 
-// ---------- 9. a wheel over the panel does not move the camera ---------------
+// ---------- 9. a quest is handed in from the panel ---------------------------
+// THE ROW IS A TURN-IN, not a status flip, and both halves are asserted: the
+// quest completes AND is paid for, because a row that only marked it done would
+// leave a tester with a journal that says one thing and a world that says
+// another. The counters are the third half — content reads them (a giver's
+// dialogue tests an objective's count), so a finished quest with zeroes in it is
+// a state no play can produce.
+{
+  await setSearch("");
+  const factsOf = (id) =>
+    page.evaluate((q) => {
+      const doc = window.__dbgContent().state ?? {};
+      return {
+        status: doc.quests?.[q] ?? "unknown",
+        progress: Object.entries(doc.progress ?? {}).filter(([k]) => k.startsWith(`${q}/`)),
+        flags: doc.flags ?? [],
+      };
+    }, id);
+  const shards = () => page.evaluate(() => window.__dbgZone().shards);
+
+  // Whatever the campaign is offering right now, off the PANEL — so this cannot
+  // pass against a tree offering ids the handler does not take, and it does not
+  // go stale when Act 1 grows a quest.
+  const row = await page.evaluate(() =>
+    window.__dbgSpawn().branches.find((b) => b.id === "quests"),
+  );
+  const first = "quest:land/first-light";
+  const before = { ...(await factsOf(first)), shards: await shards() };
+  const said = await doSpawn("quests", first);
+  const after = { ...(await factsOf(first)), shards: await shards() };
+  results.quests = { rows: row?.rows ?? 0, said, before, after };
+  check((row?.rows ?? 0) > 0, "the panel offers no quest to hand in");
+  check(before.status !== "completed", `${first} was already completed before the row was clicked`);
+  check(after.status === "completed", `${first} is "${after.status}" after the row was clicked`);
+  // ITS OWN `onComplete` RAN: the flags are the quest's, not the panel's.
+  check(after.flags.includes("taming-learned"), "the quest's own onComplete did not run");
+  check(
+    after.shards > before.shards,
+    `the turn-in paid ${after.shards - before.shards} Cubloons — the row marked it done and nothing else`,
+  );
+  check(
+    after.progress.length > 0 && after.progress.every(([, n]) => n > 0),
+    `the objectives were left unfilled: ${JSON.stringify(after.progress)}`,
+  );
+  const bad = await doSpawn("quests", "quest:no-such-quest");
+  check(/nothing named that/.test(bad), `an unknown quest id answered "${bad}"`);
+}
+
+// ---------- 10. a wheel over the panel does not move the camera --------------
 // The pair again: scrolling the tree must leave the lens alone, and the same
 // gesture over the world must move it, or a game with zoom broken outright
 // would pass the first half.

@@ -3413,6 +3413,35 @@ const spawnCatalogue: SpawnCatalogue = {
         hint: s.flying ? "flying" : "ground",
       })),
     },
+    /**
+     * THE QUEST YOU ARE PLAYING, FINISHED. A row per quest the journal would
+     * offer or is tracking, and clicking one hands it in from here: every
+     * objective filled to its count, then the status set — which is the ONE
+     * seam a real turn-in goes through, so `onComplete` runs, the rewards are
+     * paid and whatever the quest unlocks unlocks. There is no second path.
+     *
+     * It exists because the alternative is playing an act to reach the quest
+     * after it, and a story of twenty quests cannot be tested from the front
+     * every time (issue #143).
+     */
+    {
+      id: "quests",
+      labelKey: "spawn.quests",
+      noteKey: "spawn.quests.note",
+      target: "world",
+      rows: content.query
+        .available<QuestData>("quest")
+        .filter((asset) => {
+          const tab = questTab(asset);
+          return tab === "active" || tab === "available";
+        })
+        .map((asset) => ({
+          id: asset.id,
+          label: resolveText(asset.name, `[${asset.id}]`),
+          // The id carries the arc, so a search for "land" finds the act.
+          hint: content.state.questStatus(asset.id) === "active" ? "active" : "available",
+        })),
+    },
     {
       id: "structures",
       labelKey: "spawn.structures",
@@ -3441,6 +3470,9 @@ const spawnCatalogue: SpawnCatalogue = {
     if (branchId === "enemies") {
       const e = combat.spawnOne(rowId, at.x, at.z);
       return e ? `${t("spawn.placed")} ${rowId}` : t("spawn.unknown");
+    }
+    if (branchId === "quests") {
+      return devFinishQuest(rowId);
     }
     if (branchId === "structures") {
       const spawner = world.debugSpawn;
@@ -3533,6 +3565,33 @@ const pathEdit: PathEditControl = {
     return `${r.id}: ${r.length} units${nodes}`;
   },
 };
+
+/**
+ * Hand a quest in from the Debug panel: fill it, then complete it.
+ *
+ * FILLED FIRST, and not merely marked done, because progress is a fact other
+ * content reads — a dialogue row testing an objective's count is how a giver
+ * decides what to say, and a quest completed with its counters at zero leaves
+ * the world disagreeing with the journal about what happened. An unknown or
+ * already-finished id is reported rather than acted on: a panel row is user
+ * input, which is the same rule `spawnOne` follows.
+ */
+function devFinishQuest(id: string): string {
+  const asset = content.get<QuestData>(id);
+  if (!asset) {
+    return t("spawn.unknown");
+  }
+  if (content.state.questStatus(id) === "completed") {
+    return `${t("spawn.questDone")} ${resolveText(asset.name, `[${asset.id}]`)}`;
+  }
+  for (const objective of asset.data.objectives) {
+    content.state.setProgress(id, objective.key, objective.count ?? 1);
+  }
+  // The one seam: `onComplete` and the rewards hang off this status change (see the lifecycle runner
+  // above), so nothing here pays anything out itself.
+  content.state.setQuestStatus(id, "completed");
+  return `${t("spawn.questDone")} ${resolveText(asset.name, `[${asset.id}]`)}`;
+}
 
 // Which quest is meant to grant each mount — the F3 rows' last column. Here rather than in
 // core/types.ts because it is a fact about the CAMPAIGN (game-story.md §5), not about the type.
