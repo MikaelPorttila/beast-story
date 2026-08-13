@@ -108,8 +108,15 @@ async function faint() {
 // centreline, which is the rule every clearance question here answers.
 {
   const w = await stones();
+  // THE TRAILS ARE EXCLUDED, and not as a convenience: a stone stands at the END
+  // of its own spur, so it is inside that path's carriageway by construction —
+  // that is what the trail is FOR. What must never happen is a stone in the cart
+  // road, which is the one a player and a cart are already using.
   const roads = await dbg(() =>
-    window.__dbgTowns().roads.map((r) => ({ id: r.id, deckEdge: r.deckEdge, path: [...r.path] })),
+    window
+      .__dbgTowns()
+      .roads.filter((r) => !r.id.startsWith("path:waystone-"))
+      .map((r) => ({ id: r.id, deckEdge: r.deckEdge, path: [...r.path] })),
   );
   /** How far inside the nearest carriageway a point is; negative is clear of it. */
   const insideRoad = (x, z) => {

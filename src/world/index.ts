@@ -31,8 +31,8 @@ import {
   type Exclusion,
 } from "./props";
 import { Shops, type DenSpot } from "./shops";
-import { Waypoints, waypointSites, type WaypointSite } from "./waypoints";
-import { trackProfile } from "./path-profile";
+import { Waypoints, waypointSites, WAYPOINT_PLATE_R, type WaypointSite } from "./waypoints";
+import { SPUR_PROFILE } from "./path-profile";
 import { SiteFields } from "./structures";
 import { Towns, planSettlements, type SettlementPlan } from "./towns";
 import {
@@ -496,8 +496,10 @@ const biomeScratch = makeScratch();
  * A short trail from the carriageway to each waystone.
  *
  * ONE PATH SYSTEM (issue #142): a spur to a stone is a `Road` on the same
- * network with a `track` profile, so it wears the ground, keeps foliage off and
- * carves nothing — exactly what a settlement's own beaten tracks are. It is
+ * network with the SPUR profile — a trail without its litter — so it is drawn,
+ * carved and walkable. A beaten `track` was the first cut and it is the wrong
+ * role here: a track only wears the grass, which reads as nothing at all across
+ * open ground, and the ask was for a small road you can see. It is
  * STRAIGHT and unrouted, unlike `World.addPath`: eight to twenty units across
  * ground the siting pass has already proved flat, dry and unbuilt, so there is
  * nothing to route around and a router would only bend it for no reason.
@@ -508,9 +510,10 @@ const biomeScratch = makeScratch();
 function cutWaypointTrails(
   terrain: Terrain,
   plan: SettlementPlan,
+  towns: Towns | null,
   stones: readonly WaypointSite[],
 ): void {
-  const profile = trackProfile(1.7);
+  const profile = SPUR_PROFILE;
   let added = 0;
   for (const stone of stones) {
     if (!stone.from) {
@@ -518,7 +521,11 @@ function cutWaypointTrails(
     }
     const ax = stone.from.x;
     const az = stone.from.z;
-    const span = Math.hypot(stone.x - ax, stone.z - az);
+    const full = Math.hypot(stone.x - ax, stone.z - az);
+    // STOP AT THE PLATE'S RIM. A carriageway that runs UNDER the plate reports a
+    // five-unit step where its deck meets the stone's own top — the trail leads
+    // TO the waystone, and the last pace onto it is the plate itself.
+    const span = full - WAYPOINT_PLATE_R;
     // Under a couple of paces there is nothing to draw: the stone is at the rim.
     if (span < 4) {
       continue;
@@ -526,31 +533,46 @@ function cutWaypointTrails(
     const steps = Math.max(2, Math.round(span / 2));
     const route: { x: number; z: number }[] = [];
     for (let i = 0; i <= steps; i++) {
-      const u = i / steps;
+      const u = (i / steps) * (span / full);
       route.push({ x: ax + (stone.x - ax) * u, z: az + (stone.z - az) * u });
     }
     const pts = profileRoad(
       terrain,
       route,
-      terrain.getHeight(ax, az),
+      // THE DECK'S height where it leaves the road, and the GROUND's where it
+      // arrives: a spur anchored to natural ground under a carved carriageway
+      // starts with a step in it (`test-road` measured 1.0).
+      stone.from.y,
       terrain.getHeight(stone.x, stone.z),
     );
     if (pts.length < 2) {
       continue;
     }
-    plan.network.add({
+    const spur: Road = {
       id: `path:waystone-${added}`,
       fromId: "free",
       toId: stone.id,
       profile,
       pts,
       trim: new Float32Array(8),
-    });
+    };
+    plan.network.add(spur);
+    // MERGED, not merely added: the spur starts on the cart road's centreline, and
+    // a crossing is what splits both edges into a junction — which is what gives
+    // the two decks an apron where they meet instead of a step (issue #142 §12b).
+    mergeCrossings(plan.network, spur);
     added++;
   }
-  if (added > 0) {
-    plan.network.build();
+  if (added === 0) {
+    return;
   }
+  plan.network.build();
+  // THE SAME THREE STEPS `World.addPath` TAKES, and for its reasons: the ribbons
+  // are re-fitted because a new arm reshapes the ones it meets, and the REGISTRY
+  // is re-set because it holds the drawn subset — a spur left out of it is a path
+  // the world carves and never paints, which is what the first cut shipped.
+  towns?.rebuildPaths(plan.network.roads, plan.network.junctions);
+  plan.towns.setRoads(plan.network.roads.filter((r) => r.profile.roles.draw));
 }
 
 /** For `World.debugColumn` alone — see there. */
@@ -634,7 +656,14 @@ export function createWorld(
   if (waypoints && plan) {
     scene.add(waypoints.group);
     markStaticShadowCaster(waypoints.group);
-    cutWaypointTrails(terrain, plan, waypoints.all);
+    // NO FLATTEN UNDER THE PAD, deliberately, and it was tried: a disc levels
+    // the middle and leaves a lip at the blend's edge that the trail's deck then
+    // has to climb — `test-road` read 6.7 units of step on a carriageway. The
+    // SKIRT is the answer instead (world/waypoints.ts): twelve courses of stone
+    // straight down, buried on the high side, so the plate meets natural ground
+    // that the trail was profiled against. The siting pass keeps the site level
+    // enough for that to be a burial rather than a cliff.
+    cutWaypointTrails(terrain, plan, towns, waypoints.all);
   }
 
   if (towns) {

@@ -27,6 +27,15 @@ import type { Road } from "./roads";
 const SPACING = 220;
 /** No second stone inside this of another — the gates and the fork win ties. */
 const MIN_APART = 110;
+/**
+ * The plate's radius in world units — eleven cells of disc at `S`.
+ *
+ * Exported because the trail has to STOP at it: a carriageway that runs under
+ * the plate meets the plate's own top and reports a five-unit step in the
+ * walking surface (`test-road`). The last pace onto a waystone is the stone.
+ */
+export const WAYPOINT_PLATE_R = 11 * 0.28;
+
 /** How near a stone the hero must be to light it. Generous: this is not a puzzle. */
 export const WAYPOINT_TOUCH = 6;
 /**
@@ -59,6 +68,8 @@ const CRYSTAL_LIT = 0x8be3ff;
  * one hard against a hut is inside the hut as far as a player can tell.
  */
 const CLEAR_R = 6;
+/** How clear of any carriageway's rim a plate must stand. See `clear`. */
+const ROAD_MARGIN = 1.5;
 /** How far past a town's built perimeter a gate stone stands. Outside the wall, always. */
 const TOWN_MARGIN = 4;
 /** Steeper than this and the dais would stand on air at one edge. */
@@ -93,44 +104,35 @@ function ring(v: VoxelModel, y: number, r: number, color: number): void {
 }
 
 /**
- * The dais: two round steps, drawn and NOT solid.
+ * The plate: two round steps over a skirt that reaches the ground.
  *
- * It is 0.4 high at the rim — under `MAX_STEP_UP` — because a waypoint is a
- * thing you stand ON, and a solid platform in the middle of a valley is a wall
- * with a view. The pillars around it carry the collider instead.
- */
-function buildDais(): VoxelModel {
-  const v = new VoxelModel();
-  disc(v, 0, 11, STONE_D);
-  disc(v, 1, 9, STONE);
-  // An inlaid ring, so the platform reads as MADE rather than as a flat rock.
-  disc(v, 2, 7, STONE);
-  ring(v, 2, 7, STONE_L);
-  ring(v, 2, 4, GOLD);
-  return v;
-}
-
-/**
- * The ring: six pillars and the lintels between them, in the shape every player
- * of this kind of game already knows — a circle of standing masonry with the
- * way out lit in the middle of it.
+ * IT IS THE COLLIDER, and the only one. Its top is 0.84 up at this scale, and
+ * the step onto it is the 0.4 rim — under `MAX_STEP_UP`, so a hero walks ONTO
+ * it rather than into it. The first cut put the collider on a ring of pillars
+ * and left the plate as scenery, and you fell straight through the thing you
+ * were standing on; measuring it off THIS model is what makes that impossible.
  *
- * SOLID, and the only solid part: `measureFootprint` reads this model, so the
- * pillars are what stops you and the gaps between them are the way in.
+ * THE SKIRT IS WHY IT DOES NOT FLOAT. A disc eleven cells across sits on ground
+ * that is never perfectly level, so a plate drawn at one height hangs in the air
+ * on the downhill side. The skirt runs straight down and is buried on the high
+ * side; the flatten under the site (`createWorld`) levels the rest, exactly as
+ * it does for a skill den.
  */
-function buildRing(): VoxelModel {
+function buildPlate(): VoxelModel {
   const v = new VoxelModel();
-  const R = 8.5;
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    const px = Math.round(Math.sin(a) * R);
-    const pz = Math.round(Math.cos(a) * R);
-    v.box(px - 1, 2, pz - 1, px + 1, 12, pz + 1, STONE);
-    v.box(px - 1, 2, pz - 1, px - 1, 12, pz + 1, STONE_D);
-    // A capstone, and a gold band under it: the one warm colour on the thing.
-    v.box(px - 2, 13, pz - 2, px + 2, 14, pz + 2, STONE_L);
-    v.box(px - 1, 12, pz - 1, px + 1, 12, pz + 1, GOLD);
+  for (let y = -12; y < 0; y++) {
+    disc(v, y, 10, STONE_D);
   }
+  // ONE COURSE PROUD OF THE GROUND, and that is a collision decision rather than
+  // a drawing one: the collider is measured off this model as a single box at
+  // its tallest face, so a second course would make the step onto the plate 0.56
+  // — over `MAX_STEP_UP` — and the thing you are meant to walk onto becomes a
+  // wall. The pattern is painted INTO the same course instead of stacked on it.
+  disc(v, 0, 11, STONE);
+  ring(v, 0, 11, STONE_D);
+  ring(v, 0, 7, STONE_L);
+  ring(v, 0, 6, STONE_L);
+  ring(v, 0, 4, GOLD);
   return v;
 }
 
@@ -147,14 +149,17 @@ function buildColumn(): VoxelModel {
 }
 
 /**
- * One waypoint's mesh tree: the dais and the ring on one material, and the
- * column of light on its own — it changes colour when the stone is found and
- * the masonry must not.
+ * One waypoint's mesh tree: the plate, and the column of light standing on it.
+ *
+ * TWO MODELS, because the column changes colour when the stone is found and the
+ * masonry must not — a material is per mesh.
  */
 export function buildWaypointRig(): {
   group: THREE.Group;
   column: THREE.Mesh;
   solid: readonly SolidBox[];
+  /** How far BELOW the site the plate's own base sits — the skirt's depth. */
+  baseY: number;
 } {
   const group = new THREE.Group();
 
@@ -173,15 +178,20 @@ export function buildWaypointRig(): {
     return mesh;
   };
 
-  group.add(bake(buildDais(), false));
-  const ringModel = buildRing();
-  group.add(bake(ringModel, true));
+  const plate = buildPlate();
+  group.add(bake(plate, true));
+  // The skirt hangs below the site, so the collider's base does too: a
+  // `SolidBox`'s `top` is measured up from the MODEL's own base, and stamping it
+  // at the site would put the plate's surface four units in the air.
+  const baseY = plate.bounds(true).minY * S;
 
   const column = bake(buildColumn(), false);
-  column.position.y = 0.6;
+  // ON the plate, which is one course proud of the ground: a column sunk into
+  // the stone reads as a crack rather than as a door.
+  column.position.y = S;
   group.add(column);
 
-  return { group, column, solid: measureFootprint(ringModel, S) };
+  return { group, column, solid: measureFootprint(plate, S), baseY };
 }
 
 export interface WaypointInfo {
@@ -216,8 +226,12 @@ export interface WaypointGround {
 
 /** A sited stone, plus the point on the road its trail leaves from. */
 export interface WaypointSite extends WaypointInfo {
-  /** Where the spur meets the carriageway. Null for one that needs no trail. */
-  readonly from: { x: number; z: number } | null;
+  /**
+   * Where the spur meets the carriageway, and the DECK's own height there —
+   * not the terrain's. A cart road's surface is carved and raised, so a spur
+   * anchored to natural ground leaves the road with a step in it.
+   */
+  readonly from: { x: number; y: number; z: number } | null;
 }
 
 /**
@@ -257,8 +271,40 @@ export function waypointSites(
    * point: the middle of a candidate can be flat and dry with a hut's corner or
    * a lake inside the platform's own footprint.
    */
+  /**
+   * How far INSIDE the nearest carriageway a point is; negative is clear of it.
+   *
+   * EVERY road, not the one being walked: near the fork two roads run within a
+   * few units of each other, and an offset that clears the arm a stone was sited
+   * from can land in the middle of the other one. Measured from the rim, which
+   * is what `deckEdge` is.
+   */
+  const insideRoad = (x: number, z: number): number => {
+    let worst = -Infinity;
+    for (const road of roads) {
+      for (let i = 1; i < road.pts.length; i++) {
+        const a = road.pts[i - 1];
+        const b = road.pts[i];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const l2 = dx * dx + dz * dz;
+        const u = l2 > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2)) : 0;
+        const d = Math.hypot(x - (a.x + dx * u), z - (a.z + dz * u));
+        worst = Math.max(worst, road.profile.deckEdge - d);
+      }
+    }
+    return worst;
+  };
+
   const clear = (x: number, z: number): boolean => {
     if (!farFromStones(x, z) || !outsideTowns(x, z) || ground.built(x, z, CLEAR_R)) {
+      return false;
+    }
+    // Clear of every carriageway by a margin, so a plate never stands in a road.
+    // 1.5 and not the full offset: near the fork the arms run close together and
+    // asking for a stone's whole approach to be clear of BOTH leaves a town with
+    // no site at all.
+    if (insideRoad(x, z) > -ROAD_MARGIN) {
       return false;
     }
     const centre = ground.heightAt(x, z);
@@ -274,7 +320,10 @@ export function waypointSites(
         return false;
       }
       // Flat ENOUGH: the dais is 0.4 tall and a rim standing on air reads as broken.
-      if (Math.abs(h - centre) > 1.2 || ground.steepnessAt(x + dx, z + dz) > MAX_SLOPE) {
+      // A metre across the whole platform. The skirt can bury that much and the
+      // plate still reads as sitting ON the ground; asked for less, half the
+      // valley is refused and the stones bunch up where it happens to be flat.
+      if (Math.abs(h - centre) > 1 || ground.steepnessAt(x + dx, z + dz) > MAX_SLOPE) {
         return false;
       }
     }
@@ -291,6 +340,7 @@ export function waypointSites(
   const place = (
     id: string,
     x: number,
+    y: number,
     z: number,
     dirX: number,
     dirZ: number,
@@ -299,7 +349,7 @@ export function waypointSites(
     const len = Math.hypot(dirX, dirZ) || 1;
     const nx = -dirZ / len;
     const nz = dirX / len;
-    for (let off = rim + OFF_ROAD; off <= rim + OFF_ROAD + 14; off += 3.5) {
+    for (let off = rim + OFF_ROAD; off <= rim + OFF_ROAD + 20; off += 3) {
       for (const hand of [1, -1]) {
         const sx = x + nx * off * hand;
         const sz = z + nz * off * hand;
@@ -311,8 +361,11 @@ export function waypointSites(
           x: sx,
           y: ground.heightAt(sx, sz),
           z: sz,
-          // The trail leaves the road at the rim, on the stone's own side.
-          from: { x: x + nx * rim * hand, z: z + nz * rim * hand },
+          // THE SPUR LEAVES THE ROAD'S OWN CENTRELINE, not its rim, because it
+          // is MERGED into the network as a crossing (world/index.ts): a junction
+          // is what gives the two decks an apron where they meet, and a spur that
+          // stopped short of the carriageway would meet it with a step instead.
+          from: { x, y, z },
         });
         return true;
       }
@@ -364,7 +417,7 @@ export function waypointSites(
         if (d < want || d > want + SPACING * 0.5) {
           continue;
         }
-        if (place(`town-${town.id}`, b.x, b.z, b.x - a.x, b.z - a.z, road.profile.deckEdge)) {
+        if (place(`town-${town.id}`, b.x, b.y, b.z, b.x - a.x, b.z - a.z, road.profile.deckEdge)) {
           return true;
         }
       }
@@ -378,7 +431,15 @@ export function waypointSites(
   }
   if (junction) {
     const b = bearingNear(junction.x, junction.z);
-    place("junction", junction.x, junction.z, b.dx, b.dz, b.rim + OFF_ROAD);
+    place(
+      "junction",
+      junction.x,
+      ground.heightAt(junction.x, junction.z),
+      junction.z,
+      b.dx,
+      b.dz,
+      b.rim + OFF_ROAD,
+    );
   }
 
   // Then the road itself, walked in WORLD UNITS rather than in samples: a road's
@@ -398,7 +459,7 @@ export function waypointSites(
       if (a.bridge || b.bridge) {
         continue;
       }
-      if (place(`${road.id}-${n}`, b.x, b.z, b.x - a.x, b.z - a.z, road.profile.deckEdge)) {
+      if (place(`${road.id}-${n}`, b.x, b.y, b.z, b.x - a.x, b.z - a.z, road.profile.deckEdge)) {
         since = 0;
         n++;
       }
@@ -434,9 +495,12 @@ export class Waypoints {
 
       this.all.push(site);
       this.stones.push({ info: site, column: rig.column, light, lit: false });
-      this.solids.add({ solid: rig.solid }, site.x, site.y, site.z, 0, 1, 1);
+      this.solids.add({ solid: rig.solid }, site.x, site.y + rig.baseY, site.z, 0, 1, 1);
       this.disposables.push(rig.column.geometry, rig.column.material as THREE.Material);
     }
+    // Freeze and index, once, after the last stamp — a field that is never built
+    // answers -Infinity everywhere and the plate is scenery you fall through.
+    this.solids.build();
   }
 
   /** Light the ones this character has found. Idempotent — a load calls it too. */
