@@ -54,9 +54,10 @@
 import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
-/** Half the FLAT part of a path — what "on the carriageway" means. */
-const flatHalf = (r) => Math.min(2.6, r.deckEdge * 0.52);
-const cellKey = (cx, cz) => `${cx},${cz}`;
+// `flatHalf` and `cellKey` USED TO LIVE HERE, and both are now defined inside
+// the evaluate below for the reason the note on `GROUND` already gives: this
+// tool's scope does not exist in the page. Hoisting them out made every run exit
+// on `ReferenceError: flatHalf is not defined` before a single assertion ran.
 
 // EVERY NAME THE GROUND IS DRAWN UNDER, and the list is a bug fix rather than
 // tidiness. This file matched `/^terrain:/`, which is what `chunk.ts` names a
@@ -80,8 +81,12 @@ await wait(5000); // the corridor has to be streamed before it can be hit
 
 const out = await page.evaluate((groundSrc) => {
   // Built in the PAGE, because that is where this whole function runs — a
-  // regex closed over from the tool's own scope is not defined here.
+  // regex closed over from the tool's own scope is not defined here. The same
+  // goes for every helper this body calls, which is why these two are here.
   const GROUND = new RegExp(groundSrc);
+  /** Half the FLAT part of a path — what "on the carriageway" means. */
+  const flatHalf = (r) => Math.min(2.6, r.deckEdge * 0.52);
+  const cellKey = (cx, cz) => `${cx},${cz}`;
   const towns = window.__dbgTowns();
 
   // -- what is drawn, against what is walked on ----------------------------
