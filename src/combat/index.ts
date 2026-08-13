@@ -48,6 +48,21 @@ export const SWORD_ARC_COS = 0.643;
 const AOE_COLUMN_H = 3.6;
 
 const PROJ_SPEED = 16;
+
+/**
+ * How high over the straight line a lofted orb passes at mid-flight, world
+ * units — see `throwOrb`. 0.7 is most of a terrain cube, which is the size of
+ * the tussocks and cube corners the flat throw died on.
+ */
+const ORB_LOFT_CLEAR = 0.7;
+/**
+ * Ceiling on the loft, ~27 deg. IT IS A CEILING BECAUSE THE INVERSE LAW RUNS
+ * AWAY: at a beast almost underfoot the angle wanted is near vertical, and the
+ * orb then sails over a target it had already been going to hit. Measured over
+ * 48 bearings at six ranges, an uncapped 39 deg turned 48/48 into 45/48 at 1.5
+ * units while buying nothing anywhere else.
+ */
+const ORB_LOFT_MAX = 0.5;
 const PROJ_CAP = 14;
 const CRIT_CHANCE = 0.1;
 const CRIT_MULT = 1.5;
@@ -763,6 +778,35 @@ export class CombatSystem {
       return;
     }
     _a.normalize();
+    // LOFTED, because the flat throw was a bug at every range. The line from the
+    // hand (ORB_THROW_RISE, 1.1) down to a beast's chest (+0.55) DESCENDS, so it
+    // runs a hand's breadth over the ground for its whole length and dies on the
+    // first tussock between the two — measured over 32 bearings, 2 clipped at
+    // 1.5 units and 4 at 9, worst clearance -0.79.
+    //
+    // THE ANGLE IS INVERSE IN DISTANCE, which is the opposite of the instinct.
+    // Mid-flight height over the straight line is tan(angle) * d / 2, so buying
+    // the same clearance over a SHORT throw takes a steeper one: about 34 deg at
+    // 1.5 units against 4 at 14. That is also what the throw should look like —
+    // an orb tossed at something underfoot arcs, and one lobbed across a clearing
+    // barely lifts.
+    //
+    // It costs the shot nothing because the orb HOMES (see updateProjectiles):
+    // the lift is spent clearing the ground and the homing spends the rest of the
+    // flight taking the orb back down onto the target. Replaying this integrator
+    // over real terrain, 48 bearings a range: 4 units 46/48 -> 48/48, 6 44 -> 48,
+    // 9 42 -> 48, 14 33 -> 37, and nothing lost at 1.5 or 2.5. A throw across a
+    // HILL is a different miss and still misses — this is about the ground under
+    // a throw, not the ridge in the middle of one.
+    if (target) {
+      const dx = target.position.x - origin.x;
+      const dz = target.position.z - origin.z;
+      const flat = Math.hypot(dx, dz);
+      if (flat > 1e-3) {
+        _a.y += Math.min(ORB_LOFT_MAX, (2 * ORB_LOFT_CLEAR) / flat);
+        _a.normalize();
+      }
+    }
     const p = this.projSlot();
     if (!p) {
       return;
