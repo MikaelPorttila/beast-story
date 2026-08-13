@@ -1,0 +1,44 @@
+{
+  "id": "story-sea",
+  "version": "0.1.0",
+  "requires": ["story"],
+  "meta": {
+    "title": "Act 2 — Sea: The Brine Reach",
+    "note": "The five main quests of Act 2 (game-story.md §4, issue #144). Today it holds only the act's ENTRY — the receiving half of the seam #143's closer states from its side — so that finishing the Bellwether puts the next step on the journal's shelf the moment Coil says 'the coast'. The rest of the act arrives with its zone (#152 through #156).",
+    "loading": "Loaded when `sea-revealed` is SET, not at boot and not on entering a zone — see ACT_PACKAGES in main.ts. The act's opening flag is its door for content exactly as it is for dialogue and shops (§6): a zone is the wrong key, because the quest that sends you to the coast must be readable while you are still standing in Embervale, and issue #150 already proved a package must survive its player crossing zones. Issue #209 records the decision.",
+    "the-stub": "`quest:sea/salt-and-rope` ships here without its giver, its location or its objective triggers, because `npc:gain/saltrest`, `town:saltrest` and zone `brine` do not exist yet and a reference to nothing is a diagnostic. #152 adds all three and wires them; the ORDERING is already final — `prerequisites` names the Bellwether, and that is the half the Act 1 epic's definition of done asserts."
+  },
+  "assets": [
+    {
+      "id": "quest:sea/salt-and-rope",
+      "schema": 1,
+      "name": { "key": "quest.sea.saltAndRope.name" },
+      "description": { "key": "quest.sea.saltAndRope.desc" },
+      "tags": ["story", "act2"],
+      "data": {
+        "category": "main",
+        "arc": "sea",
+        "prerequisites": ["quest:land/the-bellwether"],
+        "objectives": [
+          {
+            "key": "reach-saltrest",
+            "text": { "key": "quest.sea.saltAndRope.obj.reachSaltrest" }
+          },
+          {
+            "key": "talk-to-gain",
+            "text": { "key": "quest.sea.saltAndRope.obj.talkToGain" }
+          },
+          {
+            "key": "take-the-boat",
+            "text": { "key": "quest.sea.saltAndRope.obj.takeTheBoat" }
+          }
+        ],
+        "onComplete": [
+          { "do": "flag.set", "flag": "has-boat" },
+          { "do": "discover", "id": "town:saltrest" }
+        ],
+        "rewards": { "xp": 250, "shard": 60 }
+      }
+    }
+  ]
+}
