@@ -186,12 +186,12 @@ let fade;
     `the network ends ${Math.round(maxOut)} out — too short to frame past the fade`,
   );
   const far = nearest(farTarget);
-  const near = nearest(Math.min(250, fade.roadStart - 80));
+  const near = nearest(Math.max(60, fade.roadStart - 40));
   // The reported frame: road drawn over ground that is itself dissolving. The
   // band lens brackets slants in [groundStart..groundEnd], past the road band.
   const band = nearest(fade.start + 104);
   check(far.err < 60, `no drawn road near ${Math.round(farTarget)} units out (${far.err})`);
-  check(near.err < 40, `no drawn road near the 250-unit ring (${near.err})`);
+  check(near.err < 40, `no drawn road inside the road band (${near.err})`);
   check(band.err < 60, `no drawn road near the ground dissolve band (${band.err})`);
   farPt = far.best;
   nearPt = near.best;

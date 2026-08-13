@@ -19,12 +19,14 @@ interface Layout {
   step: number;
 }
 
-/** ONE dissolve authority for everything that reaches the horizon, so a
- *  view-distance change moves it all together. `start`/`end` are the GROUND's
- *  band; `roadStart`/`roadEnd` are the road ribbons' and lamps', which must be
- *  DONE before the ground's begins — a dark deck at half-dither reads as a road
- *  hanging in the sky long after pale half-dithered ground reads as gone
- *  (reported twice). `DistantTerrain.configure` is the only setter. */
+/** ONE dissolve authority, so a render-distance change moves everything
+ *  together. `start`/`end` are the far GROUND's band. `roadStart`/`roadEnd` are
+ *  the road ribbons': a deck may stand only on DETAILED chunks, dying on the
+ *  same ring as the trees, posts and fences beside it — past it the clipmap's
+ *  own carved corridor tint carries the line, ON the coarse ground. A deck kept
+ *  over the clipmap reads as a floating slab from eye level, because the
+ *  underlay is deliberately lowered beneath paths (reported three times, on
+ *  foot last). `DistantTerrain.configure` is the only setter. */
 export interface HorizonFade {
   start: { value: number };
   end: { value: number };
@@ -38,25 +40,27 @@ export interface FadeBand {
   end: { value: number };
 }
 
-export function makeHorizonFade(viewDistance: number): HorizonFade {
+export function makeHorizonFade(
+  viewDistance: number,
+  detailDistance = viewDistance <= 480 ? 128 : 160,
+): HorizonFade {
   const fade = {
     start: { value: 0 },
     end: { value: 0 },
     roadStart: { value: 0 },
     roadEnd: { value: 0 },
   };
-  setHorizonFade(fade, viewDistance);
+  setHorizonFade(fade, viewDistance, detailDistance);
   return fade;
 }
 
-function setHorizonFade(fade: HorizonFade, viewDistance: number): void {
+function setHorizonFade(fade: HorizonFade, viewDistance: number, detailDistance: number): void {
   // Ground matches the sky by 86% of range, leaving guard band for snap lag.
   fade.start.value = viewDistance * 0.66;
   fade.end.value = viewDistance * 0.86;
-  // Roads hand over to the clipmap's carved corridor tint and are GONE at the
-  // exact radius the ground starts thinning — never drawn over dissolving ground.
-  fade.roadStart.value = viewDistance * 0.55;
-  fade.roadEnd.value = viewDistance * 0.66;
+  // The same 32-unit ramp the solid props use, closing at the detailed ring.
+  fade.roadStart.value = Math.max(0, detailDistance - 32);
+  fade.roadEnd.value = detailDistance;
 }
 
 /**
@@ -234,7 +238,7 @@ export class DistantTerrain {
     this.viewDistance = viewDistance;
     this.detailDistance = detailDistance;
     this.horizonFade = horizonFade;
-    setHorizonFade(this.horizonFade, viewDistance);
+    setHorizonFade(this.horizonFade, viewDistance, detailDistance);
     this.layout = layoutFor(this.viewDistance);
     this.nextLayout = this.layout;
     const count = this.layout.xz.length / 2;
@@ -293,7 +297,7 @@ export class DistantTerrain {
     }
     this.viewDistance = viewDistance;
     this.detailDistance = detailDistance;
-    setHorizonFade(this.horizonFade, viewDistance);
+    setHorizonFade(this.horizonFade, viewDistance, detailDistance);
     const next = layoutFor(viewDistance);
     const count = next.xz.length / 2;
     this.nextLayout = next;

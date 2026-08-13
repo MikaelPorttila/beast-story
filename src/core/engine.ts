@@ -134,9 +134,6 @@ function installAerialPerspective(): void {
     uniform float fogNear;
     uniform float fogFar;
   #endif
-  // Treated height above ground. An unuploaded uniform reads as zero, so only the
-  // road ribbon sets it — see RIBBON_FOG_LIFT in world/towns.ts.
-  uniform float bsFogGroundLift;
 ` +
     SKY_LIB +
     `
@@ -154,7 +151,10 @@ function installAerialPerspective(): void {
   #endif
   // Haze is a GROUND LAYER, so it thins with altitude, using vFogElev as the
   // proxy. Without this the cloud deck hazed 25-30% and read as translucent.
-  fogFactor *= 1.0 - smoothstep(0.10, 0.46, vFogElev + bsFogGroundLift) * 0.86;
+  // NO PER-MATERIAL LIFT any more: issue #190's road lift let the ribbon punch
+  // through haze its own shore dissolved into, which read as a road rendered
+  // without its ground. Everything on a ray now hazes alike.
+  fogFactor *= 1.0 - smoothstep(0.10, 0.46, vFogElev) * 0.86;
   // Distance drops local contrast before it takes hue: 28% toward own luma, 10% up.
   float bsFogL = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
   gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(bsFogL * 1.10), 0.28 * fogFactor);

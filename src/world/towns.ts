@@ -228,22 +228,20 @@ function hub(sites: readonly TownSite[]): { start: TownSite; spurs: readonly Tow
   return { start, spurs: spurs.slice(0, SPUR_COUNT) };
 }
 
-/** How high the haze is told a road sits, in `vFogElev` units — the only setter
- *  (issue #190). 0.28 is PARITY: a road then fades like the hills around it. */
-const RIBBON_FOG_LIFT = 0.28;
-
-/** The terrain material, told a road is not quite the ground it lies on. A CLONE:
- *  lifting the shared one would lift the ground out of its own haze. */
+/** The terrain material, verbatim but for its own program. A CLONE, because the
+ *  horizon-fade patch must not put the ground itself on the road's band.
+ *
+ *  NO FOG PRIVILEGE — this reverses issue #190's `bsFogGroundLift`. The lift cut
+ *  the ribbon's haze nearly in half on eye-level rays, so on foot a road across a
+ *  bay stayed saturated while the shore under it fogged to sky: a road drawn
+ *  "without its ground" (reported with a capture). A ribbon fragment now takes
+ *  exactly the fog of the terrain fragment a metre under it. */
 function makeRibbonMaterial(terrainMat: THREE.Material, horizonFade: HorizonFade): THREE.Material {
   const mat = terrainMat.clone();
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.bsFogGroundLift = { value: RIBBON_FOG_LIFT };
-  };
-  // Its own program: sharing one with the chunks would share their uniform value.
-  mat.customProgramCacheKey = () => "bs-road-ribbon-fog-v1";
-  // A ribbon is one mesh spanning its whole road, so unlike every chunked thing it
-  // reaches past where the ground stops rendering. It takes the ROAD band of the
-  // one render-distance authority: fully gone before the ground starts thinning.
+  // A ribbon is one mesh spanning its whole road, so unlike every chunked thing
+  // it would outlive the detailed ground it stands on. The ROAD band of the one
+  // render-distance authority ends it at the streamed-detail ring, beside its
+  // own lamps and fences; the clipmap's corridor tint is the road beyond that.
   installHorizonFade(mat, { start: horizonFade.roadStart, end: horizonFade.roadEnd }, false);
   return mat;
 }
@@ -968,9 +966,9 @@ export class Towns {
     };
     const fireGlow = mkGlow();
     const lampGlow = mkGlow();
-    // Road lamps stand along the whole network; their glow heads die on the same
-    // road band as the deck under them, or they float in the sky past the ground.
-    installHorizonFade(lampGlow, { start: horizonFade.roadStart, end: horizonFade.roadEnd }, false);
+    // A lamp's POST is a solid prop and fades by ~160; its glow head must die on
+    // the SAME band or the road is a string of floating lights (reported).
+    installHorizonFade(lampGlow, props.solidFadeBand, false);
     // A THIRD glow material for the campfire: `fireGlow` is shared with the braziers.
     const hearthGlow = mkGlow();
     const nightGlow = mkGlow();
