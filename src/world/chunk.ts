@@ -4,7 +4,8 @@
  */
 import * as THREE from "three";
 import { hashCell } from "./noise";
-import { CHUNK_SIZE, STONE, STONE_WARM, Terrain, WATER_LEVEL, makeScratch } from "./terrain";
+import type { Terrain} from "./terrain";
+import { CHUNK_SIZE, STONE, STONE_WARM, WATER_LEVEL, makeScratch } from "./terrain";
 
 const S_TOP = 1.0;
 

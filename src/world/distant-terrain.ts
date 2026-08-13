@@ -1,7 +1,8 @@
 /** Camera-following coarse terrain + water under and beyond the 1 m chunks. */
 import * as THREE from "three";
 import { excludeFromAO } from "../core/types";
-import { Terrain, WATER_LEVEL, makeScratch, smoothstep } from "./terrain";
+import type { Terrain } from "./terrain";
+import { makeScratch, smoothstep, WATER_LEVEL } from "./terrain";
 import { SURFACE_Y, WATER_DETAIL_FADE_WIDTH } from "./water";
 import type { RimHit } from "./roads";
 

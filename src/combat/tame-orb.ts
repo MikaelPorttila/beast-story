@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 import { VoxelModel, shade } from "../core/voxel";
 
 // Built along +Z like the arrow: the pool aims a slot with `lookAt`, and the

@@ -7,7 +7,7 @@
  * (arrival starts DISARMED, or the return fires on frame one), DWELL 1.2 s is
  * longer than any pass-through so you must STOP in the arch.
  */
-import * as THREE from "three";
+import type * as THREE from "three";
 import { inRise, type World, type WorldBound } from "../core/types";
 import { t } from "../i18n";
 import { Gateway } from "./portal";

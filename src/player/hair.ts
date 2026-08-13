@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 import { shade, VoxelModel } from "../core/voxel";
 import type { StringKey } from "../i18n";
 

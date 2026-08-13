@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 import { VoxelModel } from "../core/voxel";
 
 // Built along +Z (not +Y like every other model): `lookAt` aims the pool's

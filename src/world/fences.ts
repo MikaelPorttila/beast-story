@@ -8,7 +8,8 @@
  * refused, which ENDS the chain and starts a new one (hence a list): a field gate.
  * Guard: `tools/test-fence.mjs`.
  */
-import { Accum, type Template } from "./props";
+import type { Accum} from "./props";
+import { type Template } from "./props";
 import type { SolidStamp } from "./structures";
 
 /**

@@ -9,7 +9,8 @@
  */
 import { VoxelModel, shade } from "../core/voxel";
 import { bakeProp, type Template } from "./props";
-import { bakeSolid, SolidStamp } from "./structures";
+import type { SolidStamp } from "./structures";
+import { bakeSolid } from "./structures";
 import { buildFence, type Fence, type FenceParts } from "./fences";
 import { builtDeck, type Junction, type Road, type RoadSample } from "./roads";
 import { type PathProfile } from "./path-profile";

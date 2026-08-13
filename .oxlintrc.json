@@ -21,7 +21,13 @@
     "no-underscore-dangle": "off",
     // Dependency resolution, stream reads and frame-yielding boot loops are
     // sequential by construction; parallel awaits would change what they mean.
-    "no-await-in-loop": "off"
+    "no-await-in-loop": "off",
+    "oxc/no-map-spread": "warn",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-floating-promises": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/switch-exhaustiveness-check": "error"
   },
   "overrides": [
     {

@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 import type { PluralKey, StringKey } from "../i18n";
 import type { ContentText } from "../content/types";
 
