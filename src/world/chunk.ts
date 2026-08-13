@@ -39,6 +39,73 @@ const submerged = (y: number): number => {
 /** Lerp a shading multiplier toward neutral by `t`. */
 const flatten = (m: number, t: number): number => m + (1 - m) * t;
 
+/**
+ * Working buffers for one chunk's mesh, POOLED. Writing straight into typed
+ * arrays skips the boxed `number[]` and its conversion pass — 1.71 ms to 1.56 ms
+ * per chunk on V8, 1.43 ms to 1.28 ms on JSC — but the buffers outlive nothing,
+ * so they are borrowed and handed back rather than allocated per chunk.
+ *
+ * The scratch is f32 even for the two attributes that ship as fp16, and that is
+ * deliberate: JSC (Safari, and Bun) stores to a Float16Array element by element
+ * ~16x slower than to a Float32Array — measured 1.48 ms against 24.1 ms over 3M
+ * writes — while its BULK `new Float16Array(f32)` is as fast as the conversion
+ * this replaced. Narrowing once at the end is therefore the only shape that is
+ * faster on V8 without being much slower on JSC.
+ */
+interface MeshScratch {
+  pos: Float32Array;
+  nrm: Float32Array;
+  col: Float32Array;
+  idx: Uint32Array;
+}
+
+/**
+ * Borrowed for the length of one build. A generator the streamer ABANDONS
+ * mid-chunk never reaches its `finally`, so its scratch is simply collected with
+ * it and the next build allocates — a pool that cannot corrupt two live builds
+ * is worth more than one that never allocates.
+ */
+const SCRATCH_POOL: MeshScratch[] = [];
+
+/** One chunk's ground, comfortably: ~5–15k vertices measured across seeds. */
+const SCRATCH_VERTS = 8192;
+
+const takeMeshScratch = (): MeshScratch =>
+  SCRATCH_POOL.pop() ?? {
+    pos: new Float32Array(SCRATCH_VERTS * 3),
+    nrm: new Float32Array(SCRATCH_VERTS * 3),
+    col: new Float32Array(SCRATCH_VERTS * 3),
+    idx: new Uint32Array(SCRATCH_VERTS * 3),
+  };
+
+/** Double until both wants fit, preserving what is already written. */
+const growMeshScratch = (sc: MeshScratch, comps: number, inds: number): void => {
+  let n = sc.pos.length;
+  while (n < comps) {
+    n *= 2;
+  }
+  if (n > sc.pos.length) {
+    const pos = new Float32Array(n);
+    pos.set(sc.pos);
+    sc.pos = pos;
+    const nrm = new Float32Array(n);
+    nrm.set(sc.nrm);
+    sc.nrm = nrm;
+    const col = new Float32Array(n);
+    col.set(sc.col);
+    sc.col = col;
+  }
+  let m = sc.idx.length;
+  while (m < inds) {
+    m *= 2;
+  }
+  if (m > sc.idx.length) {
+    const idx = new Uint32Array(m);
+    idx.set(sc.idx);
+    sc.idx = idx;
+  }
+};
+
 /** One step samples or emits one 32-column row, for the streamer's budget. */
 export function* buildTerrainMeshSteps(
   cx: number,
@@ -76,10 +143,15 @@ export function* buildTerrainMeshSteps(
     yield;
   }
 
-  const pos: number[] = [];
-  const nrm: number[] = [];
-  const col: number[] = [];
-  const idx: number[] = [];
+  const ms = takeMeshScratch();
+  let pos = ms.pos;
+  let nrm = ms.nrm;
+  let col = ms.col;
+  let idx = ms.idx;
+  /** Floats written to pos/nrm/col; `vert` is that over three. */
+  let comp = 0;
+  let vert = 0;
+  let ind = 0;
   const seed = terrain.seed;
   const gw2 = terrain.groundW;
 
@@ -119,33 +191,85 @@ export function* buildTerrainMeshSteps(
     a2: number,
     a3: number,
   ): void => {
-    const base = pos.length / 3;
-    pos.push(ax, ay, az, bx, by, bz, qcx, qcy, qcz, dx, dy, dz);
-    nrm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
-    col.push(
-      r * a0,
-      g * a0,
-      b * a0,
-      r * a1,
-      g * a1,
-      b * a1,
-      r * a2,
-      g * a2,
-      b * a2,
-      r * a3,
-      g * a3,
-      b * a3,
-    );
+    // ONE capacity test per quad rather than one per component: a quad writes at
+    // most five vertices and twelve indices, so this is the whole bounds check.
+    if (comp + 15 > pos.length || ind + 12 > idx.length) {
+      growMeshScratch(ms, comp + 15, ind + 12);
+      pos = ms.pos;
+      nrm = ms.nrm;
+      col = ms.col;
+      idx = ms.idx;
+    }
+    const base = vert;
+    let p = comp;
+    pos[p] = ax;
+    pos[p + 1] = ay;
+    pos[p + 2] = az;
+    pos[p + 3] = bx;
+    pos[p + 4] = by;
+    pos[p + 5] = bz;
+    pos[p + 6] = qcx;
+    pos[p + 7] = qcy;
+    pos[p + 8] = qcz;
+    pos[p + 9] = dx;
+    pos[p + 10] = dy;
+    pos[p + 11] = dz;
+    for (let k = 0; k < 12; k += 3) {
+      nrm[p + k] = nx;
+      nrm[p + k + 1] = ny;
+      nrm[p + k + 2] = nz;
+    }
+    col[p] = r * a0;
+    col[p + 1] = g * a0;
+    col[p + 2] = b * a0;
+    col[p + 3] = r * a1;
+    col[p + 4] = g * a1;
+    col[p + 5] = b * a1;
+    col[p + 6] = r * a2;
+    col[p + 7] = g * a2;
+    col[p + 8] = b * a2;
+    col[p + 9] = r * a3;
+    col[p + 10] = g * a3;
+    col[p + 11] = b * a3;
+    comp = p + 12;
+    vert = base + 4;
     if (a0 === a1 && a1 === a2 && a2 === a3) {
-      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      idx[ind] = base;
+      idx[ind + 1] = base + 1;
+      idx[ind + 2] = base + 2;
+      idx[ind + 3] = base;
+      idx[ind + 4] = base + 2;
+      idx[ind + 5] = base + 3;
+      ind += 6;
       return;
     }
     const am = (a0 + a1 + a2 + a3) * 0.25;
-    pos.push((ax + qcx) * 0.5, (ay + qcy) * 0.5, (az + qcz) * 0.5);
-    nrm.push(nx, ny, nz);
-    col.push(r * am, g * am, b * am);
-    const m = base + 4;
-    idx.push(base, base + 1, m, base + 1, base + 2, m, base + 2, base + 3, m, base + 3, base, m);
+    p = comp;
+    pos[p] = (ax + qcx) * 0.5;
+    pos[p + 1] = (ay + qcy) * 0.5;
+    pos[p + 2] = (az + qcz) * 0.5;
+    nrm[p] = nx;
+    nrm[p + 1] = ny;
+    nrm[p + 2] = nz;
+    col[p] = r * am;
+    col[p + 1] = g * am;
+    col[p + 2] = b * am;
+    comp = p + 3;
+    const m = vert;
+    vert = m + 1;
+    idx[ind] = base;
+    idx[ind + 1] = base + 1;
+    idx[ind + 2] = m;
+    idx[ind + 3] = base + 1;
+    idx[ind + 4] = base + 2;
+    idx[ind + 5] = m;
+    idx[ind + 6] = base + 2;
+    idx[ind + 7] = base + 3;
+    idx[ind + 8] = m;
+    idx[ind + 9] = base + 3;
+    idx[ind + 10] = base;
+    idx[ind + 11] = m;
+    ind += 12;
   };
 
   // strata color for deep cliff cells (horizontal sedimentary bands)
@@ -498,19 +622,36 @@ export function* buildTerrainMeshSteps(
     yield;
   }
 
+  // Exact copies out of the scratch: what the geometry keeps is the size the
+  // chunk actually needed, and the borrowed buffers go back to the pool.
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  // Half precision — see the same pair in core/voxel.ts for the range argument and
-  // the cast. Terrain is the largest resident buffer set, so the halving is worth most here.
+  geo.setAttribute("position", new THREE.BufferAttribute(pos.slice(0, comp), 3));
+  // Half precision: cube normals are exactly 0/±1 and colours stay low enough that
+  // the fp16 gap is 4x finer than a display step — both asserted by test-f16. The cast
+  // is @types/three's TypedArray union predating Float16Array; three uploads HALF_FLOAT.
   geo.setAttribute(
     "normal",
-    new THREE.BufferAttribute(new Float16Array(nrm) as unknown as THREE.TypedArray, 3),
+    new THREE.BufferAttribute(
+      new Float16Array(nrm.subarray(0, comp)) as unknown as THREE.TypedArray,
+      3,
+    ),
   );
   geo.setAttribute(
     "color",
-    new THREE.BufferAttribute(new Float16Array(col) as unknown as THREE.TypedArray, 3),
+    new THREE.BufferAttribute(
+      new Float16Array(col.subarray(0, comp)) as unknown as THREE.TypedArray,
+      3,
+    ),
   );
-  geo.setIndex(idx);
+  // Narrowed the way `setIndex` narrows a plain array, so a chunk's indices stay
+  // two bytes: they are only ever wide enough to need four past 65535 vertices.
+  geo.setIndex(
+    new THREE.BufferAttribute(
+      vert > 65535 ? idx.slice(0, ind) : new Uint16Array(idx.subarray(0, ind)),
+      1,
+    ),
+  );
+  SCRATCH_POOL.push(ms);
   geo.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geo, material);
