@@ -219,6 +219,13 @@ export const en = {
     "Stonewatch's drove herd has one animal leading it, and the rest of the valley is following that one. Warden Coil is at the tower, and she already knows more about your shard than you do.",
   "quest.land.theBellwether.obj.meetTheWarden": "Hear Warden Coil out at Stonewatch",
   "quest.land.theBellwether.obj.defeatBellwether": "Put down the Bellwether on the drove ground",
+  // ---- Act 2, Sea (issue #144). Only the entry ships today — see story-sea.json.
+  "quest.sea.saltAndRope.name": "Salt and Rope",
+  "quest.sea.saltAndRope.desc":
+    "The shards taste of a sea Embervale does not have. Coil has gone ahead to the coast, and whatever crossed her mind when she said it, Gain left the same night without saying why.",
+  "quest.sea.saltAndRope.obj.reachSaltrest": "Cross to the Brine Reach and find Saltrest harbour",
+  "quest.sea.saltAndRope.obj.talkToGain": "Find Gain on the quay",
+  "quest.sea.saltAndRope.obj.takeTheBoat": "Take the boat he has already bought",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this

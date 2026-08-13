@@ -21,6 +21,16 @@ export const CARRIED_LAYOUT_KIND = "carried-layout";
 const LAYOUT_RE = /^[a-z][a-z0-9-]*$/;
 
 export interface TownData {
+  /**
+   * WHICH WORLD SITES IT — a `ZoneDef` id, `overworld` when absent (issue #144).
+   *
+   * An act is a zone, so from Act 2 on there is more than one world with towns
+   * in it, and each zone's planner reads only its own: a settlement of the
+   * Brine Reach must never be offered to Embervale's road planner, whose hub is
+   * one trunk and two spurs and reports a fourth ground town as unbuildable.
+   * Every rule that says "exactly one" — `start`, unique `order` — is per zone.
+   */
+  readonly zone: string;
   /** Fingerpost text: upper-case, <= 10 chars, inside the 3x5 voxel font. */
   readonly sign: ContentText;
   /** Which registered `town-layout` builds it — `camp`, `hamlet`. */
@@ -72,6 +82,11 @@ function parse(body: unknown, ctx: ParseCtx): TownData | null {
   const r = readerFor(ctx, { knownTextKey: isKnownTextKey });
   const b = obj(body, r);
   return {
+    // Absent is `overworld`, so every town written before there was a second
+    // zone still means what it said.
+    zone:
+      opt(b.zone, r.at("zone"), (v, c) => str(v, c, { min: 1, max: 64, what: "a zone id" })) ??
+      "overworld",
     sign: text(b.sign, r.at("sign")),
     layout: str(b.layout, r.at("layout"), {
       min: 1,
@@ -118,38 +133,50 @@ function validate(asset: ContentAsset<TownData>, ctx: ValidateCtx): void {
     return;
   }
 
-  const starts = towns.filter((tn) => tn.data.start);
-  if (starts.length !== 1) {
-    ctx.report({
-      severity: "error",
-      code: "bad-field",
-      message:
-        starts.length === 0
-          ? 'no town declares "start": true'
-          : `${starts.length} towns declare "start": true (${starts.map((tn) => tn.id).join(", ")})`,
-      field: "data.start",
-      related: starts.map((tn) => tn.id),
-      fix: "exactly one town is the one the player spawns on the road out of",
-    });
-  }
-
-  const seen = new Map<number, ContentId>();
-  for (const town of towns) {
-    const first = seen.get(town.data.order);
-    if (first !== undefined) {
-      ctx.report({
-        severity: "warn",
-        code: "bad-field",
-        message: `"${town.id}" and "${first}" both claim placement order ${town.data.order}`,
-        assetId: town.id,
-        field: "data.order",
-        related: [first],
-        // Warn, not error: the world builds, but siting order falls back to load order.
-        fix: "give them distinct orders; placement order decides who picks a site first",
-      });
+  // PER ZONE, both rules: each zone's planner reads only its own towns, so
+  // "exactly one start" and "distinct orders" are claims about one zone's set.
+  // The GAME's start is the start town of the zone the game starts in.
+  const zones = [...new Set(towns.map((tn) => tn.data.zone))];
+  for (const zone of zones) {
+    const inZone = towns.filter((tn) => tn.data.zone === zone);
+    // A zone of nothing but carried towns has no road network and needs no start.
+    if (inZone.every((tn) => tn.data.carried)) {
       continue;
     }
-    seen.set(town.data.order, town.id);
+    const starts = inZone.filter((tn) => tn.data.start);
+    if (starts.length !== 1) {
+      ctx.report({
+        severity: "error",
+        code: "bad-field",
+        message:
+          starts.length === 0
+            ? `no town of zone "${zone}" declares "start": true`
+            : `${starts.length} towns of zone "${zone}" declare "start": true ` +
+              `(${starts.map((tn) => tn.id).join(", ")})`,
+        field: "data.start",
+        related: starts.map((tn) => tn.id),
+        fix: "exactly one town per zone is the one its road network hangs off",
+      });
+    }
+
+    const seen = new Map<number, ContentId>();
+    for (const town of inZone) {
+      const first = seen.get(town.data.order);
+      if (first !== undefined) {
+        ctx.report({
+          severity: "warn",
+          code: "bad-field",
+          message: `"${town.id}" and "${first}" both claim placement order ${town.data.order}`,
+          assetId: town.id,
+          field: "data.order",
+          related: [first],
+          // Warn, not error: the world builds, but siting order falls back to load order.
+          fix: "give them distinct orders; placement order decides who picks a site first",
+        });
+        continue;
+      }
+      seen.set(town.data.order, town.id);
+    }
   }
 }
 

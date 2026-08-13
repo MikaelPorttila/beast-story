@@ -799,7 +799,22 @@ async function goToWild(species) {
   results.bellwether.reenter = { standing: again.length };
   check(again.length === 0, `the arena put out ${again.length} more Bellwethers after its death`);
 
-  // 19. THE SEAM.
+  // 19. THE SEAM — and both halves of its RECEIVING side first (issue #144):
+  // Act 2's package is not resident and its opening quest is on no shelf while
+  // the Bellwether still stands between them. Either arm alone passes against a
+  // build that boot-loads every act or one that never loads the next.
+  const pkgsBefore = await dbg(() => window.__dbgContent().packages.map((p) => p.id));
+  const seaTabBefore = await tabOf("quest:sea/salt-and-rope");
+  results.bellwether.seamBefore = { packages: pkgsBefore, seaTab: seaTabBefore };
+  check(
+    !pkgsBefore.includes("story-sea"),
+    "story-sea was already loaded before the act closed — the flag is not the door",
+  );
+  check(
+    seaTabBefore === null,
+    `quest:sea/salt-and-rope is on the "${seaTabBefore}" shelf before the act closed`,
+  );
+
   const beforeShards = await purse();
   const line = await talkTo("coil/stonewatch");
   await endTalk();
@@ -819,16 +834,44 @@ async function goToWild(species) {
     results.bellwether.turnIn.paid === 120,
     `the reward paid ${results.bellwether.turnIn.paid} Cubloons, not the 120 the quest promises`,
   );
-  // NOTHING IS LEFT ON THE SHELF: with the act closed, no main quest of arc
-  // `land` is still offered or active. Act 2's own gate is asserted by its
-  // package when it ships (#144) — `quest:sea/salt-and-rope` does not exist yet.
+  // THE DOOR OPENS (issues #143 DoD, #144): setting `sea-revealed` is what loads
+  // `story-sea`, and the moment its definitions land, `quest:sea/salt-and-rope`
+  // is offered — its prerequisite is the quest that was just handed in. Polled,
+  // because the load is async off the flag change.
+  let seam = null;
+  for (let i = 0; i < 40 && !seam; i++) {
+    await wait(250);
+    const pkgs = await dbg(() => window.__dbgContent().packages.map((p) => p.id));
+    if (!pkgs.includes("story-sea")) {
+      continue;
+    }
+    seam = {
+      packages: pkgs,
+      seaTab: await tabOf("quest:sea/salt-and-rope"),
+      diagnostics: await dbg(() => window.__dbgContent().diagnostics),
+    };
+  }
+  results.bellwether.seam = seam;
+  check(seam !== null, "story-sea never loaded after sea-revealed was set");
+  check(
+    seam?.seaTab === "available",
+    `quest:sea/salt-and-rope is on the "${seam?.seaTab}" shelf with the Bellwether dead, not "available"`,
+  );
+  check(
+    (seam?.diagnostics ?? []).length === 0,
+    `loading the act's entry raised findings: ${JSON.stringify(seam?.diagnostics)}`,
+  );
+
+  // AND NOTHING OF ACT 1 IS LEFT ON THE SHELF: the one main quest offered or
+  // active with the act closed is the next act's entry.
   const left = (await journal()).filter(
     (e) => e.category === "main" && (e.tab === "active" || e.tab === "available"),
   );
   results.bellwether.leftOver = left.map((e) => e.id);
   check(
-    left.length === 0,
-    `the act closed with main quests still on the shelf: ${JSON.stringify(results.bellwether.leftOver)}`,
+    left.length === 1 && left[0].id === "quest:sea/salt-and-rope",
+    `the act closed with the wrong shelf: ${JSON.stringify(results.bellwether.leftOver)} — ` +
+      'want exactly ["quest:sea/salt-and-rope"]',
   );
 }
 

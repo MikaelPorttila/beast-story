@@ -128,11 +128,17 @@ function outerRadiusOf(kind: TownInfo["kind"], radius: number): number {
 
 /** The world's towns, in placement order — by `data.order`, not load order. One the
  *  engine cannot build is REFUSED with a diagnostic. */
-function readSites(): readonly TownSite[] {
+function readSites(zone: string): readonly TownSite[] {
   const assets = content.all<TownData>("town");
   const sites: TownSite[] = [];
   for (const asset of assets) {
     const { data } = asset;
+    // ANOTHER ZONE'S TOWN IS NOT THIS PLANNER'S (issue #144): each zone sites
+    // only its own, or the Brine Reach's harbour would be the fourth ground
+    // settlement this hub refuses.
+    if (data.zone !== zone) {
+      continue;
+    }
     // A CARRIED SETTLEMENT IS NOT THIS FILE'S: its layout belongs to the carrier.
     if (data.carried) {
       continue;
@@ -539,8 +545,13 @@ class Registry implements MutableTownRegistry {
 /** Site the towns, cut the roads and pick the spawn. MUST run before any chunk is
  *  built and before `terrain.roads` is set, or the road routes along itself. NULL
  *  when there is nothing to plan — the `towns=0` state. */
-export function planSettlements(terrain: Terrain, seed: number): SettlementPlan | null {
-  const parts = hub(readSites());
+export function planSettlements(
+  terrain: Terrain,
+  seed: number,
+  /** Which zone's towns to site — this planner reads only its own (issue #144). */
+  zone = "overworld",
+): SettlementPlan | null {
+  const parts = hub(readSites(zone));
   if (!parts) {
     return null;
   }

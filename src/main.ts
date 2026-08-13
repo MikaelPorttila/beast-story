@@ -854,6 +854,37 @@ const contentBoot = await bootstrapContent({
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
 
+// AN ACT'S PACKAGE LOADS ON THE FLAG THAT OPENS THE ACT (issues #209, #144). Not at boot — the boot
+// list above is the starting act and the shared ground — and not on entering a zone, because the
+// quest that sends you to the coast must be on the journal while you still stand in Embervale, and
+// issue #150 proved a package must survive its player crossing zones. Loaded ONCE and never released
+// mid-session: progress lives in ContentState either way, and `exitToTitle` clears the FACTS, after
+// which nothing gates on the resident definitions (a prerequisite-gated quest sits on no shelf).
+const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [
+  { flag: "sea-revealed", pkg: "story-sea" },
+];
+const actPackagesLoaded = new Set<string>();
+function syncActPackages(): void {
+  for (const act of ACT_PACKAGES) {
+    if (actPackagesLoaded.has(act.pkg) || !content.state.flag(act.flag)) {
+      continue;
+    }
+    actPackagesLoaded.add(act.pkg);
+    // Async, and nothing awaits it: the definitions announce themselves through
+    // `onDefinitionsChange`, which is the same door a `/content load` uses. The
+    // `event` lease is the honest one — the load was triggered by a story event.
+    void content.load(act.pkg, "event");
+  }
+}
+// On every flag change — including the ones a LOADED SAVE replays — and once now,
+// so a session restored past the seam has its act resident before the first frame.
+content.state.onChange((change) => {
+  if (change.kind === "flag") {
+    syncActPackages();
+  }
+});
+syncActPackages();
+
 // Derived from content facts, never pushed by quest actions, so a load recomputes the same answer.
 let reportedTimeConflict = "";
 const refreshQuestTime = (): void => {
