@@ -261,7 +261,11 @@ export const TRAIL_PROFILE = pathProfile({
  */
 export const SPUR_PROFILE = pathProfile({
   id: "path:spur",
-  halfWidth: 1.0,
+  // WIDER THAN A TRAIL'S METRE, and the reason is the carve rather than the
+  // look: the ground is 1-unit cubes, and a carve band this narrow leaves a
+  // whole cube standing at its edge — `test-road` reads that as a 1.1 step in
+  // the walking surface, which is exactly what it is.
+  halfWidth: 1.5,
   furniture: "none",
   bridges: false,
   litter: 0,

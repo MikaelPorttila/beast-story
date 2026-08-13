@@ -42,13 +42,13 @@ export const WAYPOINT_TOUCH = 6;
 /**
  * How far clear of the carriageway's RIM a stone stands, world units.
  *
- * A stone is SOLID, and a solid thing in the middle of a road is a wall across
- * the way into a town — the gate stones sit exactly where the road enters. So
- * every site is pushed sideways off the deck: measured from the rim (the road's
- * own `deckEdge`), never from its centreline, which is the rule every clearance
+ * SIX, so the plate is a few paces off the road rather than up against it: the
+ * trail is meant to be a walk to something standing beside the way, and at 3.5
+ * the plate read as part of the verge. Measured from the rim — the road's own
+ * `deckEdge` — never from the centreline, which is the rule every clearance
  * question in this project answers (`RoadClearance`, world/roads.ts).
  */
-const OFF_ROAD = 3.5;
+const OFF_ROAD = 6;
 
 /** Voxel scale: the town's coarse 0.28 — this is masonry, not a face. */
 const S = 0.28;
@@ -310,7 +310,7 @@ export function waypointSites(
       const h = ground.heightAt(ax + (bx - ax) * u, az + (bz - az) * u);
       // A step a hero can take, per sample. `MAX_STEP_UP` is 0.5 and the samples
       // are two units apart, so this is a slope bound and not a stair test.
-      if (Math.abs(h - prev) > 0.9) {
+      if (Math.abs(h - prev) > 1.1) {
         return false;
       }
       prev = h;
@@ -376,11 +376,24 @@ export function waypointSites(
     const len = Math.hypot(dirX, dirZ) || 1;
     const nx = -dirZ / len;
     const nz = dirX / len;
-    for (let off = rim + OFF_ROAD; off <= rim + OFF_ROAD + 20; off += 3) {
+    // The band a stone may stand in: six paces off the rim, out to twenty-six.
+    // Wide, because every refusal below is a real one — built, wet, steep, a
+    // signpost, another stone, or a slope the trail could not climb — and a
+    // narrow band means a road with no stones on it at all.
+    for (let off = rim + OFF_ROAD; off <= rim + OFF_ROAD + 20; off += 2.5) {
       for (const hand of [1, -1]) {
         const sx = x + nx * off * hand;
         const sz = z + nz * off * hand;
-        if (!clear(sx, sz) || !walkableRun(x, z, sx, sz)) {
+        const fx = x + nx * rim * hand;
+        const fz = z + nz * rim * hand;
+        // THE START IS CHECKED TOO, not just the site: a spur leaving the rim
+        // beside a fingerpost lays its gravel under it, and the road probe reads
+        // that as furniture standing in a carriageway (issue #15).
+        if (
+          !clear(sx, sz) ||
+          !walkableRun(fx, fz, sx, sz) ||
+          (ground.furniture && nearRoadFurniture(ground.furniture, fx, fz, FURNITURE_CLEAR))
+        ) {
           continue;
         }
         out.push({
@@ -393,11 +406,13 @@ export function waypointSites(
           // what is under the proud side.
           y: highestUnder(sx, sz),
           z: sz,
-          // THE SPUR LEAVES THE ROAD'S OWN CENTRELINE, not its rim, because it
-          // is MERGED into the network as a crossing (world/index.ts): a junction
-          // is what gives the two decks an apron where they meet, and a spur that
-          // stopped short of the carriageway would meet it with a step instead.
-          from: { x, y, z },
+          // THE SPUR LEAVES THE ROAD AT ITS RIM, on the stone's own side. Not the
+          // centreline: a spur drawn from the middle of a carriageway lays its
+          // own gravel down the inside of the road it is leaving, which is a
+          // trail running INSIDE a road. `y` stays the DECK's height — the
+          // shoulder is graded to it, and anchoring to the natural column under
+          // the verge is what puts a step at the join.
+          from: { x: fx, y, z: fz },
         });
         return true;
       }

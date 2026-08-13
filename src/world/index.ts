@@ -568,8 +568,8 @@ function cutWaypointTrails(
     // five-unit step where its deck meets the stone's own top — the trail leads
     // TO the waystone, and the last pace onto it is the plate itself.
     const span = full - WAYPOINT_PLATE_R;
-    // Under a couple of paces there is nothing to draw: the stone is at the rim.
-    if (span < 4) {
+    // Under two paces there is nothing to draw: the plate is at the rim already.
+    if (span < 2) {
       continue;
     }
     const steps = Math.max(2, Math.round(span / 2));
@@ -598,11 +598,11 @@ function cutWaypointTrails(
       pts,
       trim: new Float32Array(8),
     };
+    // ADDED, NOT MERGED. A crossing splits both edges into a junction, which is
+    // right for two roads that MEET and wrong for a spur that leaves one at its
+    // rim: merging pulled the spur's start onto the centreline, and it laid its
+    // own gravel down the inside of the cart road (reported from play).
     plan.network.add(spur);
-    // MERGED, not merely added: the spur starts on the cart road's centreline, and
-    // a crossing is what splits both edges into a junction — which is what gives
-    // the two decks an apron where they meet instead of a step (issue #142 §12b).
-    mergeCrossings(plan.network, spur);
     added++;
   }
   if (added === 0) {
