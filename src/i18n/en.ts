@@ -1103,7 +1103,7 @@ export const en = {
   // each one up on its way into the tree so a language switch carries them.
   // Only the furniture — headings, notes, results — is spelled out below.
   "spawn.section": "Spawn",
-  "spawn.search": "search items, beasts, enemies, parts…",
+  "spawn.search": "search items, beasts, enemies, quests, parts…",
   "spawn.noMatch": "nothing matches",
   "spawn.items": "Items",
   "spawn.items.note": "into the bag",
@@ -1111,6 +1111,11 @@ export const en = {
   "spawn.beasts.note": "bonded to the party",
   "spawn.enemies": "Enemies",
   "spawn.enemies.note": "into the world, where the crosshair points",
+  // The quest rows are a DEVELOPER instrument and say so: this hands a quest in
+  // from the panel, rewards and all, so an act can be tested from its middle.
+  "spawn.quests": "Quests",
+  "spawn.quests.note": "handed in from here — objectives filled, rewards paid",
+  "spawn.questDone": "handed in",
   "spawn.structures": "Structures",
   "spawn.structures.note": "built on the ground, where the crosshair points",
   "spawn.clear": "Clear spawned structures",
