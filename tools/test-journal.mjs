@@ -73,21 +73,37 @@ await page.waitForFunction(
 );
 await wait(200);
 
-// ---------- 1. nothing staged: the panel opens and says so ------------------
-// The EMPTY STATE is worth an assertion of its own: it is what every player sees
-// until content ships a quest, and a panel that renders nothing at all when it
-// has nothing to show looks identical to one that failed to open.
+// ---------- 1. the panel opens where the work is, and says so when empty ----
+// AT BOOT THE CAMPAIGN OFFERS ONE QUEST AND NOTHING IS ACTIVE, so the panel
+// opens on Offered — the first shelf with anything on it. The EMPTY STATE is
+// worth an assertion of its own and is read off Done, which is genuinely empty
+// on a new character: a panel that renders nothing at all when it has nothing
+// to show looks identical to one that failed to open.
 await toggle(page, true);
 {
   const j = await read(page);
+  const done = await page.evaluate(() => {
+    const btn = [...document.querySelectorAll(".bs-journal .chip.tab")].find(
+      (b) => b.dataset.tab === "completed",
+    );
+    btn?.click();
+    return true;
+  });
+  await frame(page);
+  const empty = await read(page);
   results.empty = {
     open: j.open,
     tab: j.tab,
     tabs: j.panel?.tabs ?? 0,
-    emptyState: j.panel?.empty ?? false,
-    cards: j.panel?.cards ?? [],
+    offered: j.panel?.cards ?? [],
+    clickedDone: done,
+    emptyState: empty.panel?.empty ?? false,
+    cards: empty.panel?.cards ?? [],
     hudQuests: j.hud.quests.length,
   };
+  // Back where the panel put us, so nothing below inherits a hand-picked tab.
+  await toggle(page, false);
+  await toggle(page, true);
 }
 
 // ---------- 2. the modal pair ----------------------------------------------
@@ -211,6 +227,56 @@ await toggle(page, true);
   await frame(page);
 }
 
+// ---------- 5b. the opening tab is DERIVED, and closing forgets ------------
+// THE PANEL IS OPENED TO ASK "what am I doing", so it lands on the first shelf
+// that has an answer: active, then offered, then done. Both halves, because
+// either alone passes against a panel that always opens on Active — the tab is
+// left on Done, the panel is closed and re-opened, and it comes back on Active
+// because there IS an active quest; then the same with the active one handed
+// in, where Offered is the first shelf with anything on it.
+{
+  const toDone = async () => {
+    await page.evaluate(() => {
+      const done = [...document.querySelectorAll(".bs-journal .chip.tab")].find(
+        (b) => b.dataset.tab === "completed",
+      );
+      done?.click();
+    });
+    await frame(page);
+  };
+  await toDone();
+  const parked = (await read(page)).tab;
+  await toggle(page, false);
+  await toggle(page, true);
+  const reopened = (await read(page)).tab;
+
+  // Now with nothing active: hand the staged quest in and re-open. The next main
+  // quest is offered the moment its prerequisite completes, so Offered leads.
+  await toDone();
+  await toggle(page, false);
+  // EVERY active quest, not only the campaign's: section 3 staged one of its
+  // own, and "nothing is active" is the state this half is about.
+  await page.evaluate(() => {
+    for (const id of window.__dbgJournal().model.map((q) => q.id)) {
+      // Twice: accept, then hand in. An id already finished answers and does nothing.
+      window.__dbgSpawn("quests", id);
+      window.__dbgSpawn("quests", id);
+    }
+  });
+  await frame(page);
+  await toggle(page, true);
+  const afterTurnIn = await read(page);
+  results.openTab = {
+    parked,
+    reopened,
+    afterTurnIn: afterTurnIn.tab,
+    shelves: {
+      active: afterTurnIn.model.filter((q) => q.tab === "active").length,
+      available: afterTurnIn.model.filter((q) => q.tab === "available").length,
+    },
+  };
+}
+
 // ---------- 6. Escape closes it --------------------------------------------
 // The other half of the key contract: `J` toggles, and the cancel branch in
 // main.ts spends one press on the topmost modal.
@@ -236,7 +302,15 @@ const check = (ok, what) => {
 
 check(results.empty.open === true, "J did not open the journal");
 check(results.empty.tabs === 3, `expected 3 tabs, drew ${results.empty.tabs}`);
-check(results.empty.emptyState === true, "with no quests loaded the panel drew no empty state");
+check(results.empty.emptyState === true, "the Done shelf drew no empty state for a new character");
+check(
+  results.empty.tab === "available",
+  `at boot the panel opened on "${results.empty.tab}" — the offered quest is the only work there is`,
+);
+check(
+  results.empty.offered.length > 0,
+  "the Offered shelf was empty at boot, so the tab above proves nothing",
+);
 check(results.empty.hudQuests === 0, "the HUD tracker had rows before any quest existed");
 
 // A TOLERANCE, not an exact zero — and the control below is what makes it mean
@@ -325,6 +399,24 @@ check(
 check(results.hudSwitch.tabAfterOn === "active", "the quest left active after switching back on");
 
 check(results.tabs.tab === "completed", `the Done tab did not take: on "${results.tabs.tab}"`);
+
+// The opening tab is derived and the closed panel forgets — see section 5b.
+check(
+  results.openTab.parked === "completed",
+  `the Done tab did not take before the re-open: on "${results.openTab.parked}"`,
+);
+check(
+  results.openTab.reopened === "active",
+  `re-opening kept the Done tab instead of deriving: "${results.openTab.reopened}"`,
+);
+check(
+  results.openTab.afterTurnIn === "available",
+  `with nothing active the panel opened on "${results.openTab.afterTurnIn}", not the first filled shelf`,
+);
+check(
+  results.openTab.shelves.active === 0 && results.openTab.shelves.available > 0,
+  `the second half proves nothing: ${JSON.stringify(results.openTab.shelves)}`,
+);
 check(
   results.tabs.cards.length === 0,
   `the Done tab drew ${results.tabs.cards.length} cards for an active quest`,

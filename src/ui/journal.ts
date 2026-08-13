@@ -60,6 +60,19 @@ export interface JournalHooks {
 
 const FOCUSABLE = 'button:not([disabled]):not([tabindex="-1"])';
 
+/**
+ * The tab to open on: the first with anything on it, in `TABS` order.
+ *
+ * The order IS the priority — what you are doing, then what is offered, then
+ * what is done — so the strip's order and the opening tab can never disagree.
+ * All three empty falls back to the first, which is the shelf whose empty line
+ * is the one worth reading ("nothing on the go").
+ */
+function firstFilled(model: JournalModel): JournalTab {
+  const filled = TABS.find((tb) => model.entries.some((e) => e.tab === tb.id));
+  return filled?.id ?? TABS[0].id;
+}
+
 const escapeHtml = (s: string): string =>
   s.replace(
     /[&<>"]/g,
@@ -95,6 +108,12 @@ export class JournalPanel {
     if (this.el) {
       return;
     }
+    // WHICH SHELF OPENS IS DERIVED, never remembered: the panel is opened to ask
+    // "what am I doing", so it lands on the first tab that has an answer —
+    // active, then offered, then done. A remembered tab shows an empty shelf to
+    // a player whose last visit ended on one, which is the state a turn-in
+    // leaves behind.
+    this.tab = firstFilled(this.hooks.model());
     const el = document.createElement("div");
     el.className = "bs-journal";
     el.innerHTML = '<div class="bs-scrim"></div><aside class="pane bs-glass"></aside>';
@@ -121,6 +140,9 @@ export class JournalPanel {
     this.el.remove();
     this.el = null;
     this.focusables = [];
+    // Back to the default, so the NEXT open is a fresh derivation and not the
+    // tail of this visit.
+    this.tab = "active";
     this.hooks.onClose?.(by);
   }
 
