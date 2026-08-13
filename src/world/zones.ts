@@ -115,6 +115,12 @@ export class ZoneManager {
   get zoneIds(): string[] {
     return [...this.defs.keys()];
   }
+  /** The gateway OUT of the active zone: where it is, and which zone it leads to. */
+  get gateway(): { x: number; z: number; to: string } {
+    const state = this.states.get(this.activeId)!;
+    const g = state.def.gate(state.world);
+    return { x: g.x, z: g.z, to: g.to };
+  }
 
   private build(id: string): ZoneState {
     const def = this.defs.get(id);

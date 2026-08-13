@@ -1044,6 +1044,11 @@ const zones = new ZoneManager({
     // Markers are per-zone; `gate` is the ZoneDef's own answer, not a second search.
     const g = def.gate(w);
     syncCompassMarkers(w, g.x, g.z, g.hex);
+    // `setCompassMarkers` REPLACES the list, so the quest chips are re-added after it — and they are
+    // recomputed rather than copied, because the waypoint for "reach the Hold" is a different door
+    // from either side of it.
+    questChipIds = [];
+    refreshQuestChips();
     // A new zone is new meshes, and a visibility flag went with the old world's chunks.
     gfx.applyAll();
   },
@@ -1960,11 +1965,104 @@ function syncQuestMarks(dt: number): void {
 }
 
 // Subscribed to CONTENT rather than pushed from each place a quest changes: `onChange` already fires for all of them.
+/**
+ * WHERE AN ACTIVE QUEST WANTS YOU — one compass chip per tracked quest.
+ *
+ * A quest names places the player has never been ("the Sunken Hold"), and a name
+ * is not a direction. The chip is derived from the same objectives the journal
+ * lists, in the order the player would meet them:
+ *
+ *   1. the first UNMET objective that names a place — a town's gate, or the
+ *      gateway out of this zone for one that names another zone;
+ *   2. failing that, whoever CLOSES it, because a quest with nothing left to do
+ *      is a walk back to a person;
+ *   3. failing that, the quest's own `location`.
+ *
+ * Nothing here knows a quest by name, and a quest that names no place gets no
+ * chip rather than a chip pointing at the middle of the world.
+ */
+function questCompassSpots(): CompassMarker[] {
+  const out: CompassMarker[] = [];
+  for (const row of questTrackRows()) {
+    const asset = content.get<QuestData>(row.id);
+    if (!asset) {
+      continue;
+    }
+    const spot = questWaypoint(asset);
+    if (!spot) {
+      continue;
+    }
+    out.push({
+      // The asset id IS the chip id: it already carries its `quest:` namespace, and
+      // a second one only makes `quest:quest:land/…`.
+      id: asset.id,
+      x: spot.x,
+      z: spot.z,
+      // The gold the world marks are drawn in, so the chip on the rim and the
+      // glyph over the head are recognisably the same thing.
+      color: 0xffc44d,
+      label: row.name.slice(0, 4).toUpperCase(),
+    });
+  }
+  return out;
+}
+
+/** The one place `questCompassSpots` sends you for this quest, or null. */
+function questWaypoint(asset: ContentAsset<QuestData>): { x: number; z: number } | null {
+  for (const objective of asset.data.objectives) {
+    if (content.state.progress(asset.id, objective.key) >= (objective.count ?? 1)) {
+      continue;
+    }
+    const trigger = objective.trigger;
+    if (!trigger) {
+      continue;
+    }
+    if (trigger.town !== undefined && trigger.town !== "") {
+      const town = world.towns.get(trigger.town.slice("town:".length));
+      if (town) {
+        return { x: town.gateX, z: town.gateZ };
+      }
+    }
+    // ANOTHER ZONE IS A DOOR, not a place: the only thing this world can point
+    // at is the way out of it, which is exactly where the player must walk.
+    if (trigger.zone !== undefined && trigger.zone !== zones.id) {
+      const g = zones.gateway;
+      return { x: g.x, z: g.z };
+    }
+  }
+  const closer = asset.data.turnIn ?? asset.data.giver;
+  const who = closer ? world.npcs?.all.find((n) => `npc:${n.id}` === closer) : undefined;
+  if (who) {
+    return { x: who.x, z: who.z };
+  }
+  const home = asset.data.location;
+  const town = home ? world.towns.get(home.slice("town:".length)) : undefined;
+  return town ? { x: town.gateX, z: town.gateZ } : null;
+}
+
+/** Chips currently drawn for quests, so a completed one's chip is removed and not left on the rim. */
+let questChipIds: string[] = [];
+
+function refreshQuestChips(): void {
+  const spots = questCompassSpots();
+  for (const id of questChipIds) {
+    if (!spots.some((s) => s.id === id)) {
+      hud.removeCompassMarker(id);
+    }
+  }
+  for (const spot of spots) {
+    hud.addCompassMarker(spot);
+  }
+  questChipIds = spots.map((s) => s.id);
+}
+
 const refreshQuests = (): void => {
   hud.setQuests(questTrackRows());
   journal.refresh();
   // The marks are the same fact drawn in the world, so the same subscriber recomputes them.
   refreshQuestMarks();
+  // And the same fact on the compass rim: where the quest wants you, in a direction.
+  refreshQuestChips();
 };
 content.state.onChange((change) => {
   // `flag` is in here because the HUD switch IS a flag — see `hudFlag`.

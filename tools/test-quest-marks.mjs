@@ -27,6 +27,9 @@ import { BASE as HOST } from "./target.mjs";
 
 const URL = `${HOST}/?menu=0&vol=0`;
 
+/** The campaign's opening quest — Gain offers it, and section 6 asks where it points. */
+const QUEST = "quest:land/first-light";
+
 const browser = await launchBrowser();
 const results = {};
 const fails = [];
@@ -160,6 +163,55 @@ async function talkTo(id) {
     m.marked.beasts.length === 0 && m.marked.enemies.length === 0,
     `the quest still marks ${JSON.stringify(m.marked)} with its objectives full`,
   );
+}
+
+// ---------- 6. and a DIRECTION on the compass -------------------------------
+// A MARK OVER A HEAD IS NO USE FROM A KILOMETRE AWAY, and a quest names places
+// the player has never seen ("the Sunken Hold"). So an active quest also gets a
+// chip on the compass rim, pointing at whatever it wants next. Both arms:
+//
+//   the chip is THERE while the quest is, and it points where the quest points
+//   — asserted against the bearing to the person it sends you to, not against
+//   the chip's own arithmetic;
+//   and it is GONE when the quest is done, because a rim full of finished work
+//   is the same lie the "!" over a taken quest was.
+{
+  const compass = () => dbg(() => window.__dbgCompass());
+  const chipFor = async (id) => (await compass()).markers.find((m) => m.id === id) ?? null;
+
+  // Somewhere with a clear line to the camp, so the bearing is a real reading
+  // and not one taken standing on top of the target.
+  const gain = (await dbg(() => window.__dbgNpcs())).all.find((n) => n.id === "gain");
+  await dbg((g) => window.__dbgTp(g.x + 120, g.z + 90), gain);
+  await wait(400);
+
+  const c = await compass();
+  const chip = await chipFor(QUEST);
+  const pos = await dbg(() => window.__dbgPlayerPos());
+  // North is world -Z, and the compass reports a heading in degrees; `rel` is
+  // the chip's own bearing measured off it.
+  const bearing = (Math.atan2(gain.x - pos.x, -(gain.z - pos.z)) * 180) / Math.PI;
+  const want = ((bearing - c.heading + 540) % 360) - 180;
+  const off = chip === null ? null : Math.abs(((chip.rel - want + 540) % 360) - 180);
+  results.compass = {
+    chip,
+    heading: c.heading,
+    bearing: +bearing.toFixed(1),
+    want: +want.toFixed(1),
+    off,
+  };
+  check(chip !== null, "an active quest has no chip on the compass");
+  check(
+    off !== null && off < 6,
+    `the quest chip is ${off?.toFixed(1)} deg off the bearing to the person it sends you to`,
+  );
+
+  // The other arm: hand it in from the panel and the rim clears.
+  await dbg((id) => window.__dbgSpawn("quests", id), QUEST);
+  await wait(400);
+  const after = await chipFor(QUEST);
+  results.compassAfter = { chip: after };
+  check(after === null, "the chip stayed on the rim after the quest was handed in");
 }
 
 console.log(JSON.stringify(results, null, 2));
