@@ -210,6 +210,7 @@ const ACT1_QUESTS = [
   "quest:land/first-light",
   "quest:land/the-first-bond",
   "quest:land/the-mill-road",
+  "quest:land/the-red-thread",
 ];
 
 /** What a boot holds: the world, then the campaign that is set in it. */
@@ -556,7 +557,8 @@ async function consoleClosed(tries = 40) {
       town: 4,
       npc: 5,
       biome: 8,
-      enemy: 3 + WILD_BEASTS.length,
+      // +1: `enemy:thread-anchor`, the story enemy `story-land` brings (issue #150).
+      enemy: 4 + WILD_BEASTS.length,
       quest: ACT1_QUESTS.length,
       music: 2,
     },
@@ -572,9 +574,11 @@ async function consoleClosed(tries = 40) {
   // Same argument as the towns above: asserting the whole list rather than a
   // filtered one is what makes "a wild beast stopped reaching the world" as
   // much of a regression as a Gloopling doing so.
+  // `story-land` brings one of its own — the thread anchor at the Hold's floor
+  // (issue #150) — and it is LAST because the campaign loads after core.
   eq(
     c.resolved.enemies,
-    [...ENEMIES.map((e) => e.id), ...WILD_BEASTS],
+    [...ENEMIES.map((e) => e.id), ...WILD_BEASTS, "thread-anchor"],
     "enemy species that reached the world",
   );
   eq(viaImport.biomes, BIOMES, "biome ids");

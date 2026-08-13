@@ -95,7 +95,7 @@ import {
   FENCE_RAIL_WIDTH,
 } from "./world/town-parts";
 import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./world/nature";
-import { createDungeon } from "./world/dungeon";
+import { createDungeon, holdFloorSpot } from "./world/dungeon";
 import { ZoneManager, type ZoneDef } from "./world/zones";
 import { Underwater } from "./world/underwater";
 import { TouchParticles } from "./world/touch-particles";
@@ -1041,6 +1041,10 @@ const zones = new ZoneManager({
     player.velocity.set(0, 0, 0);
     // No placement needed: follow-update teleports any beast further than TELEPORT_DIST away.
     bus.emit({ type: "toast", text: t("toast.enteredZone", { zone: def.name }) });
+    // ARRIVAL, for a quest that sent you here. Below the placement, so anything reading the fact sees
+    // the hero already standing in the zone; `discover` is the zone's own id and not a town's.
+    content.state.discover(`zone:${def.id}`);
+    advanceObjectives({ kind: "zone-arrival", id: def.id });
     // Markers are per-zone; `gate` is the ZoneDef's own answer, not a second search.
     const g = def.gate(w);
     syncCompassMarkers(w, g.x, g.z, g.hex);
@@ -2015,6 +2019,12 @@ function advanceObjectives(fact: QuestFact): void {
       if (fact.kind === "zone-arrival" && trigger.zone !== undefined && trigger.zone !== fact.id) {
         continue;
       }
+      // `zone` ON ANY OTHER KIND IS WHERE IT HAPPENED, not what it identifies — the one filter that is
+      // about the fact's PLACE rather than its subject. It is what separates "bond a beast" (quest 2,
+      // true anywhere) from "free the one held down in the Hold" (quest 4) with no second trigger kind.
+      if (fact.kind !== "zone-arrival" && trigger.zone !== undefined && trigger.zone !== zones.id) {
+        continue;
+      }
       const have = content.state.progress(questId, objective.key);
       if (have < (objective.count ?? 1)) {
         content.state.setProgress(questId, objective.key, have + 1);
@@ -2036,6 +2046,11 @@ bus.on((e) => {
   // so the `enemy:` is put back on here rather than the filter being loosened to accept either.
   if (e.type === "enemyKilled") {
     advanceObjectives({ kind: "enemy-killed", id: `enemy:${e.species}` });
+  }
+  // A drop that reached the bag, however it got there — a beast fetching one counts, because what the
+  // objective asks for is the THING, not the stoop.
+  if (e.type === "itemPicked") {
+    advanceObjectives({ kind: "item-picked", id: e.itemId });
   }
 });
 
@@ -2181,6 +2196,74 @@ function tickPracticeBeast(dt: number): void {
     }
     if (combat.spawnOne(species.enemy, x, z)) {
       return;
+    }
+  }
+}
+
+// THE HOLD'S FLOOR — the other end of the same idea, for `quest:land/the-red-thread` (issue #150).
+// A penned Sproutle with a thread through its bond, and the shard it was tied to, both at the room
+// furthest in from the gateway. Staged rather than authored because the hold is generated: the zone
+// has no place to put a prop, so the quest puts one there while it is being played and the world goes
+// back to being a hold the moment it is over.
+const HOLD_STAGE_SPECIES = { enemy: "wild-sproutle", beast: "sproutle" } as const;
+/** What HOLDS it, and what killing frees it from. See `what-freeing-is` in the package. */
+const HOLD_STAGE_ANCHOR = "thread-anchor";
+const HOLD_STAGE_ITEM = "red-shard";
+/** How far off the room's middle the three of them stand, so none is inside another. */
+const HOLD_STAGE_APART = 3;
+/** How near the room the hero must be for the living half of the scene to be put out. See below. */
+const HOLD_STAGE_REACH = 55;
+let holdStagePollIn = 0;
+
+function tickHoldStage(dt: number): void {
+  holdStagePollIn -= dt;
+  if (holdStagePollIn > 0) {
+    return;
+  }
+  holdStagePollIn = PRACTICE_POLL;
+  // Only down there, and only while the quest is live: nothing is staged into a hold a player is
+  // walking through for its own sake.
+  if (zones.id !== "hold") {
+    return;
+  }
+  const asset = content.get<QuestData>("quest:land/the-red-thread");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  const spot = holdFloorSpot();
+  // THE SHARD IS PLACED FROM ANYWHERE AND THE LIVING PARTS ARE NOT: a drop lies where it is put, but
+  // an enemy further than `DESPAWN_DIST` from the hero is swept the same slice it is made — the floor
+  // is 136 units from the gateway you arrive on, so staging them at the door spawned two animals into
+  // an immediate despawn. They are put out when the player is close enough to keep them, which is also
+  // when a player would first see the room.
+  const near = inReach(
+    spot.x,
+    spot.y,
+    spot.z,
+    player.position.x,
+    player.position.y,
+    player.position.z,
+    HOLD_STAGE_REACH,
+    24,
+    24,
+  );
+
+  if (near && content.state.progress(asset.id, "free-the-sproutle") < 1) {
+    // The ANIMAL is scenery and the ANCHOR is the fight: it is spawned beside the beast it holds, and
+    // the beast is left alone. A second bond of a species the player already has is refused before the
+    // orb leaves the hand, so the Sproutle can never be the thing you interact with here.
+    if (!combat.enemies.some((e) => e.targetable && e.species === HOLD_STAGE_ANCHOR)) {
+      combat.spawnOne(HOLD_STAGE_ANCHOR, spot.x + HOLD_STAGE_APART, spot.z);
+    }
+    if (!combat.enemies.some((e) => e.targetable && e.species === HOLD_STAGE_SPECIES.enemy)) {
+      combat.spawnOne(HOLD_STAGE_SPECIES.enemy, spot.x - HOLD_STAGE_APART, spot.z);
+    }
+  }
+
+  if (content.state.progress(asset.id, "recover-shard") < 1) {
+    const onFloor = combat.dropSnapshot().some((d) => d.itemId === HOLD_STAGE_ITEM && !d.claimed);
+    if (!onFloor && bag.count(HOLD_STAGE_ITEM) === 0) {
+      combat.spawnDrop(HOLD_STAGE_ITEM, spot.x, spot.y + 0.6, spot.z + HOLD_STAGE_APART);
     }
   }
 }
@@ -4513,6 +4596,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickAutosave(dt);
   // On the slice for the clock's reason: a quest's stage dressing is part of the world.
   tickPracticeBeast(dt);
+  tickHoldStage(dt);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
   // deliberately: that runs at the END of a slice, so riders would spend the delta a slice late. Above the

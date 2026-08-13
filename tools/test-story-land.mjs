@@ -43,6 +43,13 @@
 //      Acts 2 and 3 inherit, filtered to their own species. `first-bond` is set
 //      by the turn-in and the counter stops at the one the quest asked for.
 //
+// SECTION 10 — QUEST 4, `quest:land/the-red-thread`, the act's dungeon: going
+// down is an objective, the hold's floor is STAGED while the quest is live (a
+// generated zone has nowhere to author a prop), freeing the Sproutle is the
+// same `tamed` fact quest 2 counts with a `zone` on it, the shard is walked
+// onto, and leaving and coming back keeps every one of them — which is the
+// ticket's own acceptance and the reason progress lives in `ContentState`.
+//
 // SECTION 9 — QUEST 3, `quest:land/the-mill-road`, the act's travel quest and
 // the one that hands over the ground mount. Four more claims, the first of them
 // a pair for the same reason the others are:
@@ -71,6 +78,11 @@ const QUEST3 = "quest:land/the-mill-road";
 /** What the quest's own asset says, so the probe is not a second copy of it. */
 const PRACTICE_THROWS = 3;
 const CULL_COUNT = 6;
+const QUEST4 = "quest:land/the-red-thread";
+/** What the Hold's floor holds while quest 4 is live. */
+const SHARD_ITEM = "red-shard";
+/** What the thread is wound onto — killing it is what frees the animal. */
+const ANCHOR = "thread-anchor";
 /** The three enemies with no `capture` block — see `what-corrupted-means` in the package. */
 const CORRUPTED = "gloopling";
 
@@ -106,6 +118,7 @@ const state = async () => {
   const id = "quest:land/first-light";
   const id2 = "quest:land/the-first-bond";
   const id3 = "quest:land/the-mill-road";
+  const id4 = "quest:land/the-red-thread";
   // The serialised document omits empty collections and untouched counters.
   const status = (q) => doc.quests?.[q] ?? "unknown";
   const at = (q, o) => doc.progress?.[`${q}/${o}`] ?? 0;
@@ -118,6 +131,11 @@ const state = async () => {
     status3: status(id3),
     reached: at(id3, "reach-redbriar"),
     culled: at(id3, "cull-corrupted"),
+    status4: status(id4),
+    entered: at(id4, "enter-the-hold"),
+    freed: at(id4, "free-the-sproutle"),
+    shard: at(id4, "recover-shard"),
+    discoveredHold: (doc.discovered ?? []).includes("zone:hold"),
     flags: doc.flags ?? [],
     discovered: (doc.discovered ?? []).includes("town:encampment"),
     discoveredRedbriar: (doc.discovered ?? []).includes("town:redbriar"),
@@ -157,6 +175,72 @@ async function talkTo(id) {
     }
   }
   return null;
+}
+
+/**
+ * Run one dev-console line and hand back what it printed.
+ *
+ * Lifted from tools/test-content.mjs, and used here for `/zone`: a quest that
+ * sends the player into a dungeon has to get there, and the gateway's approach
+ * and dwell are the zone manager's subject, not this file's.
+ */
+async function cmd(line, expect = 1) {
+  const before = await page.evaluate(
+    () => document.querySelectorAll(".bs-console-log .bs-console-line").length,
+  );
+  await page.keyboard.press("Backquote");
+  await page.waitForSelector(".bs-console-input", { visible: true });
+  await page.type(".bs-console-input", line);
+  await page.keyboard.press("Enter");
+  let out = [];
+  for (let i = 0; i < 40; i++) {
+    await wait(150);
+    out = await page.evaluate(
+      (n) =>
+        [...document.querySelectorAll(".bs-console-log .bs-console-line")]
+          .slice(n)
+          .map((el) => el.textContent),
+      before,
+    );
+    if (out.length > expect) {
+      break;
+    }
+  }
+  await page.keyboard.press("Backquote");
+  await wait(150);
+  return out;
+}
+
+/**
+ * Bond one wild beast of this species, the way a player does, and keep at it
+ * until the game says it is yours.
+ *
+ * WHAT IS RETRIED AND WHY: a throw can miss (issue #198), and a ceremony that
+ * plays can still end with a broken orb. Neither is the claim any section here
+ * makes — every one of them is about what a COMPLETED bond does to a quest — so
+ * the loop watches `__dbgFetch().owned`, which is the game's own answer to "is
+ * this beast yours", and throws again until it says yes.
+ */
+async function bondAWild(species, beast) {
+  await dbg(() => window.__dbgGive("orb-tame", 8));
+  const isOwned = async () => (await dbg(() => window.__dbgFetch())).owned.includes(beast);
+  const out = { attempts: 0, found: null, throws: [], owned: await isOwned() };
+  for (let attempt = 0; attempt < 6 && !out.owned; attempt++) {
+    out.attempts++;
+    out.found = await goToWild(species);
+    if (!out.found) {
+      break;
+    }
+    await dbg((sp) => window.__dbgWeaken(sp, 0.1), species);
+    out.throws.push(await dbg((sp) => window.__dbgThrowOrb(sp, true), species));
+    // Long enough for the whole ceremony — a suck and three wobbles, about two
+    // seconds — plus the flight it may still be in.
+    for (let i = 0; i < 60 && !out.owned; i++) {
+      await adv(0.1);
+      out.owned = await isOwned();
+    }
+  }
+  return out;
 }
 
 /** Dismiss the one-line dialogue panel so the next press opens a new one. */
@@ -358,42 +442,11 @@ async function goToWild(species) {
   // orb can hold: `orb-tame` is tier 1 and both other wild beasts ask for tier
   // 2 (`capture.minTier` in core.json). Which is also the quest's own answer to
   // "any ground species" at this point in the game.
-  // AN ORB MAY MISS, AND A MISS IS NOT THE FAILURE UNDER TEST. The claim here is
-  // that a wild bond TICKS THE OBJECTIVE; whether a given throw clears the
-  // ground between two points is `test-taming`'s subject and the loft's. So the
-  // throw is retried, and the bag is topped up first so an empty one can never
-  // be mistaken for a bad flight. SIX attempts, because the miss rate against a
-  // live wild Sproutle at 3-4 units measured about one throw in three (issue
-  // #198) — three attempts still lost one run in three.
-  await dbg(() => window.__dbgGive("orb-tame", 8));
-  let found = null;
-  let hurt = null;
-  let thrown = null;
-  let landed = false;
-  for (let attempt = 0; attempt < 6 && !landed; attempt++) {
-    found = await goToWild("wild-sproutle");
-    if (!found) {
-      break;
-    }
-    hurt = await dbg(() => window.__dbgWeaken("wild-sproutle", 0.1));
-    thrown = await dbg(() => window.__dbgThrowOrb("wild-sproutle", true));
-    // THE ORB HAS TO ARRIVE. "Not bonding" is true the instant after a throw, so
-    // the ceremony is waited FOR and then waited OUT — the two halves of "it
-    // landed", the same pair tools/test-taming.mjs makes.
-    for (let i = 0; i < 24 && !landed; i++) {
-      await adv(0.1);
-      landed = (await dbg(() => window.__dbgTaming())).bonding;
-    }
-  }
-  for (let i = 0; i < 60 && (await dbg(() => window.__dbgTaming())).bonding; i++) {
-    await adv(0.1);
-  }
-  await adv(0.3);
+  const bond = await bondAWild("wild-sproutle", "sproutle");
   const s = await state();
-  results.bondQuest.bond = { found, hurt, throw: thrown, landed, progress: s.tamed };
-  check(found !== null, "no wild Sproutle ever turned up outside the camp to bond");
-  check(thrown?.outcome === "thrown", `the orb was refused: ${JSON.stringify(thrown)}`);
-  check(landed, `no orb reached a Sproutle (last ${thrown?.dist} units away)`);
+  results.bondQuest.bond = { ...bond, progress: s.tamed };
+  check(bond.found !== null, "no wild Sproutle ever turned up outside the camp to bond");
+  check(bond.owned, `no Sproutle was bonded in ${bond.attempts} attempts`);
   check(s.tamed === 1, `tame-wild is ${s.tamed} after a wild bond, not 1`);
 
   // The turn-in, and the flag it sets EXACTLY ONCE however many beasts follow.
@@ -518,6 +571,155 @@ async function goToWild(species) {
   check(
     results.millRoad.turnIn.paid === 40,
     `the reward paid ${results.millRoad.turnIn.paid} Cubloons, not the 40 the quest promises`,
+  );
+}
+
+// ---------- 10. the red thread -------------------------------------------
+// QUEST 4, the act's dungeon. Four claims:
+//
+//   13. GOING DOWN IS THE OBJECTIVE. Arriving in `hold` advances
+//       `enter-the-hold` and discovers the zone.
+//   14. THE HOLD'S FLOOR IS STAGED WHILE THE QUEST IS LIVE: a Sproutle to free
+//       and the shard beside it, in a zone that is generated and has nowhere to
+//       author a prop.
+//   15. FREEING IS KILLING WHAT HOLDS IT, and the animal survives it. The
+//       `enemy-killed` fact quest 3 counts, with a `zone` on it, so a Gloopling
+//       put down on the drove road moves nothing here.
+//   16. LEAVING AND COMING BACK KEEPS THE PROGRESS (the ticket's own
+//       acceptance), and the turn-in sets `red-thread-seen`.
+{
+  const offer = await talkTo("mera");
+  await endTalk();
+  let s = await state();
+  results.redThread = { offerLine: offer, status: s.status4 };
+  check(s.status4 === "active", `${QUEST4} is "${s.status4}" after being offered`);
+  check(s.entered === 0, `enter-the-hold was already ${s.entered} up in the valley`);
+
+  // 13. DOWN. Through the console rather than the gateway: the dwell and the
+  // approach are `test-dive`'s and the zone manager's subject, and what is
+  // under test here is the fact the arrival produces.
+  await cmd("/zone hold");
+  await adv(0.5);
+  s = await state();
+  results.redThread.arrival = {
+    zone: await dbg(() => window.__dbgZone().id),
+    entered: s.entered,
+    discovered: s.discoveredHold,
+  };
+  check(results.redThread.arrival.zone === "hold", "the console did not put the hero in the hold");
+  check(s.entered === 1, `enter-the-hold is ${s.entered} standing in the hold, not 1`);
+  check(s.discoveredHold === true, "arriving in the hold did not discover it");
+
+  // 14. THE FLOOR IS SET, and it is set WHERE THE FLOOR IS. The shard is laid
+  // down from anywhere; the two living halves are put out only once the hero is
+  // near enough to keep them, because an enemy spawned 136 units from him is
+  // swept the slice it is made. So the probe walks in the same order a player
+  // does: down, across to the room, and then the room is dressed.
+  let staged = null;
+  for (let i = 0; i < 25 && !staged; i++) {
+    await adv(1);
+    const drops = (await dbg(() => window.__dbgFetch())).drops.filter(
+      (d) => d.itemId === SHARD_ITEM,
+    );
+    if (drops.length === 0) {
+      continue;
+    }
+    // The shard IS the floor's coordinate — the stage puts it there — so the
+    // probe needs no copy of the hold's layout to find the room.
+    await dbg((d) => window.__dbgTp(d.x, d.z), drops[0]);
+    await adv(1);
+    const bodies = (await dbg(() => window.__dbgBodies())).enemies;
+    const anchor = bodies.find((e) => e.species === ANCHOR);
+    const penned = bodies.find((e) => e.species === "wild-sproutle");
+    if (anchor && penned) {
+      staged = { anchor, penned, drop: drops[0] };
+    }
+  }
+  results.redThread.staged = staged;
+  check(
+    staged !== null,
+    "the hold's floor was never staged — the anchor, the Sproutle it holds and the shard are one scene and all three have to be there",
+  );
+
+  // 15. CUTTING IT LOOSE. The anchor is what is killed and the animal is what is
+  // freed — the two are deliberately different things, because a player who
+  // bonded a Sproutle in quest 2 cannot bond another one.
+  if (staged) {
+    await dbg((a) => window.__dbgTp(a.x + 2, a.z + 2), staged.anchor);
+    await adv(0.3);
+    results.redThread.cut = await dbg((sp) => window.__dbgKillEnemy(sp), ANCHOR);
+    await adv(0.4);
+  }
+  s = await state();
+  results.redThread.freed = { progress: s.freed };
+  check(s.freed === 1, `free-the-sproutle is ${s.freed} after cutting the anchor down, not 1`);
+  // AND THE ANIMAL IS NOT WHAT WAS SPENT: it is still standing there, freed
+  // rather than bonded or killed, which is the whole image of the beat.
+  const stillThere = (await dbg(() => window.__dbgBodies())).enemies.some(
+    (e) => e.species === "wild-sproutle",
+  );
+  results.redThread.sproutleSurvives = stillThere;
+  check(stillThere, "the Sproutle the quest is about did not survive being freed");
+
+  // 16a. THE SHARD. Walking onto it is the whole mechanic, so this is measured
+  // wherever it happened: the hero crossed the floor to reach the anchor, and a
+  // pickup he walked over on the way is the same fact as one he was sent for.
+  const stillDown = (await dbg(() => window.__dbgFetch())).drops.find(
+    (d) => d.itemId === SHARD_ITEM,
+  );
+  if (stillDown) {
+    await dbg((d) => window.__dbgTp(d.x, d.z), stillDown);
+    for (let i = 0; i < 20 && (await state()).shard === 0; i++) {
+      await adv(0.3);
+    }
+  }
+  s = await state();
+  const carried = (await dbg(() => window.__dbgZone())).bag.find((b) => b.id === SHARD_ITEM);
+  results.redThread.shard = {
+    onFloor: stillDown ?? null,
+    carried: carried ?? null,
+    progress: s.shard,
+  };
+  check(s.shard === 1, `recover-shard is ${s.shard} after walking onto the shard, not 1`);
+  // IN THE BAG, not merely counted: it is a `quest` item, so it cannot be
+  // salvaged or dropped, and the objective and the bag must agree.
+  check(carried !== undefined, "the shard ticked the objective but never reached the bag");
+
+  // 16b. OUT AND BACK IN. The ticket's own acceptance: progress is facts in
+  // `ContentState`, not something a zone owns and disposes with its meshes.
+  await cmd("/zone overworld");
+  await adv(0.5);
+  await cmd("/zone hold");
+  await adv(0.5);
+  const back = await state();
+  results.redThread.roundTrip = {
+    entered: back.entered,
+    freed: back.freed,
+    shard: back.shard,
+  };
+  check(
+    back.entered === 1 && back.freed === 1 && back.shard === 1,
+    `leaving the hold and returning changed the progress: ${JSON.stringify(results.redThread.roundTrip)}`,
+  );
+
+  // 16c. THE TURN-IN, back at the mill.
+  await cmd("/zone overworld");
+  await adv(0.5);
+  const beforeShards = await purse();
+  const line = await talkTo("mera");
+  await endTalk();
+  const done = await state();
+  results.redThread.turnIn = {
+    line,
+    status: done.status4,
+    flags: done.flags,
+    paid: (await purse()) - beforeShards,
+  };
+  check(done.status4 === "completed", `${QUEST4} is "${done.status4}" after the turn-in`);
+  check(done.flags.includes("red-thread-seen"), "red-thread-seen was not set");
+  check(
+    results.redThread.turnIn.paid === 60,
+    `the reward paid ${results.redThread.turnIn.paid} Cubloons, not the 60 the quest promises`,
   );
 }
 

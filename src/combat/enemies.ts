@@ -330,6 +330,8 @@ export class Enemy implements Damageable {
   readonly height: number;
   readonly palette: readonly number[];
   readonly species: EnemySpeciesId;
+  /** Which body's manners it has — the model's name unless the asset says otherwise. */
+  readonly behaviour: string;
   /** On the instance, so taming.ts needs nothing but an `Enemy`. */
   readonly capture: EnemyCapture | null;
   /** The species that got built, and the payout for bonding it. */
@@ -415,8 +417,13 @@ export class Enemy implements Damageable {
     this.aggro = stats.aggro;
     this.palette = [v.main, v.dark, v.belly, v.accent];
 
-    // Builder BY NAME; the AI below still switches on the id, because a hop, a
-    // charge and a dive are behaviours, not data.
+    // Builder BY NAME, and the AI follows the BUILDER rather than the id: a hop,
+    // a charge and a dive each pose parts only one body has, so an asset that
+    // picks the Gloopling's model and calls itself something else must not be
+    // sent into the Peckit's dive (issue #150 found this with a story enemy that
+    // reuses a shape). `behaviour` overrides it for an asset that wants another
+    // body's manners with its own look.
+    this.behaviour = stats.behaviour ?? stats.model;
     const body = spec.model(this.root, v);
     this.parts = body.parts;
     // A BEAST BODY POSES ITSELF: only its own species knows how to move its rig,
@@ -612,9 +619,9 @@ export class Enemy implements Damageable {
     // would send a wild Sproutle into Peckit's dive.
     if (this.beastSpecies) {
       this.updateWildBeast(dt, ctx);
-    } else if (this.species === "gloopling") {
+    } else if (this.behaviour === "gloopling") {
       this.updateGloopling(dt, ctx);
-    } else if (this.species === "snortle") {
+    } else if (this.behaviour === "snortle") {
       this.updateSnortle(dt, ctx);
     } else {
       this.updatePeckit(dt, ctx);

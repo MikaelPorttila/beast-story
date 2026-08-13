@@ -90,6 +90,10 @@ export const en = {
   "item.orbMaster.other": "Master Tame Orbs",
   "item.orbMaster.desc":
     "Black glass that gives nothing back. Very few of these were ever made, and nobody says by whom.",
+  "item.redShard.one": "Red Shard",
+  "item.redShard.other": "Red Shards",
+  "item.redShard.desc":
+    "Cut, not broken — one edge of it was finished by a tool. The red thread through the middle is still warm.",
   "item.gainToken.one": "Gain's Token",
   "item.gainToken.other": "Gain's Tokens",
   "item.gainToken.desc":
@@ -202,6 +206,14 @@ export const en = {
   // "Corrupted" is the valley's word for it, and nobody in Act 1 has a better
   // one — which is the point of the beat, so the objective does not explain it.
   "quest.land.theMillRoad.obj.cullCorrupted": "Put down corrupted beasts on the road",
+  "quest.land.theRedThread.name": "The Red Thread",
+  "quest.land.theRedThread.desc":
+    "Whatever turned Mera's oxen came up out of the millrace. The Sunken Hold is where the water comes from, and something down there is holding an animal by its bond.",
+  "quest.land.theRedThread.obj.enterTheHold": "Go down into the Sunken Hold",
+  // The objective names what you DO — the thread is wound onto something, and
+  // that something is what you fight. The animal itself is never touched.
+  "quest.land.theRedThread.obj.freeTheSproutle": "Cut the Sproutle loose from what is holding it",
+  "quest.land.theRedThread.obj.recoverShard": "Recover the shard beside it",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -303,6 +315,12 @@ export const en = {
     "Mind the race when you pass it. The water has been running wrong since spring and I have stopped pretending I know why.",
   "npc.mera.q3.busy":
     "You made it. Good. There are more of them out on the drove ground, and I am not sleeping until there are fewer.",
+  "npc.mera.q4.offer":
+    "The race runs up from the Sunken Hold, and whatever is in my beasts came up it. I am not going down there. You have an animal that chose you — go and see what is holding the ones that did not.",
+  "npc.mera.q4.busy":
+    "Down, and keep going down. If something is tied to it, cut it loose and bring me what it was tied with.",
+  "npc.mera.q4.done":
+    "That is not a stone. Look at the edge — somebody CUT that, and the thread is still warm. This was never a sickness. Take it to Stonewatch; Warden Coil has been asking after things exactly like it.",
   "npc.mera.q3.done":
     "Six of them, and you walked every step of it. Then stop walking — that beast of yours has been keeping your pace all day and it never once had to. Get up on it. You will want the speed before this is finished.",
 
@@ -588,6 +606,10 @@ export const en = {
   "enemy.gloopling.name": "Gloopling",
   "enemy.snortle.name": "Snortle",
   "enemy.peckit.name": "Peckit",
+  // Not wild at all, which is the point of it: the knot the red thread is wound
+  // onto at the Hold's floor (issue #150), and the first thing in the game that
+  // was PUT somewhere by somebody.
+  "enemy.threadAnchor.name": "Thread Anchor",
 
   // ---- biomes --------------------------------------------------------------
   // Keyed by the BiomeId in src/world/terrain.ts, which is also the AREA key

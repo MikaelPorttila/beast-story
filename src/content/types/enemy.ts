@@ -57,6 +57,15 @@ export interface EnemyCapture {
 
 export interface EnemyData {
   readonly model: string;
+  /**
+   * Which body's MANNERS it has, when they are not its own model's.
+   *
+   * The animator poses named parts, so a behaviour belongs to a SHAPE and not to
+   * an id: absent, an enemy moves the way the body it wears moves. Naming
+   * another one here is for an asset that wants a familiar silhouette to act
+   * differently, and it is on the author to pick one whose parts exist.
+   */
+  readonly behaviour?: string;
   /** Flyers path in three dimensions; the rest walk the height field. */
   readonly flying: boolean;
   readonly hp: number;
@@ -145,6 +154,9 @@ function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
       pattern: MODEL_RE,
       what: "an enemy model name",
     }),
+    behaviour: opt(b.behaviour, r.at("behaviour"), (v, c) =>
+      str(v, c, { min: 1, max: 64, pattern: MODEL_RE, what: "an enemy behaviour name" }),
+    ),
     flying: opt(b.flying, r.at("flying"), bool) ?? false,
     // Caps are guards on untrusted JSON, not balance opinions.
     hp: num(b.hp, r.at("hp"), { min: 1, max: 1_000_000, what: "hit points" }),
