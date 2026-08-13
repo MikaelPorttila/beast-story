@@ -117,7 +117,12 @@ export type TownLayout = (
   town: TownInfo,
   network: RoadNetwork,
   rng: () => number,
-) => { x: number; z: number } | null;
+) => {
+  x: number;
+  z: number;
+  /** The camp's taming pen, where a layout built one — see `World.tamingPen`. */
+  pen?: { x: number; z: number; r: number };
+} | null;
 
 const LAYOUTS: ReadonlySet<string> = new Set<TownInfo["kind"]>(["camp", "hamlet"]);
 
@@ -926,6 +931,8 @@ export class Towns {
   /** Where each settlement's fire ended up; the camp's side is a coin flip, so it is
    *  recorded rather than derived. `NpcSite.focusOf` reads this. */
   private readonly fires = new Map<string, { x: number; z: number }>();
+  /** Per town, where the camp layout built its taming pen (issue #178). */
+  private readonly pens = new Map<string, { x: number; z: number; r: number }>();
 
   constructor(
     plan: SettlementPlan,
@@ -985,6 +992,9 @@ export class Towns {
       const fire = layout?.(solid, glow, hearth, night, parts, town, plan.network, rng) ?? null;
       if (fire) {
         this.fires.set(town.id, fire);
+        if (fire.pen) {
+          this.pens.set(town.id, fire.pen);
+        }
       }
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, fireGlow, g, false);
@@ -1125,6 +1135,11 @@ export class Towns {
   /** Where this town's fire stands, or null. `NpcSite.focusOf` is the only caller. */
   fireOf(townId: string): { x: number; z: number } | null {
     return this.fires.get(townId) ?? null;
+  }
+
+  /** This town's taming pen, or null — a layout that built none stays null. */
+  penOf(townId: string): { x: number; z: number; r: number } | null {
+    return this.pens.get(townId) ?? null;
   }
 
   /**
@@ -1278,7 +1293,7 @@ function buildEncampment(
   town: TownInfo,
   network: RoadNetwork,
   rng: () => number,
-): { x: number; z: number } {
+): { x: number; z: number; pen?: { x: number; z: number; r: number } } {
   const { x: cx, z: cz, y: cy, gateAngle } = town;
   const taken: Spot[] = [];
   const at = (ang: number, dist: number): [number, number] => [
@@ -1377,6 +1392,35 @@ function buildEncampment(
     }
   }
 
+  // THE TAMING PEN (issue #178): `quest:land/first-light`'s words say "penned",
+  // and until this ring existed the quest staged an ordinary wild beast on open
+  // ground. It stands across the carriageway from the fire — the practice
+  // happens in view of it — and it is CLAIMED before the huts and tents are
+  // sited, so nothing else lands inside. `solidR` is a stake's width: the claim
+  // is elbow room, and the fence must be allowed to stand within its own claim.
+  // Which ANIMAL is in the pen is quest dressing and main.ts's business.
+  let pen: { x: number; z: number; r: number } | undefined;
+  {
+    const PEN_R = 3.6;
+    // The snapshot BEFORE the claim, or `clearRun` refuses the ring's own bays.
+    const clearBefore = clearRun(network, taken.slice());
+    for (let attempt = 0; attempt < 10 && !pen; attempt++) {
+      const a = gateAngle - (Math.PI / 2) * side + (attempt - 4.5) * 0.16;
+      const d = 6.2 + (attempt % 3) * 1.1;
+      const [px, pz] = at(a, d);
+      if (!place(taken, network, px, pz, PEN_R + 1.8, 1.6, undefined, FENCE_POST_R)) {
+        continue;
+      }
+      const ring: FenceNode[] = [];
+      for (let i = 0; i <= 10; i++) {
+        const ra = gateAngle + (i / 10) * Math.PI * 2;
+        ring.push({ x: px + Math.sin(ra) * PEN_R, y: cy, z: pz + Math.cos(ra) * PEN_R });
+      }
+      buildFence(solid, parts.fence, ring, { accept: clearBefore, glow });
+      pen = { x: px, z: pz, r: PEN_R };
+    }
+  }
+
   for (let k = 0; k < 3; k++) {
     const a = gateAngle + Math.PI + (k - 1) * 0.85 + (rng() - 0.5) * 0.2;
     const [x, z] = at(a, inset(a, 7.5));
@@ -1469,7 +1513,7 @@ function buildEncampment(
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
   // The NPC placer wants to know where the fire went. See `NpcSite.focusOf`.
-  return { x: fx, z: fz };
+  return { x: fx, z: fz, pen };
 }
 
 /** A HAMLET: the same pieces, a tenth of the parts list. No wall, because what makes

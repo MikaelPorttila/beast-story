@@ -109,6 +109,8 @@ export class StubWorld implements World {
   readonly waterLevel: number;
   /** The stage has no roads and therefore no standing stones. */
   readonly waypoints = null;
+  /** ...and no camp, so no pen. */
+  readonly tamingPen = null;
   readonly shopPositions: THREE.Vector3[] = [];
   /** The stage is not a place; it has no settlements. */
   readonly towns: TownRegistry = { all: [], roads: [], get: () => undefined, nearest: () => null };

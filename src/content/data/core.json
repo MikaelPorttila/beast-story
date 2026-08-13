@@ -623,6 +623,50 @@
     },
 
     {
+      "id": "enemy:penned-sproutle",
+      "schema": 1,
+      "name": { "key": "beast.sproutle.name" },
+      "tags": ["ground", "bondable", "penned"],
+      "data": {
+        "_why": "The Encampment's practice animal (issue #178) — the one quest:land/first-light pens for you. NOT tagged wild and in no biome's spawn table: it exists only where a quest stages it. Aggro 0 is the whole difference in kind — it never charges, and the pen's rails hold its wander. Bonding it grants an ordinary Sproutle, but the `tamed` fact carries THIS id, which is how a penned bond counts for nothing that asks for a wild one (issue #148).",
+        "model": "beast-sproutle",
+        "flying": false,
+        "hp": 45,
+        "atk": 0,
+        "speed": 1.2,
+        "xp": 0,
+        "radius": 0.42,
+        "height": 0.85,
+        "aggro": 0,
+        "capture": {
+          "difficulty": 1
+        },
+        "variants": [
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          },
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          },
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          }
+        ]
+      }
+    },
+    {
       "id": "enemy:wild-sproutle",
       "schema": 1,
       "name": { "key": "beast.sproutle.name" },

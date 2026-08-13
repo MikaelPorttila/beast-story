@@ -562,8 +562,9 @@ async function consoleClosed(tries = 40) {
       npc: 6,
       biome: 8,
       // +2: `enemy:thread-anchor` (issue #150) and `enemy:bellwether` (issue
-      // #151), the two enemies `story-land` brings with it.
-      enemy: 5 + WILD_BEASTS.length,
+      // #151), the two enemies `story-land` brings with it. +1 again for
+      // `enemy:penned-sproutle`, the Encampment's practice animal (issue #178).
+      enemy: 6 + WILD_BEASTS.length,
       quest: ACT1_QUESTS.length,
       music: 2,
     },
@@ -584,7 +585,7 @@ async function consoleClosed(tries = 40) {
   // in the order the package declares them.
   eq(
     c.resolved.enemies,
-    [...ENEMIES.map((e) => e.id), ...WILD_BEASTS, "bellwether", "thread-anchor"],
+    [...ENEMIES.map((e) => e.id), "penned-sproutle", ...WILD_BEASTS, "bellwether", "thread-anchor"],
     "enemy species that reached the world",
   );
   eq(viaImport.biomes, BIOMES, "biome ids");

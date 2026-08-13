@@ -4,6 +4,7 @@
   "requires": ["story"],
   "meta": {
     "title": "Act 1 — Land: Embervale",
+    "what-tamed-counts": "A `tamed` trigger's `species` names the WILD INSTANCE — `wild-sproutle`, never `sproutle` — because the fact carries the enemy that was bonded, not the companion it became (issue #178). That is the whole of how quest 2 refuses the penned practice animal: `penned-sproutle` is simply not in its list, a fact about the animal rather than about which quest was active.",
     "note": "The five main quests of Act 1 (game-story.md §4, issue #143). Ordering is `prerequisites` and nothing else: `arc` is a journal heading, array order means nothing, and no counter anywhere says which act the player is in — the act boundary is the flags `sea-revealed` and `act-1-complete` that the last quest sets.",
     "what-freeing-is": "`quest:land/the-red-thread` frees the penned Sproutle by killing what HOLDS it — `enemy:thread-anchor`, the knot the thread is wound onto — and not by bonding the animal itself. Bonding was the first shape of it and it cannot work: a player who did quest 2 with a Sproutle already owns one, and a second bond of an owned species is refused before the orb leaves the hand (`alreadyOwned`, main.ts). The animal is the thing you are freeing, so it must not also be the thing you interact with. The `zone` on the trigger is what separates this from a Gloopling put down on the drove road.",
     "placeholder-model": "`enemy:thread-anchor` paints the Gloopling's body in the thread's own red until it has a shape of its own (issue #202) — it should be a knot of red thread wound onto something, not an animal. It is an ASSET picking a registered builder, so giving it a real one is one word here and a builder beside the others.",
@@ -145,7 +146,7 @@
           {
             "key": "tame-wild",
             "text": { "key": "quest.land.theFirstBond.obj.tameWild" },
-            "trigger": { "kind": "tamed", "species": ["sproutle", "boulderpup"] }
+            "trigger": { "kind": "tamed", "species": ["wild-sproutle", "wild-boulderpup"] }
           }
         ],
         "onStart": [{ "do": "item.give", "item": "orb-tame", "count": 2 }],

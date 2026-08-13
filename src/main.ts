@@ -1959,7 +1959,11 @@ function refreshQuestMarks(): void {
         markedEnemies.add(id.slice("enemy:".length));
       }
       for (const id of trigger.species ?? []) {
+        // BOTH SETS: a species filter may name a wild instance (`wild-sproutle`,
+        // the tamed fact's id) or a companion (`sproutle`, what a beast-bodied
+        // enemy resolves to), and the ring must find it either way.
         markedBeasts.add(id);
+        markedEnemies.add(id);
       }
     }
   }
@@ -2187,9 +2191,11 @@ bus.on((e) => {
   if (e.type === "orbThrown") {
     advanceObjectives({ kind: "orb-thrown" });
   }
-  // GENERIC OVER SPECIES, which is why it is here and not in `onBeastTamed`: three quests filter the one fact to their own beasts.
+  // THE INSTANCE, NOT THE COMPANION (issue #178): the fact carries the wild species that was bonded
+  // (`wild-sproutle`, `penned-sproutle`), so "bond a WILD one" is a claim about the animal and not
+  // about which quest happened to be active when the orb landed. `onBeastTamed` still gets `beastId`.
   if (e.type === "beastTamed") {
-    advanceObjectives({ kind: "tamed", id: e.beastId });
+    advanceObjectives({ kind: "tamed", id: e.species });
   }
   // The event carries the bare species (`gloopling`); a cull objective names the CONTENT id it culls,
   // so the `enemy:` is put back on here rather than the filter being loosened to accept either.
@@ -2289,12 +2295,13 @@ function grantQuestRewards(asset: ContentAsset<QuestData>): void {
   }
 }
 
-// THE PRACTICE BEAST — a PLACEHOLDER for the Encampment's pen. `quest:land/first-light` needs something
-// bondable in aim or the throw is refused before it leaves the hand, so the quest stages one wild beast
-// near the hero's start. Twelve units: outside `wild-sproutle`'s aggro radius of 8, well inside
-// `ORB_RANGE`. A lucky catch FILLS the practice, since a throw at a bonded species emits no `orbThrown`.
-const PRACTICE_SPECIES = { enemy: "wild-sproutle", beast: "sproutle" } as const;
-const PRACTICE_DIST = 12;
+// THE PENNED BEAST — the animal `quest:land/first-light` puts in the Encampment's pen (issue #178).
+// The pen is the camp's own furniture, built by its layout; WHICH animal stands in it is quest
+// dressing, staged here while the quest is live and let out when it closes. `enemy:penned-sproutle`
+// is docile by data — aggro 0, so it never charges — and the pen's rails hold its wander, which is
+// anchored to its own spawn. A lucky catch FILLS the practice, since a throw at a bonded species
+// emits no `orbThrown`.
+const PRACTICE_SPECIES = { enemy: "penned-sproutle", beast: "sproutle" } as const;
 /** Seconds between checks. A stage prop, not a frame-loop concern. */
 const PRACTICE_POLL = 1;
 let practicePollIn = 0;
@@ -2306,46 +2313,38 @@ function tickPracticeBeast(dt: number): void {
   }
   practicePollIn = PRACTICE_POLL;
 
+  const pen = world.tamingPen;
+  if (!pen) {
+    return; // a zone with no pen stages nothing
+  }
   const asset = content.get<QuestData>("quest:land/first-light");
-  if (!asset || content.state.questStatus(asset.id) !== "active") {
-    return;
-  }
-  const objective = asset.data.objectives.find((o) => o.key === "bond-practice");
-  if (!objective) {
-    return;
-  }
-  const need = objective.count ?? 1;
-  if (content.state.progress(asset.id, "bond-practice") >= need) {
-    return;
-  }
+  const objective = asset?.data.objectives.find((o) => o.key === "bond-practice");
+  const need = objective?.count ?? 1;
+  const live = asset !== undefined && content.state.questStatus(asset.id) === "active";
+  const wanted = live && content.state.progress(asset.id, "bond-practice") < need;
 
-  const species = PRACTICE_SPECIES;
-  if (owned.has(species.beast)) {
-    content.state.setProgress(asset.id, "bond-practice", need);
+  // `!isDead`, NOT `targetable`: an animal inside a settling orb is `held` and
+  // untargetable, and counting it as absent spawned a second occupant every
+  // time a practice throw was in flight.
+  const penned = combat.enemies.some((e) => !e.isDead && e.species === PRACTICE_SPECIES.enemy);
+
+  // GONE AFTER: the pen empties the moment the quest no longer needs it — Gain
+  // lets the animal go. Removed, never killed: a despawn drops nothing. ALL of
+  // them, in case a throw-in-flight race ever doubled the occupant.
+  if (!wanted) {
+    while (combat.despawnOne(PRACTICE_SPECIES.enemy)) {
+      // emptied below
+    }
     return;
   }
-  for (const e of combat.enemies) {
-    if (e.targetable && e.species === species.enemy) {
-      return;
-    } // one is already out there
+  if (owned.has(PRACTICE_SPECIES.beast)) {
+    if (asset) {
+      content.state.setProgress(asset.id, "bond-practice", need);
+    }
+    return;
   }
-
-  // Around the hero's own start rather than the town centre: that is where the player is when the quest is given, and `pickPlayerStart` already chose it as a clear seat.
-  const from = world.spawnPoint;
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    const x = from.x + Math.sin(a) * PRACTICE_DIST;
-    const z = from.z + Math.cos(a) * PRACTICE_DIST;
-    if (world.isWater(x, z)) {
-      continue;
-    }
-    // Nothing BUILT in this column — `spawnOne` obeys no placement rule of its own.
-    if (world.structureTopAt(x, z) > world.getHeight(x, z) + 0.5) {
-      continue;
-    }
-    if (combat.spawnOne(species.enemy, x, z)) {
-      return;
-    }
+  if (!penned) {
+    combat.spawnOne(PRACTICE_SPECIES.enemy, pen.x, pen.z);
   }
 }
 
@@ -6756,6 +6755,8 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
 (window as unknown as { __dbgQuestSites: () => unknown }).__dbgQuestSites = () => ({
   holdFloor: holdFloorSpot(),
   droveGround: droveGround(),
+  // The Encampment's taming pen — the camp layout's own answer (issue #178).
+  pen: world.tamingPen,
 });
 
 // THE STANDING STONES: where they are, which are lit, and which one a faint would use from here — the

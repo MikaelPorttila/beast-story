@@ -503,6 +503,14 @@ export interface World {
   /** Snow cover 0..1; 0 where a zone has no weather. A CONTINUUM, not a flag — `BiomeId` cuts at 0.5. */
   snowCoverAt(x: number, z: number): number;
   /**
+   * The start town's taming pen, or null where no layout built one (issue #178).
+   *
+   * A PLACE, not a population: which animal stands in it is quest dressing and
+   * main.ts's business. `r` is the ring's inner radius, so a probe can assert
+   * the occupant is actually inside it.
+   */
+  readonly tamingPen: { x: number; y: number; z: number; r: number } | null;
+  /**
    * The standing stones this world grew, or an empty list where it grew none.
    *
    * A zone SITES them (they are derived from its roads); which ones are LIT is
@@ -821,7 +829,9 @@ export type GameEvent =
   /** An orb left the hero's hand. Nothing acts on it: it exists so the throw FEELS like something (src/feedback). */
   | { type: "orbThrown"; orbId: string }
   /** An orb landed and a bond WORKED. `beastId` is the SPECIES id; an event rather than a call, because combat must not learn what a `BeastActor` is. */
-  | { type: "beastTamed"; beastId: string; nameKey: StringKey; orbId: string }
+  /** `beastId` is the COMPANION granted; `species` the wild INSTANCE bonded (`wild-sproutle`,
+   * `penned-sproutle`) — a quest counts the instance, the roster gains the companion (issue #178). */
+  | { type: "beastTamed"; beastId: string; species: string; nameKey: StringKey; orbId: string }
   /** The orb broke and the animal escaped. Separate from `beastTamed` because a listener wants one or the other. */
   | { type: "bondFailed"; beastId: string; nameKey: StringKey; orbId: string }
   /** One shake of a landed orb, 1-based, answer still unknown. Feel only; `of` lets a listener ramp. */
