@@ -137,6 +137,37 @@ async function faint() {
   );
 }
 
+// ---------- 2c. clear of what is BUILT, and each has a trail ---------------
+// THE REPORT THIS SECTION EXISTS FOR: the first cut sited a stone inside
+// Redbriar's wall, because it pushed sideways off the road without asking what
+// was there. Every stone must stand outside every settlement's built perimeter
+// with room around it, and each must have a path from the carriageway — one
+// path system, so a spur to a waystone is a `Road` on the network like any
+// other (issue #142).
+{
+  const w = await stones();
+  const towns = await dbg(() => window.__dbgTowns().towns);
+  const paths = await dbg(() => window.__dbgPaths().paths.map((p) => p.id ?? p));
+  const inside = [];
+  for (const s of w.all) {
+    for (const t of towns) {
+      const d = Math.hypot(s.x - t.x, s.z - t.z);
+      if (d < t.outerRadius) {
+        inside.push(`${s.id} is ${d.toFixed(1)} from ${t.id} (wall at ${t.outerRadius})`);
+      }
+    }
+  }
+  const trails = paths.filter((id) => id.startsWith("path:waystone-"));
+  results.clearance = { inside, trails: trails.length, stones: w.all.length };
+  check(inside.length === 0, `stones inside a settlement: ${JSON.stringify(inside)}`);
+  // One trail per stone that needed one. Not every stone does — a site that
+  // lands at the rim is already on the road — so this is a floor, not an equals.
+  check(
+    trails.length >= w.all.length - 2,
+    `${trails.length} trails for ${w.all.length} stones: a stone with no way to it is one you walk into the grass for`,
+  );
+}
+
 // ---------- 3. walking up to one lights it ---------------------------------
 let firstLit = null;
 {

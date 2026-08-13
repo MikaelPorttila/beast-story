@@ -31,7 +31,8 @@ import {
   type Exclusion,
 } from "./props";
 import { Shops, type DenSpot } from "./shops";
-import { Waypoints, waypointSites } from "./waypoints";
+import { Waypoints, waypointSites, type WaypointSite } from "./waypoints";
+import { trackProfile } from "./path-profile";
 import { SiteFields } from "./structures";
 import { Towns, planSettlements, type SettlementPlan } from "./towns";
 import {
@@ -491,6 +492,67 @@ const landmarkScratch = makeScratch();
 /** Its own, because `biomeAt` is asked from a spawn roll while a landmark pass may be walking the other. */
 const biomeScratch = makeScratch();
 
+/**
+ * A short trail from the carriageway to each waystone.
+ *
+ * ONE PATH SYSTEM (issue #142): a spur to a stone is a `Road` on the same
+ * network with a `track` profile, so it wears the ground, keeps foliage off and
+ * carves nothing — exactly what a settlement's own beaten tracks are. It is
+ * STRAIGHT and unrouted, unlike `World.addPath`: eight to twenty units across
+ * ground the siting pass has already proved flat, dry and unbuilt, so there is
+ * nothing to route around and a router would only bend it for no reason.
+ *
+ * Added before any chunk exists, so nothing needs rebuilding — the network is
+ * built once at the end and every later query sees the spurs.
+ */
+function cutWaypointTrails(
+  terrain: Terrain,
+  plan: SettlementPlan,
+  stones: readonly WaypointSite[],
+): void {
+  const profile = trackProfile(1.7);
+  let added = 0;
+  for (const stone of stones) {
+    if (!stone.from) {
+      continue;
+    }
+    const ax = stone.from.x;
+    const az = stone.from.z;
+    const span = Math.hypot(stone.x - ax, stone.z - az);
+    // Under a couple of paces there is nothing to draw: the stone is at the rim.
+    if (span < 4) {
+      continue;
+    }
+    const steps = Math.max(2, Math.round(span / 2));
+    const route: { x: number; z: number }[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps;
+      route.push({ x: ax + (stone.x - ax) * u, z: az + (stone.z - az) * u });
+    }
+    const pts = profileRoad(
+      terrain,
+      route,
+      terrain.getHeight(ax, az),
+      terrain.getHeight(stone.x, stone.z),
+    );
+    if (pts.length < 2) {
+      continue;
+    }
+    plan.network.add({
+      id: `path:waystone-${added}`,
+      fromId: "free",
+      toId: stone.id,
+      profile,
+      pts,
+      trim: new Float32Array(8),
+    });
+    added++;
+  }
+  if (added > 0) {
+    plan.network.build();
+  }
+}
+
 /** For `World.debugColumn` alone — see there. */
 const dbgColumnScratch = makeScratch();
 
@@ -548,23 +610,33 @@ export function createWorld(
   const spawned = new SpawnedSolids(propLib, (x, z) => terrain.getHeight(x, z));
   scene.add(spawned.group);
 
-  // THE STANDING STONES, sited off the road network the planner just cut: at the
-  // gates, at the fork, and every 220 units of carriageway between them. Before
-  // `Towns`, so their colliders are in the site field the settlement's own
-  // foliage pass asks (a stone is BUILT, and nothing may grow through it).
+  const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain) : null;
+
+  // THE STANDING STONES, and they are sited AFTER the settlement is built for the
+  // reason the first cut of them got wrong: a site has to be tested against what
+  // is THERE, and a town's huts and palisade do not exist until `Towns` has run.
+  // One ended up inside Redbriar's wall. Each stone also gets a short trail from
+  // the carriageway, added to the network the same way any other path is —
+  // there is one path system, and a spur to a waystone is not an exception.
   const waypoints = plan
     ? new Waypoints(
-        waypointSites(plan.network.roads, plan.towns.all, plan.junction, (x, z) =>
-          terrain.getHeight(x, z),
-        ),
+        waypointSites(plan.network.roads, plan.towns.all, plan.junction, {
+          heightAt: (x, z) => terrain.getHeight(x, z),
+          steepnessAt: (x, z) => terrain.steepnessAt(x, z),
+          waterLevel: WATER_LEVEL,
+          // What is BUILT, which at this point is the settlement and the dens.
+          built: (x, z, r) =>
+            (towns?.solids.hits(x, z, r, -Infinity, Infinity) ?? false) ||
+            shops.solids.hits(x, z, r, -Infinity, Infinity),
+        }),
       )
     : null;
-  if (waypoints) {
+  if (waypoints && plan) {
     scene.add(waypoints.group);
     markStaticShadowCaster(waypoints.group);
+    cutWaypointTrails(terrain, plan, waypoints.all);
   }
 
-  const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain) : null;
   if (towns) {
     scene.add(towns.group);
     // Built ONCE and never streamed, so they are the other half of the static
