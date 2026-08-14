@@ -862,8 +862,8 @@ export class InventoryPanel {
     if (!e || !el) {
       return null;
     }
-    // Named `offers`, not `has`: test-keybinds.mjs scans for `has('literal')` and
-    // would read this as an undocumented key binding.
+    // Named `offers`, not `has`: test-keybinds.mjs scans for a member called
+    // `has` taking a quoted literal and would read it as an undocumented key.
     const offers = (a: InvAction): boolean => (e.actions ?? []).includes(a);
 
     const gear = el.closest("[data-gear]") as HTMLElement | null;
