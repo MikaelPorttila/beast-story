@@ -158,14 +158,51 @@ async function pressAndCross(from) {
   await tp(g.x + 12, g.z + 12);
   await wait(700);
   const armed = (await zone()).gate.armed;
+
+  // THE RETURN WORLD IS BUILT UNDER GAMEPLAY, NOT UNDER THE ARCH (issue #211).
+  // `hold` is a `keepReturn` zone: the overworld is rebuilt right after arrival
+  // and never distance-released, so by the time a player finds the way back the
+  // crossing has nothing left to wait on. Measured PAST the release ring (48),
+  // where the plain preload band neither builds nor keeps a pending zone — a
+  // regression to either half fails here. Waiting for `ready` is the
+  // measurement's own honesty: on a slow host the build takes what it takes,
+  // but it must be DONE before the pad is pressed, or the timing assertion
+  // below would just measure the host.
+  await tp(g.x + 45, g.z + 45);
+  let resident = null;
+  for (let i = 0; i < 60; i++) {
+    resident = (await zone()).pending;
+    if (resident?.ready === true) {
+      break;
+    }
+    await wait(500);
+  }
+  check(
+    resident?.id === "overworld" && resident?.ready === true,
+    `the overworld is not resident-and-ready while the hero plays the hold: ` +
+      JSON.stringify(resident),
+  );
+
   await tp(g.x, g.z);
   await wait(500);
   const backMs = await pressAndCross("hold");
   const z = await zone();
-  results.back = { armedAfterStepOut: armed, ms: backMs, zone: z.id };
+  results.back = {
+    armedAfterStepOut: armed,
+    residentBeforePress: resident,
+    ms: backMs,
+    zone: z.id,
+  };
   check(armed === true, "walking off the return pad did not arm it");
   check(backMs !== null, `the way out of the hold never fired in ${CROSS_TIMEOUT / 1000}s`);
   check(z.id === "overworld", `the return left the hero in "${z.id}"`);
+  // Generous against pressAndCross's own polling, tiny against the ~7 s rebuild
+  // this guards out of the arch.
+  check(
+    backMs !== null && backMs < 2500,
+    `the return crossing took ${backMs} ms with the overworld already resident — ` +
+      "it should be a press, not a rebuild (issue #211)",
+  );
 }
 
 // ---------- 5. and it lands on spawnPoint ------------------------------------

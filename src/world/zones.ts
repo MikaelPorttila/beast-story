@@ -27,6 +27,14 @@ export interface ZoneDef {
   create(scene: THREE.Scene): World;
   /** Called once with the finished world, so the gate can sit on new ground. */
   gate(world: World): { to: string; x: number; z: number; hex: number };
+  /**
+   * A SIDE TRIP: while the player is in THIS zone, the zone its gateway leads
+   * back to is rebuilt right after arrival and never distance-released, so the
+   * way out is a press rather than a ~7 s rebuild stood in the arch (issue
+   * #211 — reported as "the dungeon has no exit"). Costs one resident World
+   * for the visit, which is what the preload band spends transiently anyway.
+   */
+  keepReturn?: boolean;
 }
 
 const ENTER_R = 3.0;
@@ -178,15 +186,20 @@ export class ZoneManager {
 
     // Preload band, gated on `armed` or arrival rebuilds the zone just left.
     // A SPHERE, not the pad's cylinder: a hero 60 overhead is 60 away.
+    // In a `keepReturn` zone the band is the WHOLE zone: the return world is
+    // built as soon as the one just left has finished handing its chunks back,
+    // so the wait happens under gameplay instead of under the arch.
     const d3 = d2 + gy * gy;
-    if (active.armed && d3 < PRELOAD_R2 && this.pendingId === null && active.to !== this.activeId) {
+    const wantNear = active.armed && d3 < PRELOAD_R2;
+    const wantResident = active.def.keepReturn === true && this.retiring === null;
+    if ((wantNear || wantResident) && this.pendingId === null && active.to !== this.activeId) {
       this.pendingId = active.to;
       const p = this.build(active.to);
       // Hidden: lights are not culled, and two zones lit recompiles this one.
       p.world.setVisible(false);
       p.gateway.group.visible = false;
       this.states.set(active.to, p);
-    } else if (d3 > RELEASE_R2 && this.pendingId !== null) {
+    } else if (d3 > RELEASE_R2 && this.pendingId !== null && active.def.keepReturn !== true) {
       const p = this.states.get(this.pendingId)!;
       this.states.delete(this.pendingId);
       this.pendingId = null;
