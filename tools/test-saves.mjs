@@ -68,6 +68,8 @@ const readState = (page) =>
       // rides in the same document every quest fact does, and a stone lit and
       // then forgotten is a player sent back across the valley on his next faint.
       lit: (window.__dbgWaypoints().all ?? []).filter((w) => w.lit).map((w) => w.id),
+      // The map's one planted flag (issue #245), zone and all — absent is null.
+      marker: doc.marker ?? null,
     };
   });
 
@@ -85,6 +87,7 @@ const readState = (page) =>
     window.__dbgGive("sunberry", 7);
     window.__dbgGrantBeast("emberfox");
     window.__dbgUnlockMount("water", true);
+    window.__dbgMarker(123, -45);
     window.__dbgTp(140, -60);
   });
   // Light one, by standing at it the way a player does — the stone nearest the
@@ -103,6 +106,7 @@ const readState = (page) =>
   await page.evaluate(() => {
     window.__dbgGive("sunberry", 5);
     window.__dbgUnlockMount("all", true);
+    window.__dbgMarker(null);
     window.__dbgTp(-300, 400);
     void window.__dbgSaves.save; // no-op read: the perturbation must not itself save
   });
@@ -147,6 +151,12 @@ const readState = (page) =>
   check(
     JSON.stringify(back.lit) === JSON.stringify(saved.lit),
     `the lit waystones changed: ${JSON.stringify(saved.lit)} -> ${JSON.stringify(back.lit)}`,
+  );
+  // The flag: planted before the save, cleared by the perturbation, back after.
+  check(saved.marker !== null, "the planted marker never reached the document");
+  check(
+    JSON.stringify(back.marker) === JSON.stringify(saved.marker),
+    `the map marker changed: ${JSON.stringify(saved.marker)} -> ${JSON.stringify(back.marker)}`,
   );
   // Within a unit: the position is re-grounded on the way in, and the ground
   // under a point is the same ground it was.
@@ -243,6 +253,8 @@ const readState = (page) =>
             // `null` rather than NaN: JSON has no NaN, so null is the shape a
             // corrupt number actually arrives in.
             row.doc.location = { zoneId: "no-such-zone", x: null, y: null, z: null, yaw: 0 };
+            // A flag planted in that gone zone: it must drop, never the load.
+            row.doc.marker = { zone: "no-such-zone", x: 10, z: 10 };
             store.put(row);
           });
           tx.addEventListener("complete", () => {
@@ -283,6 +295,11 @@ const readState = (page) =>
   check(
     Math.abs(state.pos.y - state.surface) <= 2,
     `the hero is ${(state.pos.y - state.surface).toFixed(1)} units off the ground`,
+  );
+  const ghostMarker = await page.evaluate(() => window.__dbgSaves.doc().marker ?? null);
+  check(
+    ghostMarker === null,
+    `a flag planted in a deleted zone survived: ${JSON.stringify(ghostMarker)}`,
   );
 
   await ctx.close();

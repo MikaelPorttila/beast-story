@@ -36,13 +36,13 @@ import {
   MOUNT_KINDS,
   MOUNT_KIND_KEYS,
   MOUNT_KIND_OF,
+  type BeastSpecies,
   type CrownContact,
   type NpcInfo,
   type SkillDef,
   type Damageable,
   type ItemDef,
   type MountKind,
-  type TownInfo,
   type World,
   type WorldBound,
 } from "./core/types";
@@ -73,6 +73,7 @@ import {
   MUSIC_TRACK_KIND,
   type BiomeData,
   type MusicData,
+  type ObjectiveTrigger,
   type ObjectiveTriggerKind,
   type QuestData,
   type QuestRewards,
@@ -101,7 +102,7 @@ import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./
 import { createDungeon, holdFloorSpot } from "./world/dungeon";
 import { Ferry, type FerryStop } from "./world/ferry";
 import { SURFACE_Y } from "./world/water";
-import { type GateSpec, ZoneManager, type ZoneDef } from "./world/zones";
+import { ZoneManager, type ZoneDef } from "./world/zones";
 import { Underwater } from "./world/underwater";
 import { TouchParticles } from "./world/touch-particles";
 import { Player } from "./player/index";
@@ -114,6 +115,7 @@ import {
   MELEE_UP_REACH,
   MELEE_DOWN_REACH,
   type Enemy,
+  type EnemySpec,
 } from "./combat/enemies";
 import {
   HUD,
@@ -134,7 +136,15 @@ import {
   type InventoryModel,
   type GearSlotView,
 } from "./ui/inventory";
-import { JournalPanel, type JournalEntry, type JournalModel, type JournalTab } from "./ui/journal";
+import {
+  JournalPanel,
+  type JournalEntry,
+  type JournalHover,
+  type JournalModel,
+  type JournalTab,
+} from "./ui/journal";
+import { entryIconHtml, type TipContent } from "./ui/tooltip";
+import { MapPanel, type MapTerrain } from "./ui/map";
 import {
   exitFullscreen,
   fullscreenSupported,
@@ -386,6 +396,9 @@ function exitToTitle(): void {
   refreshOrbHud();
   inventory.close();
   journal.close();
+  map.close();
+  // The flag is the character's, and the chip goes with it.
+  setPlayerMarker(null);
   // `attackStat` is the one loadout field Player.reset deliberately leaves alone (see BASE_ATTACK); giveStartingKit re-equips and calls applyLoadout.
   equippedWeapon = null;
   attackBuff = 0;
@@ -567,6 +580,7 @@ function collectSave(): SaveDocument {
     mounts: mountUnlocks.list(),
     content: content.state.toJSON(),
     dayPhase: dayNight.phase,
+    ...(playerMarker ? { marker: { ...playerMarker } } : {}),
   };
   if (carriedExtra) {
     saved.extra = carriedExtra;
@@ -597,6 +611,11 @@ function applySave(doc: SaveDocument): void {
     dayNight.setPhase(doc.dayPhase);
 
     mountUnlocks.restore(doc.mounts);
+
+    // The map marker: a zone this build no longer has drops the flag, never the load.
+    playerMarker =
+      doc.marker && zones.zoneIds.includes(doc.marker.zone) ? { ...doc.marker } : null;
+    syncMarkerChip();
 
     // 4. THE PARTY. Reset first: the roster holds every species, bonded or not.
     for (const b of roster) {
@@ -1298,13 +1317,10 @@ const zones = new ZoneManager({
     // the hero already standing in the zone; `discover` is the zone's own id and not a town's.
     content.state.discover(`zone:${def.id}`);
     advanceObjectives({ kind: "zone-arrival", id: def.id });
-    // Markers are per-zone; `gates` is the ZoneDef's own answer, not a second search.
-    syncCompassMarkers(w, def.gates(w));
-    // `setCompassMarkers` REPLACES the list, so the quest chips are re-added after it — and they are
-    // recomputed rather than copied, because the waypoint for "reach the Hold" is a different door
-    // from either side of it.
-    questChipIds = [];
+    // Quest chips are recomputed rather than copied, because the waypoint for "reach the Hold" is
+    // a different door from either side of it. The marker chip is per-zone too.
     refreshQuestChips();
+    syncMarkerChip();
     // A new zone is new meshes, and a visibility flag went with the old world's chunks.
     gfx.applyAll();
   },
@@ -1499,38 +1515,8 @@ player.aimAssist = (origin, dir) => {
 };
 
 // Which landmarks earn a chip is gameplay policy; add one with `hud.addCompassMarker`, the id being
-// the identity. Town chips are re-read per frame off the marker OBJECT, so a moving town is two
-// assignments and no DOM work (issue #68) — every town, since `TownInfo` does not say which move.
-const _townChips: Array<{ chip: CompassMarker; town: TownInfo }> = [];
-
-function syncCompassMarkers(w: World, gates: GateSpec[]): void {
-  _townChips.length = 0;
-  hud.setCompassMarkers([
-    // Dens in the shard-shop amber the hint pill and price tags already use.
-    ...w.shopPositions.map((s, i) => ({ id: `den${i}`, x: s.x, z: s.z, color: 0xffd23f })),
-    ...w.towns.all.map((town) => {
-      const chip: CompassMarker = {
-        id: `town:${town.id}`,
-        x: town.gateX,
-        z: town.gateZ,
-        color: town.color,
-        label: town.id.slice(0, 4).toUpperCase(),
-      };
-      _townChips.push({ chip, town: town });
-      return chip;
-    }),
-    // Each gateway takes the colour of its own arch, labelled by where it OPENS —
-    // a player reads the rim for "the way to the sea", not for "a gate".
-    ...gates.map((g) => ({
-      id: `gate:${g.to}`,
-      x: g.x,
-      z: g.z,
-      color: g.hex,
-      label: g.to.slice(0, 4).toUpperCase(),
-    })),
-  ]);
-}
-syncCompassMarkers(world, OVERWORLD.gates(world));
+// the identity. The rim carries the next objective and the player's placed marker only (issue #247)
+// — town/den/gate chips come back through this same API if a setting re-adds them.
 
 // Empty on a new game — riding is three story unlocks (game-story.md §5). `mounts=` is applied here and nowhere else.
 const mountUnlocks = new MountUnlocks();
@@ -2175,6 +2161,124 @@ function questTab(asset: ContentAsset<QuestData>): JournalTab | null {
   return ready && content.evaluate(asset.data.available) ? "available" : null;
 }
 
+// HOVER PREVIEWS IN QUEST PROSE (issue #246). The hoverable names are derived
+// from the quest's STRUCTURED trigger — never matched out of the prose — so a
+// translation keeps its hovers: the trigger names ids, each id resolves to the
+// display name the same language table wrote into the line, and the journal
+// wraps that name where the line contains it. Prose that names nothing
+// structured gets no hover, which is correct.
+
+/** The staged sites a trigger can name (`QUEST_SITE_NAMES`), as display text. */
+const SITE_TIP_KEYS: Record<string, { name: StringKey; desc: StringKey }> = {
+  "vane-wreck": { name: "site.vaneWreck.name", desc: "site.vaneWreck.desc" },
+  "maws-rest": { name: "site.mawsRest.name", desc: "site.mawsRest.desc" },
+  "drove-ground": { name: "site.droveGround.name", desc: "site.droveGround.desc" },
+  "hold-floor": { name: "site.holdFloor.name", desc: "site.holdFloor.desc" },
+};
+
+const speciesById = (id: string): BeastSpecies | undefined =>
+  ALL_SPECIES.find((sp) => sp.id === id);
+
+/** The beast species whose body an enemy wears, or undefined for a monster's own. */
+function enemyBeast(spec: EnemySpec): BeastSpecies | undefined {
+  return ALL_SPECIES.find((sp) => spec.data.model === `beast-${sp.id}`);
+}
+
+function questHovers(trigger: ObjectiveTrigger | undefined): JournalHover[] {
+  if (!trigger) {
+    return [];
+  }
+  const out: JournalHover[] = [];
+  // A trigger's species list can name a BEAST ("sproutle") or a WILD population
+  // ("wild-sproutle", an enemy species id) — both are previews of an animal.
+  for (const sid of trigger.species ?? []) {
+    const sp = speciesById(sid);
+    if (sp) {
+      out.push({ name: t(sp.nameKey), tip: `beast:${sp.id}` });
+      continue;
+    }
+    const spec = enemySpecies().find((s) => s.id === sid);
+    if (spec) {
+      out.push({ name: t(spec.nameKey), tip: `enemy:${spec.id}` });
+    }
+  }
+  for (const eid of trigger.enemies ?? []) {
+    const spec = enemySpecies().find((s) => `enemy:${s.id}` === eid);
+    if (spec) {
+      out.push({ name: t(spec.nameKey), tip: `enemy:${spec.id}` });
+    }
+  }
+  if (trigger.item !== undefined && isKnownItem(trigger.item)) {
+    out.push({ name: itemName(itemDef(trigger.item), 1), tip: `item:${trigger.item}` });
+  }
+  if (trigger.site !== undefined && SITE_TIP_KEYS[trigger.site]) {
+    out.push({ name: t(SITE_TIP_KEYS[trigger.site].name), tip: `site:${trigger.site}` });
+  }
+  return out;
+}
+
+/** `<i class="ic beast">` for the tip: the baked portrait, or the blob until it lands. */
+function beastTipIcon(sp: BeastSpecies): string {
+  return entryIconHtml({
+    color: ELEMENT_COLORS[sp.element],
+    speciesId: sp.id,
+    iconUrl: inventory.beastIcon(sp),
+  });
+}
+
+/** What a hovered name shows. Ids are namespaced by `questHovers` above. */
+function journalTipFor(id: string): TipContent | null {
+  if (id.startsWith("beast:")) {
+    const sp = speciesById(id.slice("beast:".length));
+    return sp
+      ? {
+          name: t(sp.nameKey),
+          color: ELEMENT_COLORS[sp.element],
+          description: t(sp.descriptionKey),
+          iconHtml: beastTipIcon(sp),
+        }
+      : null;
+  }
+  if (id.startsWith("enemy:")) {
+    const spec = enemySpecies().find((s) => `enemy:${s.id}` === id);
+    if (!spec) {
+      return null;
+    }
+    // A wild body that IS a beast body shows that beast's portrait and nature.
+    const sp = enemyBeast(spec);
+    return {
+      name: t(spec.nameKey),
+      color: sp ? ELEMENT_COLORS[sp.element] : 0xff5d5d,
+      description: sp ? t(sp.descriptionKey) : undefined,
+      ...(sp ? { iconHtml: beastTipIcon(sp) } : {}),
+    };
+  }
+  if (id.startsWith("item:")) {
+    const itemId = id.slice("item:".length);
+    if (!isKnownItem(itemId)) {
+      return null;
+    }
+    const def = itemDef(itemId);
+    return {
+      name: itemName(def, 1),
+      color: def.color,
+      rarity: def.rarity,
+      description: def.descriptionKey ? t(def.descriptionKey) : undefined,
+      iconHtml: entryIconHtml({
+        color: def.color,
+        kind: def.kind,
+        icon: def.icon,
+        orbTier: def.orbTier,
+      }),
+    };
+  }
+  if (id.startsWith("site:")) {
+    const keys = SITE_TIP_KEYS[id.slice("site:".length)];
+    return keys ? { name: t(keys.name), color: 0xffc44d, description: t(keys.desc) } : null;
+  }
+  return null;
+}
+
 // `query.available` rather than `all`: the asset envelope's `when` is how content hides something entirely, and
 // a journal listing it would be the one place that leaked it.
 function journalModel(): JournalModel {
@@ -2199,6 +2303,7 @@ function journalModel(): JournalModel {
         text: resolveText(o.text, o.key),
         have: content.state.progress(asset.id, o.key),
         need: o.count ?? 1,
+        hovers: questHovers(o.trigger),
       })),
       rewards: rewardLines(asset.data.rewards),
       onHud: questOnHud(asset.id),
@@ -2229,7 +2334,131 @@ const journal = new JournalPanel({
   onToggleHud: (id) => {
     content.state.setFlag(hudFlag(id), questOnHud(id));
   },
+  tipFor: journalTipFor,
   // The inventory's bargain: a panel with buttons needs a cursor, and re-taking the lock after Escape is what makes one press close two things.
+  onOpen: () => input.releaseLock(),
+  onClose: (by) => {
+    if (isTouchPrimary()) {
+      return;
+    }
+    if (by !== "escape" || escapeIsLocked()) {
+      input.requestLock();
+    }
+  },
+});
+// A portrait that finishes baking while a journal tip is up lands in it (issue #246).
+inventory.onPortrait = (id, url) => journal.patchPortrait(id, url);
+
+// THE WORLD MAP (issue #245), and the one marker the player may plant on it.
+// The marker is session state under issue #171's rule — reset in exitToTitle,
+// saved, loaded — and carries its ZONE: a flag planted on the overworld must
+// not point at a spot inside the Hold, so the chip and the map only show it in
+// the zone it was planted in, and a save naming a zone this build no longer
+// has drops the flag rather than the load.
+let playerMarker: { zone: string; x: number; z: number } | null = null;
+const MARKER_CHIP_ID = "player-marker";
+
+function syncMarkerChip(): void {
+  if (playerMarker && playerMarker.zone === zones.id) {
+    hud.addCompassMarker({
+      id: MARKER_CHIP_ID,
+      x: playerMarker.x,
+      z: playerMarker.z,
+      // The waystone crystal's cyan — the player's own things share a colour.
+      color: 0x8be3ff,
+      label: "⚑",
+    });
+  } else {
+    hud.removeCompassMarker(MARKER_CHIP_ID);
+  }
+}
+
+function setPlayerMarker(spot: { x: number; z: number } | null): void {
+  playerMarker = spot ? { zone: zones.id, x: spot.x, z: spot.z } : null;
+  syncMarkerChip();
+}
+
+/**
+ * What the map paints its base image from. Bounds are DERIVED from what the
+ * zone contains — spawn, towns, stones and roads — so a grown world grows its
+ * map without anyone updating a constant.
+ */
+function mapTerrain(): MapTerrain {
+  let minX = world.spawnPoint.x;
+  let maxX = minX;
+  let minZ = world.spawnPoint.z;
+  let maxZ = minZ;
+  const take = (x: number, z: number): void => {
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
+  };
+  for (const town of world.towns.all) {
+    take(town.x - town.outerRadius, town.z - town.outerRadius);
+    take(town.x + town.outerRadius, town.z + town.outerRadius);
+  }
+  for (const w of world.waypoints?.all ?? []) {
+    take(w.x, w.z);
+  }
+  const roads: Array<Array<readonly [number, number]>> = [];
+  for (const r of world.towns.roads) {
+    const line: Array<readonly [number, number]> = [];
+    for (let i = 0; i < r.path.length; i += 3) {
+      line.push([r.path[i], r.path[i + 2]]);
+      take(r.path[i], r.path[i + 2]);
+    }
+    roads.push(line);
+  }
+  // Margin so nothing sits on the edge of the paper; the sea past it is context.
+  const M = 140;
+  return {
+    zoneId: zones.id,
+    heightAt: (x, z) => world.getHeight(x, z),
+    waterLevel: world.waterLevel,
+    roads,
+    bounds: { minX: minX - M, minZ: minZ - M, maxX: maxX + M, maxZ: maxZ + M },
+  };
+}
+
+const map = new MapPanel({
+  model: () => ({
+    towns: world.towns.all.map((town) => ({
+      id: town.id,
+      name: t(town.nameKey),
+      color: town.color,
+      x: town.x,
+      z: town.z,
+    })),
+    stones: (world.waypoints?.all ?? []).map((w) => ({
+      id: w.id,
+      x: w.x,
+      z: w.z,
+      lit: waypointLit(w.id),
+    })),
+    quests: questSpots(),
+    player: { x: player.position.x, z: player.position.z, facing: player.facing },
+    marker:
+      playerMarker && playerMarker.zone === zones.id
+        ? { x: playerMarker.x, z: playerMarker.z }
+        : null,
+  }),
+  terrain: mapTerrain,
+  onTravel: (stoneId) => {
+    const stone = world.waypoints?.all.find((w) => w.id === stoneId);
+    // Lit is re-checked at the moment of travel — the panel's list is a frame old.
+    if (!stone || !waypointLit(stone.id)) {
+      return;
+    }
+    map.close("travel");
+    teleportTo(stone.x, stone.z);
+  },
+  onMarker: (spot) => {
+    setPlayerMarker(spot);
+    if (spot) {
+      bus.emit({ type: "toast", text: t("toast.markerPlaced") });
+    }
+  },
   onOpen: () => input.releaseLock(),
   onClose: (by) => {
     if (isTouchPrimary()) {
@@ -2378,8 +2607,8 @@ function syncQuestMarks(dt: number): void {
  * Nothing here knows a quest by name, and a quest that names no place gets no
  * chip rather than a chip pointing at the middle of the world.
  */
-function questCompassSpots(): CompassMarker[] {
-  const out: CompassMarker[] = [];
+function questSpots(): Array<{ id: string; name: string; x: number; z: number }> {
+  const out: Array<{ id: string; name: string; x: number; z: number }> = [];
   for (const row of questTrackRows()) {
     const asset = content.get<QuestData>(row.id);
     if (!asset) {
@@ -2389,19 +2618,23 @@ function questCompassSpots(): CompassMarker[] {
     if (!spot) {
       continue;
     }
-    out.push({
-      // The asset id IS the chip id: it already carries its `quest:` namespace, and
-      // a second one only makes `quest:quest:land/…`.
-      id: asset.id,
-      x: spot.x,
-      z: spot.z,
-      // The gold the world marks are drawn in, so the chip on the rim and the
-      // glyph over the head are recognisably the same thing.
-      color: 0xffc44d,
-      label: row.name.slice(0, 4).toUpperCase(),
-    });
+    // The asset id IS the spot id: it already carries its `quest:` namespace, and
+    // a second one only makes `quest:quest:land/…`.
+    out.push({ id: asset.id, name: row.name, x: spot.x, z: spot.z });
   }
   return out;
+}
+
+function questCompassSpots(): CompassMarker[] {
+  return questSpots().map((s) => ({
+    id: s.id,
+    x: s.x,
+    z: s.z,
+    // The gold the world marks are drawn in, so the chip on the rim and the
+    // glyph over the head are recognisably the same thing.
+    color: 0xffc44d,
+    label: s.name.slice(0, 4).toUpperCase(),
+  }));
 }
 
 /** The one place `questCompassSpots` sends you for this quest, or null. */
@@ -4183,17 +4416,26 @@ const refitHero = (): void => {
   }
 }
 
-(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (
-  x,
-  z,
-  y,
-) => {
-  // THE SADDLE FIRST: while mounted the hero's position is rewritten from the mount every slice, so setting these fields alone was a teleport that did nothing.
+// THE ONE WAY TO MOVE THE HERO ACROSS THE WORLD — the saddle first (while
+// mounted his position is rewritten from the mount every slice, so setting the
+// fields alone was a teleport that did nothing), then the ground that is there
+// NOW. The map's waystone travel and `__dbgTp` share it.
+function teleportTo(x: number, z: number, y?: number): void {
   mount.teleport(x, z, y);
   player.position.x = x;
   player.position.z = z;
   player.position.y = y ?? Math.max(world.getHeight(x, z), world.waterLevel);
   player.velocity.set(0, 0, 0);
+}
+(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp =
+  teleportTo;
+// TEST HOOK, `__dbgTp`'s argument exactly: it DRIVES the map marker without the
+// panel, which is how test-saves plants a flag to round-trip.
+(window as unknown as { __dbgMarker: (x: number | null, z?: number) => void }).__dbgMarker = (
+  x,
+  z,
+) => {
+  setPlayerMarker(x === null || z === undefined ? null : { x, z });
 };
 // Swing the camera so a held W walks along that bearing — movement is camera-relative. A WALK bearing, and the swing takes a few hundred ms.
 (window as unknown as { __dbgAim: (bearing: number) => void }).__dbgAim = (bearing) => {
@@ -4755,7 +4997,8 @@ function updateCursorMode(): void {
     hud.isShopOpen() ||
     hud.isControlsOpen() ||
     inventory.isOpen ||
-    journal.isOpen;
+    journal.isOpen ||
+    map.isOpen;
   const want = altHeld || (menuUp && input.lastSource === "kbm");
   if (want === cursorFree) {
     return;
@@ -5565,6 +5808,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     pauseMenu.isOpen ||
     inventory.isOpen ||
     journal.isOpen ||
+    map.isOpen ||
     !!devConsole?.isOpen ||
     perfPanel.isTyping;
   nearShop = false;
@@ -5783,6 +6027,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
         } else {
           journal.activate();
         }
+      } else if (map.isOpen) {
+        // Its own Escape spends the press on the travel dialog first, then the panel.
+        if (cancel) {
+          map.onEscape();
+        } else {
+          map.activate();
+        }
       } else if (hud.isControlsOpen()) {
         hud.closeControls();
       } else {
@@ -5903,6 +6154,7 @@ function frame(): void {
     pauseMenu.isOpen ||
     inventory.isOpen ||
     journal.isOpen ||
+    map.isOpen ||
     perfPanel.isTyping;
   // A modal does not turn the camera, and the controls sheet keeps pointer lock, so unlike the shop it
   // goes on collecting mouse delta that no slice will spend. See Input.clearLook.
@@ -6023,12 +6275,7 @@ function frame(): void {
     return { def, cooldownRemaining: remaining, ready: remaining <= 0 };
   });
   hud.setSkills(skillSlots);
-  // Presentation, so not in simulate(): the strip shows where the LENS points, placed by this frame's camera. North is world -Z. A moving town moves its own chip.
-  for (let i = 0; i < _townChips.length; i++) {
-    const c = _townChips[i];
-    c.chip.x = c.town.gateX;
-    c.chip.z = c.town.gateZ;
-  }
+  // Presentation, so not in simulate(): the strip shows where the LENS points, placed by this frame's camera. North is world -Z.
   syncQuestMarks(dt);
   engine.camera.getWorldDirection(_compassFwd);
   hud.setCompass(
@@ -6091,6 +6338,9 @@ function frame(): void {
   }
   if (!photoMode && input.takePress("KeyJ") && (journal.isOpen || !(modal || devConsole?.isOpen))) {
     journal.toggle();
+  }
+  if (!photoMode && input.takePress("KeyM") && (map.isOpen || !(modal || devConsole?.isOpen))) {
+    map.toggle();
   }
   if (input.takePress("F2")) {
     debug.toggle();
@@ -6441,6 +6691,13 @@ beginPlay();
   })),
 });
 
+// THE MAP: the live view, marker counts and every travel target's screen position,
+// so a probe can aim a real click. `marker` is the planted flag with its zone.
+(window as unknown as { __dbgMap: () => unknown }).__dbgMap = () => ({
+  ...(map.debug() as Record<string, unknown>),
+  planted: playerMarker,
+});
+
 (window as unknown as { __dbgJournal: () => unknown }).__dbgJournal = () => ({
   open: journal.isOpen,
   tab: journal.isOpen ? journal.activeTab : null,
@@ -6719,6 +6976,8 @@ beginPlay();
     // The looked-up name, so `?lang=sv` shows what the fingerpost shows; field names stay English.
     name: t(town.nameKey),
     kind: town.kind,
+    // The resolved TownInfo.color — the compass chips that used to expose it are gone (issue #247).
+    color: town.color,
     // Whether something is carrying it: a carried town's colliders are in its carrier's frame and its position is a reading rather than a placement.
     carried: town.carried,
     x: +town.x.toFixed(1),

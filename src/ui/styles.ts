@@ -708,24 +708,43 @@ const CSS = `
   border:1px solid rgba(255,90,80,.34);box-shadow:none}
 .bs-inv .pane>.sel .bs-buy.danger:hover{background:rgba(255,90,80,.24);color:#fff}
 
-/* THE TOOLTIP, positioned against the VIEWPORT rather than inside the panel,
-   because it has to be able to leave it. See moveTip for the clamping. */
-.bs-inv .tip{position:fixed;top:0;left:0;z-index:1;max-width:290px;
+/* THE TOOLTIP (ui/tooltip.ts), positioned against the VIEWPORT rather than
+   inside the panel, because it has to be able to leave it. See Tooltip.move
+   for the clamping. TWO HOSTS on every rule (issue #246): the inventory and
+   the journal share the one mechanism, so they share the one look. */
+.bs-inv .tip,.bs-journal .tip{position:fixed;top:0;left:0;z-index:1;max-width:290px;
   padding:11px 13px 12px;border-radius:13px;pointer-events:none;
   background:linear-gradient(165deg,rgba(24,31,45,.97),rgba(12,16,25,.98));
   border:1px solid rgba(255,255,255,.16);
   box-shadow:0 18px 44px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08);
   backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   opacity:0;transition:opacity .12s ease}
-.bs-inv .tip.on{opacity:1}
-.bs-inv .tip h3{font-size:18px;font-weight:800;line-height:1.2;color:#fff}
-.bs-inv .tip .rar{display:inline-block;margin-top:2px;font-size:16px;font-weight:800;
+.bs-inv .tip.on,.bs-journal .tip.on{opacity:1}
+.bs-inv .tip h3,.bs-journal .tip h3{font-size:18px;font-weight:800;line-height:1.2;color:#fff}
+.bs-inv .tip .rar,.bs-journal .tip .rar{display:inline-block;margin-top:2px;font-size:16px;font-weight:800;
   letter-spacing:.05em;text-transform:uppercase;color:rgba(238,242,248,.55)}
-.bs-inv .tip .rar.r-rare{color:#7fd8ff}
-.bs-inv .tip .rar.r-legendary{color:#ffc44d;text-shadow:0 0 12px rgba(255,196,77,.5)}
-.bs-inv .tip p{font-size:16px;line-height:1.4;color:rgba(238,242,248,.78);margin:7px 0 8px}
-.bs-inv .tip .note{font-size:16px;color:rgba(238,242,248,.5);font-style:italic;margin:7px 0 0}
-.bs-inv .tip .bs-chips{margin-bottom:0}
+.bs-inv .tip .rar.r-rare,.bs-journal .tip .rar.r-rare{color:#7fd8ff}
+.bs-inv .tip .rar.r-legendary,.bs-journal .tip .rar.r-legendary{color:#ffc44d;text-shadow:0 0 12px rgba(255,196,77,.5)}
+.bs-inv .tip p,.bs-journal .tip p{font-size:16px;line-height:1.4;color:rgba(238,242,248,.78);margin:7px 0 8px}
+.bs-inv .tip .note,.bs-journal .tip .note{font-size:16px;color:rgba(238,242,248,.5);font-style:italic;margin:7px 0 0}
+.bs-inv .tip .bs-chips,.bs-journal .tip .bs-chips{margin-bottom:0}
+/* The preview's portrait box; the .ic inside is the inventory's own chain. */
+.bs-inv .tip .hd,.bs-journal .tip .hd{display:flex;align-items:center;gap:10px}
+.bs-inv .tip .tico,.bs-journal .tip .tico{flex:none;width:46px;height:46px;border-radius:10px;
+  overflow:hidden;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  display:flex}
+.bs-journal .tip .ic{width:100%;height:100%;display:block;background-repeat:no-repeat;
+  background-position:center;background-size:contain}
+.bs-journal .tip .ic.blob{background-image:none;
+  background:radial-gradient(circle at 38% 32%,#fff2,transparent 60%),var(--el);
+  border-radius:26% 26% 30% 30%/30%;box-shadow:0 0 14px -4px var(--el);
+  width:62%;height:62%;margin:auto}
+.bs-journal .tip .ic.glyph{background:none;width:70%;height:70%;margin:auto;color:var(--el);
+  filter:drop-shadow(0 0 6px rgba(255,255,255,.28))}
+.bs-journal .tip .ic.glyph svg{width:100%;height:100%;display:block}
+/* A hoverable name in a quest line says so quietly. */
+.bs-journal .tipw{text-decoration:underline dotted rgba(238,242,248,.55);
+  text-underline-offset:3px;cursor:help}
 @media (prefers-reduced-motion:reduce){
   .bs-inv .bs-scrim,.bs-inv .pane,.bs-inv .slot,.bs-inv .tip{transition:none}
 }
@@ -822,6 +841,45 @@ const CSS = `
 }
 @media (max-width:720px){
   .bs-journal .pane{width:100vw;border-radius:0;border-left:none}
+}
+
+
+/* ---- world map (M) ------------------------------------------------------- */
+/* src/ui/map.ts. Fullscreen, one canvas: the base image is generated terrain,
+   the markers are drawn over it per frame. Same modal family as the journal —
+   z-index 40, --bs-vw/--bs-vh, .bs-glass, .bs-shop-x. */
+.bs-map{position:fixed;inset:0;z-index:40;display:flex;
+  pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#eef2f8;user-select:none;-webkit-user-select:none}
+.bs-map .bs-scrim{opacity:0}
+.bs-map.open .bs-scrim{opacity:1}
+.bs-map .pane{position:relative;width:var(--bs-vw,100vw);height:var(--bs-vh,100dvh);
+  display:flex;flex-direction:column;min-height:0;border-radius:0;border:none;
+  opacity:0;transition:opacity .2s ease}
+.bs-map.open .pane{opacity:1}
+.bs-map .head{display:flex;align-items:center;gap:14px;padding:14px 18px 12px;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.bs-map .head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
+  text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.bs-map .head .cap{display:flex;gap:5px;opacity:.62}
+/* The canvas owns every remaining pixel; its cursor says the ground is draggable. */
+.bs-map .mc{flex:1;min-height:0;width:100%;cursor:grab;display:block}
+.bs-map .mc:active{cursor:grabbing}
+.bs-map .foot{display:flex;gap:18px;flex-wrap:wrap;padding:10px 18px;
+  border-top:1px solid rgba(255,255,255,.1);font-size:16px;color:rgba(238,242,248,.72)}
+.bs-map .foot span{display:inline-flex;align-items:center;gap:7px}
+/* The travel question, floated over the middle of the map. */
+.bs-map .mconfirm{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  padding:18px 22px;border-radius:14px;display:flex;flex-direction:column;gap:14px;
+  box-shadow:0 18px 48px rgba(0,0,0,.55)}
+.bs-map .mconfirm p{font-size:17px;font-weight:700}
+.bs-map .mconfirm .row{display:flex;gap:10px;justify-content:center}
+.bs-map .mconfirm .bs-buy{font-size:16px;padding:7px 16px}
+.bs-map .mconfirm .bs-buy.ghost{background:rgba(255,255,255,.1);color:rgba(238,242,248,.8)}
+.bs-map .mconfirm .bs-buy:focus-visible{outline:2px solid #ffd23f;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .bs-map .bs-scrim,.bs-map .pane{transition:none}
 }
 
 

@@ -141,6 +141,9 @@ const SOLO = new Set([
   // every case loads a character over the one before it — which is the shape
   // the shared roster explicitly excludes. SOLO is the default anyway.
   "saves",
+  // Opens the map with a key press, clicks its canvas and travels the hero to a
+  // waystone — key edges, a state-driving teleport and a real mouse click.
+  "map",
   "nature", // rebuilds ~90 chunks per section and counts their vertices
   "view-distance", // teleports the hero and waits for the far clipmap to recenter
   // Teleports to every settlement in turn and waits for the streaming ring to

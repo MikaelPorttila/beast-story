@@ -61,6 +61,8 @@ export interface SaveDocument {
   /** `ContentStateStore.toJSON()`, carried verbatim and never inspected. */
   content: unknown;
   dayPhase: number;
+  /** The map's one player-placed flag (issue #245). Absent means none is planted. */
+  marker?: { zone: string; x: number; z: number };
   /** Fields a NEWER build wrote, carried untouched so this build's autosave cannot drop them. */
   extra?: Record<string, unknown>;
 }
@@ -173,6 +175,7 @@ const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "content",
   "dayPhase",
   "mounts",
+  "marker",
 ]);
 
 /** Runs ONCE on the way in, so the rest of the file sees today's shape. Newer passes through. */
@@ -298,6 +301,19 @@ function parseDoc(value: unknown): SaveDocument | null {
       : [],
     content: raw.content,
     dayPhase: num(raw.dayPhase, 0),
+    // All three or nothing: a flag with no zone or a NaN coordinate is no flag.
+    ...(isRecord(raw.marker) &&
+    strOrNull(raw.marker.zone) !== null &&
+    Number.isFinite(num(raw.marker.x, NaN)) &&
+    Number.isFinite(num(raw.marker.z, NaN))
+      ? {
+          marker: {
+            zone: raw.marker.zone as string,
+            x: num(raw.marker.x, 0),
+            z: num(raw.marker.z, 0),
+          },
+        }
+      : {}),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
   // An unusable coordinate becomes NaN and is NOT repaired here — that needs the world.
@@ -322,6 +338,7 @@ function serialize(doc: SaveDocument): Record<string, unknown> {
     mounts: [...doc.mounts],
     content: doc.content,
     dayPhase: doc.dayPhase,
+    ...(doc.marker ? { marker: { ...doc.marker } } : {}),
   };
   for (const key of Object.keys(doc.extra ?? {})) {
     if (!KNOWN_FIELDS.has(key)) {

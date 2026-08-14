@@ -1,6 +1,7 @@
 import { t, type StringKey } from "../i18n";
 import { injectStyles } from "./styles";
 import { CHECK_ICON, CLOSE_ICON } from "./icons";
+import { Tooltip, type TipContent } from "./tooltip";
 
 /**
  * Quest journal (issue #98). A modal right-hand dock: main.ts freezes the hero
@@ -19,11 +20,21 @@ const TABS: readonly { id: JournalTab; key: StringKey }[] = [
   { id: "completed", key: "journal.tab.completed" },
 ];
 
+/** A name in an objective's prose that has a preview (issue #246). Derived from
+ *  the quest's STRUCTURED trigger by the host, never parsed out of the text —
+ *  `name` is the display name as the current language writes it, `tip` the id
+ *  the host's `tipFor` resolves (`beast:sproutle`, `item:red-shard`, …). */
+export interface JournalHover {
+  name: string;
+  tip: string;
+}
+
 /** `need` is 1 for a boolean objective. */
 export interface JournalObjective {
   text: string;
   have: number;
   need: number;
+  hovers?: readonly JournalHover[];
 }
 
 export interface JournalReward {
@@ -54,6 +65,8 @@ export interface JournalModel {
 export interface JournalHooks {
   model: () => JournalModel;
   onToggleHud: (id: string) => void;
+  /** Resolves a `JournalHover.tip` id to preview content, or null for no tip. */
+  tipFor?: (id: string) => TipContent | null;
   onOpen?: () => void;
   onClose?: (by: JournalCloseBy) => void;
 }
@@ -81,6 +94,7 @@ const escapeHtml = (s: string): string =>
 
 export class JournalPanel {
   private el: HTMLDivElement | null = null;
+  private tip = new Tooltip();
   private tab: JournalTab = "active";
   private focusables: HTMLButtonElement[] = [];
   private focusIdx = 0;
@@ -118,8 +132,13 @@ export class JournalPanel {
     el.className = "bs-journal";
     el.innerHTML = '<div class="bs-scrim"></div><aside class="pane bs-glass"></aside>';
     this.el = el;
+    this.tip.attach(el);
     document.body.appendChild(el);
     el.addEventListener("click", this.onClick);
+    // Desktop-only by construction, exactly as the inventory's: touch has no hover.
+    el.addEventListener("pointerover", this.onPointerOver);
+    el.addEventListener("pointermove", this.onPointerMove);
+    el.addEventListener("pointerout", this.onPointerOut);
     window.addEventListener("keydown", this.onKeyDown, true);
     this.render();
     this.pollPad();
@@ -137,6 +156,7 @@ export class JournalPanel {
     this.padRaf = 0;
     window.removeEventListener("keydown", this.onKeyDown, true);
     this.padDown.fill(0);
+    this.tip.detach();
     this.el.remove();
     this.el = null;
     this.focusables = [];
@@ -261,11 +281,78 @@ export class JournalPanel {
     return (
       `<li class="${done ? "ok" : ""}">` +
       `<i class="tk">${done ? CHECK_ICON : ""}</i>` +
-      `<span>${escapeHtml(o.text)}</span>` +
+      `<span>${this.stepText(o)}</span>` +
       (o.need > 1 ? `<b>${o.have}/${o.need}</b>` : "") +
       "</li>"
     );
   }
+
+  /**
+   * The objective's prose with each hoverable NAME wrapped in a `data-tip` span
+   * (issue #246). The names come from the quest's structured trigger, resolved
+   * through the same language table the prose was — so this is a find of a
+   * known display name, never a parse. A name the line does not contain gets no
+   * span, which is correct: prose that names nothing structured has no hover.
+   */
+  private stepText(o: JournalObjective): string {
+    const text = o.text;
+    const lower = text.toLowerCase();
+    const spans: { start: number; end: number; tip: string }[] = [];
+    for (const h of o.hovers ?? []) {
+      const at = lower.indexOf(h.name.toLowerCase());
+      if (at < 0 || h.name.length === 0) {
+        continue;
+      }
+      if (spans.some((s) => at < s.end && at + h.name.length > s.start)) {
+        continue;
+      }
+      spans.push({ start: at, end: at + h.name.length, tip: h.tip });
+    }
+    if (spans.length === 0) {
+      return escapeHtml(text);
+    }
+    spans.sort((a, b) => a.start - b.start);
+    let out = "";
+    let at = 0;
+    for (const s of spans) {
+      out += escapeHtml(text.slice(at, s.start));
+      out += `<span class="tipw" data-tip="${escapeHtml(s.tip)}">${escapeHtml(text.slice(s.start, s.end))}</span>`;
+      at = s.end;
+    }
+    return out + escapeHtml(text.slice(at));
+  }
+
+  /** For the host: a portrait finished baking while a tip may be up. */
+  patchPortrait(speciesId: string, url: string): void {
+    this.tip.patchIcon(speciesId, url);
+  }
+
+  private tipAt(target: EventTarget | null): TipContent | null {
+    const el = (target as HTMLElement | null)?.closest?.("[data-tip]") as HTMLElement | null;
+    const key = el?.dataset.tip;
+    return key ? (this.hooks.tipFor?.(key) ?? null) : null;
+  }
+
+  private onPointerOver = (ev: PointerEvent): void => {
+    const e = this.tipAt(ev.target);
+    if (e) {
+      this.tip.show(e, ev.clientX, ev.clientY);
+    } else {
+      this.tip.hide();
+    }
+  };
+
+  private onPointerMove = (ev: PointerEvent): void => {
+    if (this.tip.visible) {
+      this.tip.move(ev.clientX, ev.clientY);
+    }
+  };
+
+  private onPointerOut = (ev: PointerEvent): void => {
+    if (!this.tipAt(ev.relatedTarget)) {
+      this.tip.hide();
+    }
+  };
 
   private showTab(tab: JournalTab): void {
     this.tab = tab;

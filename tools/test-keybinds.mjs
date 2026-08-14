@@ -82,8 +82,12 @@ function sources(dir) {
 // its own held set rather than through down(), and a sheet that forgot to
 // mention how you WALK would otherwise pass. `takePress` is the frame-loop read
 // F1 and F2 use — it is a separate word, and leaving it out silently dropped
-// both of them out of this scan.
-const READ = /(?:takePress|pressed|down|has)\(\s*'([A-Za-z0-9]+)'\s*\)/g;
+// both of them out of this scan. Both quote styles: the oxfmt migration turned
+// every literal double-quoted, and a single-quote-only scan matched NOTHING
+// from then on — the check passed vacuously while the sheet could rot.
+// Uppercase first letter: every KeyboardEvent.code starts with one, and it is
+// what keeps `mountUnlocks.has("water")` out of a scan keyed on bare words.
+const READ = /(?:takePress|pressed|down|has)\(\s*["']([A-Z][A-Za-z0-9]*)["']\s*\)/g;
 const scanned = new Set();
 for (const file of sources(SRC)) {
   // Skip the table itself: its `codes` arrays are not reads, and matching them
@@ -102,7 +106,7 @@ for (const file of sources(SRC)) {
 const table = fs.readFileSync(path.join(SRC, "ui", "keybinds.ts"), "utf8");
 const listed = new Set();
 for (const m of table.matchAll(/codes:\s*\[([^\]]*)\]/g)) {
-  for (const c of m[1].matchAll(/'([^']+)'/g)) {
+  for (const c of m[1].matchAll(/["']([^"']+)["']/g)) {
     listed.add(c[1]);
   }
 }
