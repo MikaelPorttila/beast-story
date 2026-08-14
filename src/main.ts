@@ -35,6 +35,7 @@ import {
   LOCOMOTION_NAME_KEYS,
   MOUNT_KINDS,
   MOUNT_KIND_KEYS,
+  MOUNT_KIND_OF,
   type CrownContact,
   type NpcInfo,
   type SkillDef,
@@ -2416,10 +2417,41 @@ function advanceObjectives(fact: QuestFact): void {
   }
 }
 
+/**
+ * TOUCHING DARK WATER MOUNTS THE WATER BEAST (issue #153) — an engine mechanic,
+ * not a quest step: gated on the story flag and the unlock, so it keeps working
+ * after Dark Water is turned in and in every later act. The beast surfaces to
+ * carry him: a benched water companion is brought out as the lead first, which
+ * is the same slot-visibility rule Tab uses.
+ */
+function tryAutoMountWater(): void {
+  if (!playing || mount.isMounted || sail !== null) {
+    return;
+  }
+  if (!mountUnlocks.has("water") || !content.state.flag("mount-water")) {
+    return;
+  }
+  const water = ownedBeasts().filter(
+    (b) => MOUNT_KIND_OF[b.species.locomotion] === "water" && !b.isDead,
+  );
+  if (water.length === 0) {
+    return;
+  }
+  const out = water.find((b) => b === primary() || b === support()) ?? water[0];
+  if (out !== primary() && out !== support()) {
+    primaryIdx = roster.indexOf(out);
+    refreshVisibility();
+  }
+  mount.mount(out);
+}
+
 bus.on((e) => {
   // A THROW, not a bond: the practice objective is about the motion, so a broken orb counts.
   if (e.type === "orbThrown") {
     advanceObjectives({ kind: "orb-thrown" });
+  }
+  if (e.type === "deepRefused") {
+    tryAutoMountWater();
   }
   // THE INSTANCE, NOT THE COMPANION (issue #178): the fact carries the wild species that was bonded
   // (`wild-sproutle`, `penned-sproutle`), so "bond a WILD one" is a claim about the animal and not

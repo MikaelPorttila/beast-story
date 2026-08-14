@@ -96,6 +96,60 @@
               }
             ]
           },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/dark-water",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/dark-water",
+                  "objective": "tame-aquaxol",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.sea2.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:sea/dark-water" }]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/salt-and-rope",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/dark-water",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/dark-water",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.sea2.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:sea/dark-water" }]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sea/dark-water",
+              "status": "active"
+            },
+            "line": { "key": "npc.gain.sea2.busy" }
+          },
           { "line": { "key": "npc.gain.sea1.after" } }
         ]
       }
@@ -132,6 +186,40 @@
           { "do": "discover", "id": "town:saltrest" }
         ],
         "rewards": { "xp": 250, "shard": 60 }
+      }
+    },
+    {
+      "id": "quest:sea/dark-water",
+      "schema": 1,
+      "name": { "key": "quest.sea.darkWater.name" },
+      "description": { "key": "quest.sea.darkWater.desc" },
+      "tags": ["story", "act2"],
+      "data": {
+        "category": "main",
+        "arc": "sea",
+        "giver": "npc:gain/saltrest",
+        "location": "town:saltrest",
+        "prerequisites": ["quest:sea/salt-and-rope"],
+        "objectives": [
+          {
+            "key": "find-the-aquaxol",
+            "text": { "key": "quest.sea.darkWater.obj.findTheAquaxol" },
+            "trigger": { "kind": "orb-thrown", "species": ["wild-aquaxol"] },
+            "_find": "The engine's orb fact carries no species, so any throw advances this — the same looseness bond-practice ships with. The species filter is what RINGS the aquaxol in the world marks, which is the objective's real job: point the hunt."
+          },
+          {
+            "key": "tame-aquaxol",
+            "text": { "key": "quest.sea.darkWater.obj.tameAquaxol" },
+            "trigger": { "kind": "tamed", "species": ["wild-aquaxol"] }
+          }
+        ],
+        "onComplete": [
+          { "do": "mount.unlock", "kind": "water" },
+          { "do": "flag.set", "flag": "mount-water" },
+          { "do": "flag.set", "flag": "dark-water-open" }
+        ],
+        "_mount-water": "Action and flag both, per §6: the action does the unlocking, the flag is the testable fact quest:seam/guardian-sea gates on in Act 4. Campaign-lifetime — never cleared.",
+        "rewards": { "xp": 300, "shard": 80 }
       }
     }
   ]

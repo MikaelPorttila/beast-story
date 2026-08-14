@@ -226,6 +226,11 @@ export const en = {
   "quest.sea.saltAndRope.obj.reachSaltrest": "Cross to the Brine Reach and find Saltrest harbour",
   "quest.sea.saltAndRope.obj.talkToGain": "Find Gain on the quay",
   "quest.sea.saltAndRope.obj.takeTheBoat": "Take the boat he has already bought",
+  "quest.sea.darkWater.name": "Dark Water",
+  "quest.sea.darkWater.desc":
+    "The channels between the islands run too deep and too cold to swim, and the boat cannot follow a thing that dives. Something out in the shallows can — if it chooses you.",
+  "quest.sea.darkWater.obj.findTheAquaxol": "Find an Aquaxol in the shallows around Saltrest",
+  "quest.sea.darkWater.obj.tameAquaxol": "Bond the Aquaxol",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -331,6 +336,12 @@ export const en = {
     "Then she is yours — ropes, salt stink and all. Coil's people were asking after the same drowned market you will be, so do not dawdle. And before you ask: no, I do not know how I keep getting ahead of you. Worry about it later.",
   "npc.gain.sea1.after":
     "Salt in the rope, friend. The Reach will teach you the rest — I have taught you the cheap half already.",
+  "npc.gain.sea2.offer":
+    "Now the true lesson. That boat stops at the shallows; the Reach starts past them, down where the water goes black. There is an animal in the coves that swims it like you walk a road. Take an orb to the shallows and come back RIDING.",
+  "npc.gain.sea2.busy":
+    "Shallow coves, wet feet, one orb. It will find you before you find it — they always do.",
+  "npc.gain.sea2.done":
+    "Look at it grinning. That is the whole Reach open to you now — when the dark water takes your feet, that animal will take the rest of you. Try it. On purpose, I mean.",
 
   // Redbriar's miller. She closes The Mill Road (issue #149) — the quest Gain
   // offers and she ends, which is what `turnIn` on the asset says. Her own

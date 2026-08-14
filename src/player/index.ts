@@ -593,6 +593,9 @@ export class Player {
 
   /** A TOAST, not a noise: what the player needs told is the fix, and that is a sentence. */
   private refuseDeep(): void {
+    // Unthrottled: the auto-mount policy (main.ts, issue #153) wants the FIRST
+    // contact, and once it mounts him the refusals stop on their own.
+    this.bus.emit({ type: "deepRefused" });
     if (this.deepToastT > 0) {
       return;
     }
