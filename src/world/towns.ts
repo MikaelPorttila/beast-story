@@ -6,12 +6,7 @@
  * road exit, where the route crosses its radius.
  */
 import * as THREE from "three";
-import {
-  excludeFromAO,
-  type CelestialState,
-  type TownInfo,
-  type TownRegistry,
-} from "../core/types";
+import type { CelestialState, TownInfo, TownRegistry } from "../core/types";
 import { VoxelModel } from "../core/voxel";
 import { t, type StringKey } from "../i18n";
 import { content, defineFactory, resolveText, TOWN_LAYOUT_KIND, type TownData } from "../content";
@@ -981,15 +976,10 @@ export class Towns {
     nightGlow.emissiveIntensity = 0;
     nightGlow.userData.bsNightRole = "town-windows";
 
-    const emit = (
-      acc: Accum,
-      mat: THREE.Material,
-      parent: THREE.Group,
-      shadows: boolean,
-    ): THREE.Mesh | null => {
+    const emit = (acc: Accum, mat: THREE.Material, parent: THREE.Group, shadows: boolean): void => {
       const geo = acc.toGeometry();
       if (!geo) {
-        return null;
+        return;
       }
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = shadows;
@@ -997,7 +987,6 @@ export class Towns {
       mesh.matrixAutoUpdate = false;
       parent.add(mesh);
       this.geos.push(geo);
-      return mesh;
     };
 
     for (const town of plan.towns.all) {
@@ -1113,12 +1102,7 @@ export class Towns {
         builtFences.push(...addBridgeFurniture(solid, parts, built, surfaceAt));
       }
       emit(solid.acc, props.solidMat, g, true);
-      // A glow head is a LIGHT, not an occluder, and it ring-fades: in the AO
-      // G-buffer it would stamp dots along the road the beauty pass discarded.
-      const glowMesh = emit(glow, lampGlow, g, false);
-      if (glowMesh) {
-        excludeFromAO(glowMesh);
-      }
+      emit(glow, lampGlow, g, false);
       this.group.add(g);
       const mid = road.pts[Math.floor(road.pts.length / 2)];
       this.sites.push({ g, x: mid.x, z: mid.z, r: roadLength(road) * 0.5 + 20 });
@@ -1213,12 +1197,10 @@ export class Towns {
       mesh.name = name;
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
-      // OUT OF THE AO G-BUFFER: the override pass knows nothing of the ring
-      // fade, so a full-length ribbon stamped a road-shaped AO darkening onto
-      // the fog far past where the beauty pass had discarded it (issue #39's
-      // signature, reported from the air). The carved terrain a hair beneath
-      // the deck carries the near contact AO instead.
-      excludeFromAO(mesh);
+      // The ribbon STAYS in the AO G-buffer — its far half is handled by the
+      // pass's own 200-unit cut (core/post.ts). Excluding it here made the near
+      // deck inherit the carved trench's AO from beneath, which a player read
+      // as a transparent road.
       this.pathGroup.add(mesh);
       this.geos.push(geo);
     };
