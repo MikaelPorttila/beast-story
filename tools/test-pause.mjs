@@ -1045,6 +1045,18 @@ export const sections = [
           window.__fakePad.axes[0] = 0;
           window.__fakePad.axes[1] = 0;
         });
+        await page.waitForFunction(
+          () =>
+            !document.querySelector(".bs-wheel-sector.selected") &&
+            !document.activeElement?.closest(".bs-wheel-sector"),
+          { timeout: 5000 },
+        );
+        g.selectionAfterRelease = await page.evaluate(() => ({
+          selected:
+            document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ?? null,
+          focused:
+            document.activeElement?.closest(".bs-wheel-sector")?.getAttribute("data-act") ?? null,
+        }));
         await setPadButton(page, PAD_BUTTON.A, true);
         await advance(page, 0.2);
         await setPadButton(page, PAD_BUTTON.A, false);
@@ -1082,6 +1094,10 @@ export const sections = [
         ctx.check(g.closedBySecondPress, "a second press closes it");
         ctx.check(g.reopenedByThirdPress, "and a third reopens it");
         ctx.check(g.stickSelection === "journal", "left stick did not aim the Journal sector");
+        ctx.check(
+          g.selectionAfterRelease.selected === null && g.selectionAfterRelease.focused === null,
+          "the aimed sector stayed selected after the left stick was released",
+        );
         ctx.check(g.releasedStickBlocked, "A confirmed after the left stick was released");
         ctx.check(g.confirmedWithA, "A did not confirm while the left stick direction was held");
         ctx.check(g.dismissedWithB, "B did not dismiss the opened panel");

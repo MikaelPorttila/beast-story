@@ -98,6 +98,7 @@ export class PauseMenu {
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
   private padAxisLatchedX = false;
+  private padAiming = false;
 
   constructor(private hooks: PauseMenuHooks) {
     injectStyles();
@@ -124,6 +125,7 @@ export class PauseMenu {
     }
     this.step = "wheel";
     this.selectedIdx = null;
+    this.padAiming = false;
     const el = document.createElement("div");
     el.className = "bs-pause";
     el.innerHTML = '<div class="bs-scrim"></div><div class="pane"></div>';
@@ -162,6 +164,7 @@ export class PauseMenu {
     this.unlisten = null;
     window.removeEventListener("keydown", this.onKeyDown, true);
     this.padDown.fill(0);
+    this.padAiming = false;
     this.el.remove();
     this.el = null;
     this.focusables = [];
@@ -247,6 +250,7 @@ export class PauseMenu {
   private goto(step: Step, focus?: string): void {
     this.step = step;
     this.selectedIdx = null;
+    this.padAiming = false;
     if (step === "settings") {
       this.padAxisLatched = true;
       this.padAxisLatchedX = true;
@@ -327,6 +331,18 @@ export class PauseMenu {
       return false;
     }
     return false;
+  }
+
+  private clearPadSelection(): void {
+    if (!this.padAiming) {
+      return;
+    }
+    this.padAiming = false;
+    this.setSelection(null, false);
+    const active = document.activeElement;
+    if (active instanceof HTMLButtonElement && active.closest(".bs-wheel")) {
+      active.blur();
+    }
   }
 
   private setSelection(idx: number | null, focus = true): void {
@@ -428,10 +444,12 @@ export class PauseMenu {
         }
       }
     } catch {
+      this.clearPadSelection();
       return;
     }
     if (!pad) {
       this.padDown.fill(0);
+      this.clearPadSelection();
       return;
     }
 
@@ -447,7 +465,10 @@ export class PauseMenu {
     const stickY = pad.axes[1] ?? 0;
     if (this.step === "wheel") {
       if (Math.hypot(stickX, stickY) > 0.5) {
+        this.padAiming = true;
         this.selectDirection(stickX, stickY);
+      } else {
+        this.clearPadSelection();
       }
     } else {
       const dirY = stickY < -0.5 ? -1 : stickY > 0.5 ? 1 : 0;
