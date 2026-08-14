@@ -16,6 +16,7 @@ import type { Terrain } from "./terrain";
 import { SEA_DIR, SEA_FULL, WATER_LEVEL, type GroundPatch } from "./terrain";
 import {
   RoadNetwork,
+  levelSwitchbacks,
   roadAt,
   roadLength,
   routeRoad,
@@ -741,12 +742,15 @@ export function planSettlements(
       network.roads.map((r) => r.pts),
       profile,
     );
+    const pts = profileRoad(terrain, route, ay, by, aHold, bHold);
+    // After the anchors: the profile decides the elbow's level, the holds stand.
+    levelSwitchbacks(pts, profile.deckHalf);
     const road: Road = {
       id,
       fromId,
       toId,
       profile,
-      pts: profileRoad(terrain, route, ay, by, aHold, bHold),
+      pts,
       // Left at zero; `network.build()` squares both planes to the road's own ends.
       trim: new Float32Array(8),
     };

@@ -981,6 +981,79 @@ function holdAtNode(pts: RoadSample[], fromEnd: boolean, y: number): void {
 }
 
 /**
+ * SWITCHBACKS: where one path folds back so close that its FLAT decks share
+ * columns (centrelines under `2 * deckHalf` apart), `nearest` flips between the
+ * two legs' decks across the elbow's bisector — on a max-grade descent that is a
+ * 0.62 step ON the carriageway (issue #224), the fork's disease played by a road
+ * against itself. A data fix like every other hold: pull each overlapping pair
+ * of samples level. No smoothing pass is owed — the deck interpolates between
+ * samples, so along-track continuity survives; only the local grade steepens.
+ * `j` starts at `i + 2`: adjacent segments share a sample and cannot flip.
+ */
+export function levelSwitchbacks(pts: RoadSample[], deckHalf: number): void {
+  const reach = deckHalf * 2;
+  // Three rounds close an elbow's pair chain (A~C, C~E leaves A~E to round two).
+  for (let round = 0; round < 3; round++) {
+    let moved = false;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 2; j < pts.length; j++) {
+        const p = pts[i];
+        const q = pts[j];
+        if (p.bridge || q.bridge) {
+          continue;
+        }
+        if (Math.hypot(q.x - p.x, q.z - p.z) >= reach) {
+          continue;
+        }
+        if (Math.abs(p.y - q.y) < 0.05) {
+          continue;
+        }
+        const mid = (p.y + q.y) / 2;
+        p.y = mid;
+        q.y = mid;
+        moved = true;
+      }
+    }
+    if (!moved) {
+      break;
+    }
+  }
+}
+
+/**
+ * Anchor a runtime path's deck to the network it DEPARTS FROM. `nearest` ranks by
+ * penetration (`d - deckEdge`), so a wide road surfaces a narrow newcomer's own
+ * carriageway while their centrelines are closer than the difference in rims — any
+ * deck disagreement there is a step in the walking surface with a floating ribbon
+ * over it: the fork's disease (`JUNCTION_HOLD`), at a free end instead of a node
+ * (issue #224, the gateway trail off the Stonewatch spur). While a sample still
+ * rides an existing corridor its deck IS that corridor's surface; the mismatch left
+ * at the first clear sample decays over 14 more, as `holdAtNode`.
+ */
+export function holdDeparture(net: RoadNetwork, pts: RoadSample[], fromEnd: boolean): void {
+  const idx = (k: number): number => (fromEnd ? pts.length - 1 - k : k);
+  let flat = 0;
+  while (flat < pts.length && !pts[idx(flat)].bridge) {
+    const p = pts[idx(flat)];
+    // NaN is the "nothing near" sentinel: `surfaceAt` answers its `ground`
+    // argument wherever no path's rim covers the column.
+    const y = net.surfaceAt(p.x, p.z, NaN);
+    if (Number.isNaN(y)) {
+      break;
+    }
+    p.y = y;
+    flat++;
+  }
+  if (flat === 0 || flat >= pts.length) {
+    return;
+  }
+  const delta = pts[idx(flat - 1)].y - pts[idx(flat)].y;
+  for (let k = flat; k < flat + 14 && k < pts.length; k++) {
+    pts[idx(k)].y += delta * (1 - (k - flat) / 14);
+  }
+}
+
+/**
  * Largest deck disagreement a node can average away. Not `MAX_STEP_UP`: the mean
  * moves each deck by half of it and the decay spreads that over 14 samples, so 1.5
  * costs 0.036 of grade against MAX_GRADE 0.10. Past it, refused.

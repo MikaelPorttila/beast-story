@@ -38,6 +38,8 @@ import { SiteFields } from "./structures";
 import { Towns, planSettlements, type SettlementPlan } from "./towns";
 import {
   findCrossings,
+  holdDeparture,
+  levelSwitchbacks,
   mergeCrossings,
   profileRoad,
   roadLength,
@@ -1481,6 +1483,7 @@ export function createWorld(
       if (road.pts.length < 2) {
         return no("the route came back empty");
       }
+      levelSwitchbacks(road.pts, profile.deckHalf);
       // A PATH THAT CANNOT BRIDGE MAY NOT END OVER WATER (issue #142 §12f).
       // `bridges` only charges the ROUTER for wet steps; it cannot help when an
       // END is wet, and `profileRoad` then lifts the deck 1.9 over the lake on
@@ -1495,6 +1498,12 @@ export function createWorld(
           );
         }
       }
+      // An end that sits ON an existing path departs at that path's own deck,
+      // or the wider profile surfaces the newcomer's carriageway with a step in
+      // it (issue #224). Against `net` BEFORE the road joins: the hold reads
+      // the world this path is being laid into.
+      holdDeparture(net, road.pts, false);
+      holdDeparture(net, road.pts, true);
       // The one place the network is mutated. `build()` re-flattens every path
       // and re-buckets the index; nothing caches a segment outside it.
       net.add(road);
