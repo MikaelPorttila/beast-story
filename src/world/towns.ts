@@ -507,6 +507,7 @@ function roadRecord(r: Road): TownRegistry["roads"][number] {
     bridge,
     profile: r.profile.id,
     deckEdge: r.profile.deckEdge,
+    litter: r.profile.litter,
   };
 }
 

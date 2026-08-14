@@ -1387,26 +1387,41 @@ export function profileRoad(
       }
     }
   };
-  const anchor = (idx: number, target: number, dir: 1 | -1, hold: number): void => {
-    if (!Number.isFinite(target)) {
+  // BOTH ANCHORS AT ONCE, never one after the other: applied in sequence, on a
+  // path shorter than two tapers the one run last drags the other's end off its
+  // target — a 6-sample waystone spur started 1.2 under the road deck it was
+  // anchored to, a 1.126 step in the walking surface (issue #213). Each `hold`
+  // is pinned flat; between the holds the two corrections cross-fade, each dying
+  // over at most ANCHOR samples — over 42 units a 1-unit correction costs 0.024
+  // of grade — and always by the other anchor's hold, so a short deck grades
+  // evenly from target to target instead of hoarding the drop at one tail.
+  //
+  // THE DELTAS ARE MEASURED WHERE THE HOLDS END, not at the anchor samples: the
+  // decay is a rigid taper (which keeps the road undulating with the land), so
+  // only that shift lands the first decaying sample on `target`. Measured at the
+  // anchor instead, a held stretch resumes 2.1 units off in one segment.
+  const anchors = (): void => {
+    const haveS = Number.isFinite(startY);
+    const haveE = Number.isFinite(endY);
+    if (!haveS && !haveE) {
       return;
     }
-    // `hold` samples pinned flat, then ANCHOR more of linear decay back onto the
-    // raw profile — over 42 units a 1-unit correction costs 0.024 of grade.
-    //
-    // THE DELTA IS MEASURED WHERE THE HOLD ENDS, not at the anchor sample: the
-    // decay is a rigid taper (which keeps the road undulating with the land), so
-    // only that shift lands the first decaying sample on `target`. Measured at the
-    // anchor instead, a held stretch resumes 2.1 units off in one segment.
-    const flat = Math.round(hold / SEG_LEN);
-    const join = idx + dir * flat;
-    const delta = target - (join >= 0 && join < n ? y[join] : y[idx]);
-    for (let k = 0; k < flat + ANCHOR; k++) {
-      const j = idx + dir * k;
-      if (j < 0 || j >= n) {
-        break;
+    const joinS = Math.min(Math.round(startHold / SEG_LEN), n - 1);
+    const joinE = Math.max(n - 1 - Math.round(endHold / SEG_LEN), 0);
+    const span = Math.max(1, joinE - joinS);
+    const decay = Math.min(ANCHOR, span);
+    const dS = haveS ? startY - y[joinS] : 0;
+    const dE = haveE ? endY - y[joinE] : 0;
+    for (let i = 0; i < n; i++) {
+      if (haveE && i >= joinE) {
+        y[i] = endY;
+      } else if (haveS && i <= joinS) {
+        y[i] = startY;
+      } else {
+        const wS = Math.max(0, 1 - (i - joinS) / decay);
+        const wE = Math.max(0, 1 - (joinE - i) / decay);
+        y[i] += (haveS ? dS * wS : 0) + (haveE ? dE * wE : 0);
       }
-      y[j] = k < flat ? target : y[j] + delta * (1 - (k - flat) / ANCHOR);
     }
   };
 
@@ -1416,8 +1431,7 @@ export function profileRoad(
   for (let it = 0; it < 2; it++) {
     floorWater();
     slopeLimit(2);
-    anchor(0, startY, 1, startHold);
-    anchor(n - 1, endY, -1, endHold);
+    anchors();
   }
   floorWater();
 

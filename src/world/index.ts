@@ -578,14 +578,19 @@ function cutWaypointTrails(
       const u = (i / steps) * (span / full);
       route.push({ x: ax + (stone.x - ax) * u, z: az + (stone.z - az) * u });
     }
+    const last = route[route.length - 1];
     const pts = profileRoad(
       terrain,
       route,
       // THE DECK'S height where it leaves the road, and the GROUND's where it
       // arrives: a spur anchored to natural ground under a carved carriageway
-      // starts with a step in it (`test-road` measured 1.0).
+      // starts with a step in it (`test-road` measured 1.0). The arrival is the
+      // ROUTE'S OWN last point — the plate rim — never the stone's centre: the
+      // plate stands at the HIGHEST ground under its footprint, so a deck
+      // anchored to the centre ends a whole cube over the ground it stops on
+      // (`test-road` measured 0.964, issue #213).
       stone.from.y,
-      terrain.getHeight(stone.x, stone.z),
+      terrain.getHeight(last.x, last.z),
     );
     if (pts.length < 2) {
       continue;

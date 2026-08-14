@@ -258,6 +258,8 @@ export interface TownRegistry {
     readonly profile: string;
     /** Outer rim of the drawn and walked surface, world units — per profile, not a constant (issue #142 §4). */
     readonly deckEdge: number;
+    /** How much loose stone the profile sheds at its verge, 0..1 — 0 is a deliberate role, not an omission. */
+    readonly litter: number;
   }>;
 }
 
