@@ -120,6 +120,94 @@ const flyers = async () => (await tables()).flying;
   );
 }
 
+// ---------- 3b. a swimmer spawns wet and stays wet (issue #191) -------------
+//
+// Finnick and Lanternfin are `locomotion: "swimming"` and had no wild assets at
+// all — the schema's only movement field is `flying`, and neither walking the
+// beach nor hovering over the bay is the animal. The spec now DERIVES swimming
+// from the body, `trySpawn` sites them in water deep enough to submerge, and
+// the wild AI keeps them under the surface. Both halves are asserted: one
+// exists at all, and every one observed is IN water — never beached, never
+// hovering — across several simulated slices of its own steering.
+{
+  const home = await dbg(() => window.__dbgTowns().spawn);
+  /** The game's WATER_LEVEL (world/terrain.ts). A swimmer's centre must sit under it. */
+  const WATER_LEVEL = 8;
+  const SWIMMERS = new Set(["wild-finnick", "wild-lanternfin"]);
+  // FIND OPEN WATER: spiral the hero out until his column reads a water biome.
+  let waterAt = null;
+  for (let hop = 0; hop < 24 && waterAt === null; hop++) {
+    const a = hop * 0.79;
+    const r = 120 + (hop % 6) * 35;
+    const x = home.x + Math.cos(a) * r;
+    const z = home.z + Math.sin(a) * r;
+    const biome = await dbg(
+      (p) => {
+        window.__dbgTp(p.x, p.z);
+        return window.__dbgSpawnTables().biome;
+      },
+      { x, z },
+    );
+    if (biome === "underwater" || biome === "deepwater") {
+      waterAt = { x, z, biome };
+    }
+  }
+  check(waterAt !== null, "no water biome found within 330 units of spawn — cannot stage 3b");
+  const sightings = [];
+  if (waterAt) {
+    // Sit in the bay and let the spawner work; re-hop occasionally so a full
+    // pack of amphibians cannot lock the roll out (same trick as section 3).
+    for (let round = 0; round < 24 && sightings.length === 0; round++) {
+      await adv(4);
+      const bodies = await dbg(() => window.__dbgBodies().enemies);
+      for (const e of bodies) {
+        if (SWIMMERS.has(e.species)) {
+          sightings.push(e);
+        }
+      }
+      if (round % 6 === 5) {
+        await dbg(
+          (p) => window.__dbgTp(p.x, p.z),
+          waterAt.x + (round % 2 === 0 ? 40 : -40),
+          waterAt.z + 25,
+        );
+      }
+    }
+    check(
+      sightings.length > 0,
+      "no wild swimmer ever spawned in open water — the water tables list two",
+    );
+    // THE STAYING HALF: sample each sighted swimmer over its own steering.
+    const wet = [];
+    for (let slice = 0; slice < 4; slice++) {
+      await adv(1.5);
+      const bodies = await dbg(() => window.__dbgBodies().enemies);
+      for (const e of bodies) {
+        if (!SWIMMERS.has(e.species)) {
+          continue;
+        }
+        const col = await dbg((p) => window.__dbgWorld(p.x, p.z), { x: e.x, z: e.z });
+        wet.push({
+          species: e.species,
+          y: +e.y.toFixed(2),
+          bed: col.ground,
+          water: col.water,
+          submerged: col.water && e.y < WATER_LEVEL && e.y > col.ground,
+        });
+      }
+    }
+    results.swimmers = { at: waterAt, sightings: sightings.length, samples: wet };
+    check(
+      wet.length > 0,
+      "a swimmer was sighted and then never sampled — it despawned inside six seconds",
+    );
+    check(
+      wet.every((s) => s.submerged),
+      `a swimmer left the water: ${JSON.stringify(wet.filter((s) => !s.submerged))}`,
+    );
+  }
+}
+
 // ---------- 4. a zone with no biome is quiet -------------------------------
 {
   const before = await tables();

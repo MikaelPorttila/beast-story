@@ -262,6 +262,9 @@ const WILD_BEASTS = [
   "wild-rivotter",
   "wild-coralback",
   "wild-snapclaw",
+  // The two SWIMMERS, wild at last (issue #191): seventeen of seventeen.
+  "wild-finnick",
+  "wild-lanternfin",
 ];
 
 /**
