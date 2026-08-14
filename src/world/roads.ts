@@ -537,6 +537,68 @@ export class RoadNetwork implements RoadField, RoadClearance {
     return this.surfaceOfAt(x, z, ground, 0);
   }
 
+  /**
+   * The DRAWN ribbon surface where it is LOWEST over the cell at (x, z) — a
+   * disc of radius `r` — or NaN where no drawn, grounded path covers any of it.
+   * The mesher caps a covered column's DRAWN top just under this, so the ground
+   * follows the road's shape instead of quantizing a corner through the ribbon
+   * (green slivers on the carriageway) or a whole unit under it (black slits) —
+   * both reported. EVERY covering path is consulted, not the nearest: at a fork
+   * or a spur mouth the LOWER ribbon is what a raised cap would poke through
+   * (test-road measured 456 such samples on a nearest-only cut). Bridges are
+   * excluded — their ground is a gorge or a lake bed and stays where it is.
+   * Unclipped, like `drawnSurfaceAt`, so the cap holds to the drawn ends.
+   */
+  drawnCapNear(x: number, z: number, r: number): number {
+    const g = ROLE_SLOT[Role.Surface];
+    const b = g * 4;
+    if (x < this.bounds[b] - r || x > this.bounds[b + 1] + r) {
+      return NaN;
+    }
+    if (z < this.bounds[b + 2] - r || z > this.bounds[b + 3] + r) {
+      return NaN;
+    }
+    const bucket = this.grids[g].get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (bucket === undefined) {
+      return NaN;
+    }
+    const s = this.seg;
+    let cap = NaN;
+    for (let i = 0; i < bucket.length; i++) {
+      const road = this.roads[this.segRoad[bucket[i]]];
+      const prof = road.profile;
+      if (!prof.roles.draw || this.segBridge[bucket[i]] === 1) {
+        continue;
+      }
+      const o = bucket[i] * 6;
+      const ax = s[o];
+      const az = s[o + 1];
+      const dx = s[o + 3] - ax;
+      const dz = s[o + 4] - az;
+      const len2 = dx * dx + dz * dz;
+      let t = len2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
+      if (t < 0) {
+        t = 0;
+      } else if (t > 1) {
+        t = 1;
+      }
+      const d = Math.hypot(ax + dx * t - x, az + dz * t - z);
+      if (d - r >= prof.deckEdge) {
+        continue;
+      }
+      const deck = s[o + 2] + (s[o + 5] - s[o + 2]) * t;
+      // `surfaceOf` is monotonic in d, so the lowest over the covered span is
+      // at one of its ends.
+      const lo = RoadNetwork.surfaceOf(prof, deck, d - r > 0 ? d - r : 0);
+      const hi = RoadNetwork.surfaceOf(prof, deck, d + r < prof.deckEdge ? d + r : prof.deckEdge);
+      const low = lo < hi ? lo : hi;
+      if (!(low >= cap)) {
+        cap = low;
+      }
+    }
+    return cap;
+  }
+
   private surfaceOfAt(x: number, z: number, ground: number, insetScale: number): number {
     if (!this.nearest(x, z, Role.Surface, true, insetScale)) {
       return ground;

@@ -129,7 +129,8 @@ export function* buildTerrainMeshSteps(
     for (let lx = -1; lx <= CHUNK_SIZE; lx++) {
       const i = (lz + 1) * G + (lx + 1);
       terrain.columnInfo(ox + lx, oz + lz, sc);
-      hA[i] = sc.h;
+      // The DRAWN top: fractional under a road, where it hugs the ribbon.
+      hA[i] = sc.hDraw;
       hcA[i] = sc.hc;
       topA[i * 3] = sc.topR;
       topA[i * 3 + 1] = sc.topG;
@@ -302,14 +303,16 @@ export function* buildTerrainMeshSteps(
         Math.abs(H - hS),
         Math.abs(H - hN),
       );
+      // Hash inputs stay integers: a road-capped top is fractional now.
+      const Hi = Math.floor(H);
       const gx = (hcA[i + 1] - hcA[i - 1]) * 0.5;
       const gz = (hcA[i + G] - hcA[i - G]) * 0.5;
       const slope = Math.sqrt(gx * gx + gz * gz);
       const slopeDark = 1 - Math.min(slope * 0.06, 0.12);
-      const jt = jitter(wx, H, wz);
+      const jt = jitter(wx, Hi, wz);
       const gw = grassA[i];
       // Warmth carries the per-cube read; pure value resolves as a grid.
-      const hw = jitter(wx, H + 31, wz) * (0.075 + gw * 0.045);
+      const hw = jitter(wx, Hi + 31, wz) * (0.075 + gw * 0.045);
       // ~22-unit wash. WaveField has no lattice, so it cannot form a chequer.
       const drift = gw2.sample(wx, wz) * 0.07;
       // Per-cube VALUE share stays small; higher was a visible chequerboard.
@@ -345,7 +348,7 @@ export function* buildTerrainMeshSteps(
       }
 
       // Ground litter: a rare per-cube hash pick, so it scatters with no grid.
-      const sp = hashCell(seed, wx, H + 7, wz);
+      const sp = hashCell(seed, wx, Hi + 7, wz);
       if (gw > 0.35) {
         if (sp > 0.94) {
           r *= 0.72;
@@ -417,14 +420,16 @@ export function* buildTerrainMeshSteps(
       }
 
       // Top-face corner AO: each of the eight neighbours occludes when above H.
-      const oE = hE > H,
-        oW = hW > H,
-        oS = hS > H,
-        oN = hN > H;
-      const oSE = hA[i + 1 + G] > H,
-        oSW = hA[i - 1 + G] > H;
-      const oNE = hA[i + 1 - G] > H,
-        oNW = hA[i - 1 - G] > H;
+      // HALF A UNIT above, not merely above: two road-capped columns differ by
+      // centimetres, and an exact compare veined the corridor with AO seams.
+      const oE = hE > H + 0.5,
+        oW = hW > H + 0.5,
+        oS = hS > H + 0.5,
+        oN = hN > H + 0.5;
+      const oSE = hA[i + 1 + G] > H + 0.5,
+        oSW = hA[i - 1 + G] > H + 0.5;
+      const oNE = hA[i + 1 - G] > H + 0.5,
+        oNW = hA[i - 1 - G] > H + 0.5;
       const subT = submerged(H) * 0.94;
       quad(
         lx,
@@ -471,7 +476,13 @@ export function* buildTerrainMeshSteps(
           hTB = hA[i - G + 1];
         }
 
-        for (let y = nH + 1; y <= H; y++) {
+        // Walk the span (nH, H] along integer boundaries with partial first and
+        // last quads: a road-capped top is fractional, and whole-unit quads
+        // either tore a slit under it or overshot through the ribbon.
+        let yb = nH;
+        while (yb < H - 1e-3) {
+          const y = Math.min(H, Math.floor(yb + 1e-3) + 1);
+          const yi = Math.ceil(y - 1e-3);
           const depth = H - y;
           let br: number;
           let bg: number;
@@ -485,16 +496,15 @@ export function* buildTerrainMeshSteps(
             bg = dirtA[i3 + 1];
             bb = dirtA[i3 + 2];
           } else {
-            strata(y, warmA[i]);
+            strata(yi, warmA[i]);
             br = str;
             bg = stg;
             bb = stb;
           }
           // Same treatment as the tops, so a cliff reads as stacked rock.
-          const j = jitter(wx, y, wz);
-          const jw = jitter(wx, y + 31, wz) * 0.05 + SIDE_BOUNCE[dir] * 0.055;
-          // `y - 0.5` is the centre of this one-voxel-tall quad.
-          const sub = submerged(y - 0.5);
+          const j = jitter(wx, yi, wz);
+          const jw = jitter(wx, yi + 31, wz) * 0.05 + SIDE_BOUNCE[dir] * 0.055;
+          const sub = submerged((yb + y) * 0.5);
           const shade = flatten(SIDE_SHADE[dir] * (1 + j * 0.09), sub * 0.9);
           br *= shade * (1 + jw);
           bg *= shade;
@@ -504,9 +514,9 @@ export function* buildTerrainMeshSteps(
           // neighbour column, so contact darkening falls out for free.
           const upA = flatten(AO[aoLevel(hTA >= y, false, hTA >= y + 1)], subA);
           const upB = flatten(AO[aoLevel(hTB >= y, false, hTB >= y + 1)], subA);
-          const loA = flatten(AO[aoLevel(hTA >= y, nH >= y - 1, hTA >= y - 1)], subA);
-          const loB = flatten(AO[aoLevel(hTB >= y, nH >= y - 1, hTB >= y - 1)], subA);
-          const y0 = y - 1;
+          const loA = flatten(AO[aoLevel(hTA >= y, nH >= yb, hTA >= yb)], subA);
+          const loB = flatten(AO[aoLevel(hTB >= y, nH >= yb, hTB >= yb)], subA);
+          const y0 = yb;
           // Submerged walls rotate their SHADING NORMAL up, so a terraced bed
           // takes the same N.L light as its tops and prints no contour stripes.
           const nb = 1 - sub;
@@ -616,6 +626,7 @@ export function* buildTerrainMeshSteps(
               loB,
             );
           }
+          yb = y;
         }
       }
     }
