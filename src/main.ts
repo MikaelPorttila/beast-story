@@ -1048,6 +1048,8 @@ const HOLD: ZoneDef = {
   create: (scene) => createDungeon(scene, 0x5ea1ed),
   // You arrive ON the return gateway, which is why it starts disarmed (see EXIT_R).
   gate: (w) => ({ to: "overworld", x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xffc46b }),
+  // A dungeon is a side trip; the overworld is where you live (issue #211).
+  keepReturn: true,
 };
 
 /** Everything that captured a World at construction; rebound on every switch. */
