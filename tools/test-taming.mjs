@@ -249,9 +249,17 @@ async function goToWild(species) {
     const before = (await taming()).held;
     const weak = await throwAt("wild-boulderpup", false);
     const afterWeak = (await taming()).held;
-    await page
-      .waitForFunction(() => !window.__dbgTaming().bonding, { timeout: 20000 })
-      .catch(() => {});
+    // WAIT FOR THE CEREMONY, THEN WAIT IT OUT — the file's own two-halves rule.
+    // Waiting only for `bonding` to be false passed DURING the first orb's
+    // flight, and the second throw then found the Boulderpup held: "noTarget".
+    // Issue #198's fix surfaced this — before it, the first orb fizzled often
+    // enough that the race read as a pass.
+    for (let k = 0; k < 24 && !(await taming()).bonding; k++) {
+      await adv(0.1);
+    }
+    for (let k = 0; k < 60 && (await taming()).bonding; k++) {
+      await adv(0.1);
+    }
     await invAct("orb-greater", "ready");
     const strong = await throwAt("wild-boulderpup", false);
     const afterStrong = (await taming()).held;
@@ -310,6 +318,75 @@ async function goToWild(species) {
     `a BROKEN bond granted ${JSON.stringify(t.owned)} — it must grant nothing`,
   );
   check(still, "a broken bond removed the beast anyway — it has to come back out");
+}
+
+// -- 4b. EVERY throw arrives, against a target that is MOVING (issue #198) ----
+//
+// A hurt wild animal walks, and the homing lerp's ~5-unit turn radius let a
+// side-step turn one throw in three into a silent ground fizzle — accepted
+// throw, then no bond and no bondFailed, ever. Section 5's staging retries are
+// right for its claim and would hide this one; here ARRIVAL ITSELF is the
+// claim, so every accepted throw must start a ceremony. Forced to FALSE so the
+// beast escapes and stays on the board for the next throw — and BEFORE section
+// 5, because an owned species refuses the throw outright (`alreadyOwned`).
+{
+  const found = await goToWild("wild-sproutle");
+  check(found !== null, "no wild-sproutle for the arrival section");
+  if (found) {
+    const THROWS = 6;
+    await give("orb-tame", THROWS);
+    await invAct("orb-tame", "ready");
+    const hurt = await weaken("wild-sproutle", 0.1);
+    check(hurt.ok, `nothing to weaken for the arrival section: ${hurt.why ?? ""}`);
+    let arrived = 0;
+    let thrown = 0;
+    const throws = [];
+    for (let i = 0; i < THROWS; i++) {
+      // Wait out the previous ceremony — `busy` refuses a second orb at a held
+      // beast, and that refusal is section 6's subject, not a miss.
+      for (let k = 0; k < 40 && (await taming()).bonding; k++) {
+        await adv(0.25);
+      }
+      const res = await throwAt("wild-sproutle", false);
+      if (res.outcome !== "thrown") {
+        // The beast wandered out of throw range or another animal took the
+        // lock — staging, not arrival. Re-stage and spend the attempt.
+        await goToWild("wild-sproutle");
+        await weaken("wild-sproutle", 0.1);
+        throws.push({ outcome: res.outcome, dist: res.dist });
+        continue;
+      }
+      thrown++;
+      let started = false;
+      for (let k = 0; k < 12 && !started; k++) {
+        await adv(0.25);
+        started = (await taming()).bonding;
+      }
+      throws.push({ outcome: res.outcome, dist: res.dist, arrived: started });
+      if (started) {
+        arrived++;
+      }
+    }
+    results.movingArrival = { thrown, arrived, throws };
+    check(thrown >= 3, `only ${thrown} of ${THROWS} throws were even accepted — staging is broken`);
+    check(
+      arrived === thrown,
+      `${arrived}/${thrown} accepted throws arrived — every one must (issue #198): ` +
+        JSON.stringify(throws),
+    );
+    // Drain the LAST ceremony before handing over: section 5 stages against a
+    // live, unheld animal, and a bond still playing here is one it would read.
+    for (let k = 0; k < 40 && (await taming()).bonding; k++) {
+      await adv(0.25);
+    }
+    // Six escapes leave a provoked pack crowding the hero, and a crowd is what
+    // turns section 5's throw into an interception (a snapclaw took the orb and
+    // got owned in its place). The same reset `goToWild` uses: hop past the
+    // 90-unit despawn ring, so section 5 hunts a fresh, calm population.
+    const home = await page.evaluate(() => window.__dbgTowns().spawn);
+    await page.evaluate((x, z) => window.__dbgTp(x, z), home.x + 130, home.z - 130);
+    await adv(3);
+  }
 }
 
 // -- 5. a bond that works ----------------------------------------------------
