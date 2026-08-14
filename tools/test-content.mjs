@@ -222,7 +222,7 @@ const ACT1_QUESTS = [
  * so `story-sea` ships with the boot — its island settlement must exist when
  * `planSettlements` runs — and holds the act's entry quest beside it.
  */
-const SEA_QUESTS = ["quest:sea/salt-and-rope", "quest:sea/dark-water", "quest:sea/the-drowned-market", "quest:sea/the-rookery"];
+const SEA_QUESTS = ["quest:sea/salt-and-rope", "quest:sea/dark-water", "quest:sea/the-drowned-market", "quest:sea/the-rookery", "quest:sea/what-the-tide-kept"];
 const BOOT_QUESTS = ACT1_QUESTS.length + SEA_QUESTS.length;
 
 /** What a boot holds: the world, then the campaigns that are set in it. */
@@ -576,7 +576,7 @@ async function consoleClosed(tries = 40) {
       // +2: `enemy:thread-anchor` (issue #150) and `enemy:bellwether` (issue
       // #151), the two enemies `story-land` brings with it. +1 again for
       // `enemy:penned-sproutle`, the Encampment's practice animal (issue #178).
-      enemy: 7 + WILD_BEASTS.length,
+      enemy: 8 + WILD_BEASTS.length,
       quest: BOOT_QUESTS,
       music: 2,
     },
@@ -615,6 +615,7 @@ async function consoleClosed(tries = 40) {
       ...WILD_BEASTS,
       "bellwether",
       "thread-anchor",
+      "brineholder",
       "bridle-hound",
     ],
     "enemy species that reached the world",

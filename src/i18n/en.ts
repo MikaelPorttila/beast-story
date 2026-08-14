@@ -255,6 +255,12 @@ export const en = {
   "quest.sea.rookery.obj.calmTheFlock": "Calm the flock — bond one of the turned Galebirds",
   "quest.sea.rookery.obj.escortVane": "Get Corwin Vane down the stack",
   "quest.sea.rookery.obj.recoverComponent": "Salvage the vane from the wreck",
+  "quest.sea.whatTheTideKept.name": "What the Tide Kept",
+  "quest.sea.whatTheTideKept.desc":
+    "Maw's Rest holds the third component and the thing that has been holding it. Coil is going for the same reef, for the opposite reason — and for one fight, on the same side.",
+  "quest.sea.whatTheTideKept.obj.reachMawsRest": "Ride the dark water out to Maw's Rest",
+  "quest.sea.whatTheTideKept.obj.defeatBrineholder": "Defeat the Brineholder",
+  "quest.sea.whatTheTideKept.obj.assembleTheDevice": "Bring the components to Coil and assemble the device",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -387,6 +393,12 @@ export const en = {
     "Look at the hound before you judge the leash. It guarded this floor for whoever drowned it, and it would have died doing it. On the rope it is fed, it is calm, and it hurts nobody. That is my whole case, and you have yet to hear a better one.",
   "npc.coil.sea3.after":
     "So you have the lens. Then you know it was pointed up, not down — and you know less than you think about who is holding whom. We will speak again at the reef.",
+  "npc.coil.sea5.offer":
+    "Two components in your bag and the third under Maw's Rest, beneath something that has held it longer than either of us has been alive. I am going for the reef; the order wants it COUNTED. You want it free. For one fight, those are the same errand — ride out and I will watch your back from the rim.",
+  "npc.coil.sea5.busy":
+    "The reef ring, past the last island. It sleeps shallow and it wakes hungry — do not be treading water when it does.",
+  "npc.coil.sea5.done":
+    "Steady hands. Lens, vane, and what the tide kept... there. Look at your instrument — it is not pointing at the sea, and it is not pointing at ME, whatever you have decided about the order. It is pointing UP, and it is very, very sure. Vane says he can get you there. I am coming whether either of you likes it or not.",
 
   // Redbriar's miller. She closes The Mill Road (issue #149) — the quest Gain
   // offers and she ends, which is what `turnIn` on the asset says. Her own
@@ -721,6 +733,7 @@ export const en = {
   // was PUT somewhere by somebody.
   "enemy.threadAnchor.name": "Thread Anchor",
   "enemy.bridleHound.name": "Bridle-hound",
+  "enemy.brineholder.name": "The Brineholder",
   // The lead animal of a flock is the one wearing the bell, and the rest follow
   // it wherever it goes — which is the whole of what has gone wrong in the
   // valley, said in one word (issue #151).

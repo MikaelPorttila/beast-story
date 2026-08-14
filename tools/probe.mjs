@@ -114,6 +114,9 @@ const SOLO = new Set([
   // Stages and calms Gullspire's flock with a forced bond, walks Vane's beat
   // and reads the seam flags — tames, teleports and simulated seconds.
   "rookery",
+  // The act's closer: drives the fork both orders, stands the boss up in the
+  // reef ring and fells it, and closes the Act 2 -> Act 3 seam.
+  "tide-kept",
   // Presses E to take a quest and throws orbs to finish it, then reads what the
   // frame drew — every one of those needs a frame loop the tab is not given in
   // the background.
