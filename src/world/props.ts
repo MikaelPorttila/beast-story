@@ -1571,13 +1571,6 @@ export class PropLib {
     installFoliageFade(this.softMat, this.softFade, "soft");
   }
 
-  /** The solid-prop limits as a `{start,end}` uniform pair, for road-furniture
-   *  glow that must die WITH its posts. Shared objects: `setDistanceFade` moves
-   *  them, and the ~7-unit camera-vs-focus offset is invisible inside the band. */
-  get solidFadeBand(): { start: { value: number }; end: { value: number } } {
-    return { start: this.solidFade.bsFoliageFadeStart, end: this.solidFade.bsFoliageFadeEnd };
-  }
-
   /** Update the shared shader once per rendered frame; no per-chunk uniforms. */
   updateDistanceFade(x: number, z: number): void {
     this.fadeFocus.set(x, z);

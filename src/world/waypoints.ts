@@ -22,6 +22,7 @@ import { VoxelModel } from "../core/voxel";
 import { relight, type SolidBox } from "./props";
 import { measureFootprint, StructureField } from "./structures";
 import { nearRoadFurniture, roadIntrusion } from "./placement";
+import { installRingFade, type RingBand } from "./distant-terrain";
 import type { Road } from "./roads";
 
 /** World units of road between two stones. A minute's walk at a hero's 6/s. */
@@ -220,6 +221,7 @@ export interface WaypointInfo {
  */
 interface Stone {
   readonly info: WaypointInfo;
+  group: THREE.Group;
   column: THREE.Mesh;
   light: THREE.PointLight;
   lit: boolean;
@@ -524,10 +526,23 @@ export class Waypoints {
 
   private readonly stones: Stone[] = [];
   private readonly disposables: Array<{ dispose(): void }> = [];
+  private readonly ring: RingBand;
 
-  constructor(sites: readonly WaypointSite[]) {
+  constructor(
+    sites: readonly WaypointSite[],
+    /** The detailed ring: a stone dies on it like the trees beside it. */
+    ringBand: RingBand,
+  ) {
+    this.ring = ringBand;
     for (const site of sites) {
       const rig = buildWaypointRig();
+      // Plate, column and any glow children alike — `build` mints per-mesh
+      // materials, so this cannot leak onto another model's.
+      rig.group.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          installRingFade(o.material as THREE.Material, ringBand);
+        }
+      });
       rig.group.position.set(site.x, site.y, site.z);
       this.group.add(rig.group);
 
@@ -541,13 +556,23 @@ export class Waypoints {
       this.group.add(light);
 
       this.all.push(site);
-      this.stones.push({ info: site, column: rig.column, light, lit: false });
+      this.stones.push({ info: site, group: rig.group, column: rig.column, light, lit: false });
       this.solids.add({ solid: rig.solid }, site.x, site.y + rig.baseY, site.z, 0, 1, 1);
       this.disposables.push(rig.column.geometry, rig.column.material as THREE.Material);
     }
     // Freeze and index, once, after the last stamp — a field that is never built
     // answers -Infinity everywhere and the plate is scenery you fall through.
     this.solids.build();
+  }
+
+  /** Hard cull past the ring, where the alpha fade has already zeroed a stone:
+   *  it removes the far stones from the AO G-buffer too, whose override pass
+   *  knows nothing of the fade and would stamp them onto the fog (issue #39). */
+  update(focus: Readonly<THREE.Vector3>): void {
+    const cut = this.ring.end.value + 8;
+    for (const stone of this.stones) {
+      stone.group.visible = Math.hypot(stone.info.x - focus.x, stone.info.z - focus.z) < cut;
+    }
   }
 
   /** Light the ones this character has found. Idempotent — a load calls it too. */

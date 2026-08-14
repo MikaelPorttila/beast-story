@@ -19,6 +19,8 @@ import { VoxelModel, shade } from "../core/voxel";
 import { ELEMENT_COLORS, type ElementType } from "../core/types";
 import { relight, type SolidBox } from "./props";
 import { measureFootprint, StructureField } from "./structures";
+import { installRingFade, type RingBand } from "./distant-terrain";
+import { smoothstep } from "./terrain";
 
 const DEN_ELEMENTS: ElementType[] = ["fire", "water", "grass", "electric"];
 
@@ -29,9 +31,11 @@ export interface DenSpot {
 }
 
 interface DenAnim {
+  den: THREE.Group;
   crystalPivot: THREE.Group;
   crystal: THREE.Mesh;
   orbiters: THREE.Mesh[];
+  halo: THREE.Sprite;
   icon: THREE.Sprite;
   iconBaseY: number;
   light: THREE.PointLight;
@@ -175,7 +179,12 @@ export class Shops {
   private readonly anims: DenAnim[] = [];
   private readonly disposables: Array<{ dispose(): void }> = [];
 
-  constructor(spots: readonly DenSpot[], spawn: THREE.Vector3) {
+  constructor(
+    spots: readonly DenSpot[],
+    spawn: THREE.Vector3,
+    /** The detailed ring: a den dies on it like the huts and trees around it. */
+    private readonly ring: RingBand,
+  ) {
     spots.forEach((s, i) => {
       const el = DEN_ELEMENTS[i % DEN_ELEMENTS.length];
       const built = this.buildDen(el, i);
@@ -383,10 +392,21 @@ export class Shops {
     light.castShadow = false;
     den.add(light);
 
+    // Every mesh material dies on the detailed ring; `build` mints per-mesh
+    // materials, so this cannot leak onto another model's. The sprites and the
+    // light have no fragment alpha to fade — `update` walks them down instead.
+    den.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        installRingFade(o.material as THREE.Material, this.ring);
+      }
+    });
+
     this.anims.push({
+      den,
       crystalPivot,
       crystal,
       orbiters,
+      halo,
       icon,
       iconBaseY,
       light,
@@ -395,9 +415,19 @@ export class Shops {
     return { den, solid };
   }
 
-  update(time: number): void {
+  update(time: number, focus: Readonly<THREE.Vector3>): void {
     for (let i = 0; i < this.anims.length; i++) {
       const a = this.anims[i];
+      // The sprite/light half of the ring fade the mesh materials carry in
+      // their shader — and past the ring the whole den skips its frame work.
+      const p = this.positions[i];
+      const fade = 1 - smoothstep(this.ring.start.value, this.ring.end.value, p.distanceTo(focus));
+      a.den.visible = fade > 0;
+      if (!a.den.visible) {
+        continue;
+      }
+      (a.halo.material as THREE.SpriteMaterial).opacity = 0.35 * fade;
+      (a.icon.material as THREE.SpriteMaterial).opacity = fade;
       const t = time + a.phase;
       a.crystal.position.y = Math.sin(t * 1.5) * 0.14;
       a.crystal.rotation.y = t * 0.8;
@@ -411,7 +441,7 @@ export class Shops {
         a.orbiters[k].rotation.y = t * 3 + k;
       }
       a.icon.position.y = a.iconBaseY + Math.sin(t * 1.1) * 0.18;
-      a.light.intensity = 6 + Math.sin(t * 2.3) * 0.8;
+      a.light.intensity = (6 + Math.sin(t * 2.3) * 0.8) * fade;
     }
   }
 

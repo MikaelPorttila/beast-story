@@ -20,24 +20,37 @@ interface Layout {
 }
 
 /** ONE dissolve authority, so a render-distance change moves everything
- *  together. `start`/`end` are the far GROUND's band. `roadStart`/`roadEnd` are
- *  the road ribbons': a deck may stand only on DETAILED chunks, dying on the
- *  same ring as the trees, posts and fences beside it — past it the clipmap's
- *  own carved corridor tint carries the line, ON the coarse ground. A deck kept
+ *  together. `start`/`end` are the far GROUND's band. `ringStart`/`ringEnd` are
+ *  everything BUILT that is not streamed by chunk — road ribbons, waystones,
+ *  dens, lamp glow: it may stand only on DETAILED chunks, dying on the same
+ *  ring as the trees, posts and fences beside it. Past the ring the clipmap's
+ *  own carved corridor tint carries a road, ON the coarse ground; a deck kept
  *  over the clipmap reads as a floating slab from eye level, because the
  *  underlay is deliberately lowered beneath paths (reported three times, on
  *  foot last). `DistantTerrain.configure` is the only setter. */
 export interface HorizonFade {
   start: { value: number };
   end: { value: number };
-  roadStart: { value: number };
-  roadEnd: { value: number };
+  ring: RingBand;
 }
 
 /** One camera-distance band as its two shader uniforms. */
 export interface FadeBand {
   start: { value: number };
   end: { value: number };
+}
+
+/** The detailed ring's band, plus every material wearing it. The band is baked
+ *  into each material as DEFINES, not uniforms: onBeforeCompile-added uniforms
+ *  silently read 0 on a material that reuses another's cached program, which is
+ *  exactly what happened when the ribbon, the lamps, the stones and the dens
+ *  all carried the same compile hook — the ribbon lost its fade wherever it was
+ *  not the first to compile. Defines are part of three's program hash, so
+ *  sharing is correct by construction; `setHorizonFade` re-bakes them live. */
+export interface RingBand {
+  start: { value: number };
+  end: { value: number };
+  materials: Set<THREE.Material>;
 }
 
 export function makeHorizonFade(
@@ -47,8 +60,7 @@ export function makeHorizonFade(
   const fade = {
     start: { value: 0 },
     end: { value: 0 },
-    roadStart: { value: 0 },
-    roadEnd: { value: 0 },
+    ring: { start: { value: 0 }, end: { value: 0 }, materials: new Set<THREE.Material>() },
   };
   setHorizonFade(fade, viewDistance, detailDistance);
   return fade;
@@ -59,42 +71,63 @@ function setHorizonFade(fade: HorizonFade, viewDistance: number, detailDistance:
   fade.start.value = viewDistance * 0.66;
   fade.end.value = viewDistance * 0.86;
   // The same 32-unit ramp the solid props use, closing at the detailed ring.
-  fade.roadStart.value = Math.max(0, detailDistance - 32);
-  fade.roadEnd.value = detailDistance;
+  fade.ring.start.value = Math.max(0, detailDistance - 32);
+  fade.ring.end.value = detailDistance;
+  for (const material of fade.ring.materials) {
+    bakeRingDefines(material, fade.ring);
+  }
+}
+
+/** Written as GLSL float literals; a changed band recompiles (rare: a settings
+ *  change, which already rebuilds the whole far clipmap). */
+function bakeRingDefines(material: THREE.Material, band: RingBand): void {
+  const defines = (material.defines ??= {});
+  const start = band.start.value.toFixed(1);
+  const end = band.end.value.toFixed(1);
+  if (defines.BS_RING_START !== start || defines.BS_RING_END !== end) {
+    defines.BS_RING_START = start;
+    defines.BS_RING_END = end;
+    material.needsUpdate = true;
+  }
+}
+
+/** The two shader-side lines every fade here needs: camera distance, per vertex. */
+function installCameraDistance(shader: { vertexShader: string; fragmentShader: string }): void {
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      "#include <common>",
+      `#include <common>
+varying float vBsCameraDistance;`,
+    )
+    .replace(
+      "#include <project_vertex>",
+      `#include <project_vertex>
+vBsCameraDistance = length(mvPosition.xyz);`,
+    );
+  shader.fragmentShader = shader.fragmentShader.replace(
+    "#include <common>",
+    `#include <common>
+varying float vBsCameraDistance;`,
+  );
 }
 
 /**
- * Radial dissolve to sky: fog's view depth is short off-axis, drawing an arc.
- * Composes with the material's existing compile hook, so the road ribbon keeps
- * its fog lift. The DISCARD is outside USE_FOG on purpose: the bloom source pass
- * renders glow with `scene.fog = null`, and a lamp faded from the beauty pass
- * must not keep blooming as a halo in the empty sky.
+ * Radial dissolve to sky for the FAR CLIPMAP: fog's view depth is short
+ * off-axis, drawing an arc. Composes with the material's existing compile hook.
  */
-export function installHorizonFade(material: THREE.Material, fade: FadeBand, skyMix = true): void {
+export function installHorizonFade(material: THREE.Material, fade: FadeBand): void {
   const previousCompile = material.onBeforeCompile;
   const previousKey = material.customProgramCacheKey.bind(material);
-  material.customProgramCacheKey = () =>
-    `${previousKey()}|bs-horizon-fade-v3:${skyMix ? "sky" : "cut"}`;
+  material.customProgramCacheKey = () => `${previousKey()}|bs-horizon-fade-v4`;
   material.onBeforeCompile = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
     shader.uniforms.bsHorizonFadeStart = fade.start;
     shader.uniforms.bsHorizonFadeEnd = fade.end;
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-varying float vBsCameraDistance;`,
-      )
-      .replace(
-        "#include <project_vertex>",
-        `#include <project_vertex>
-vBsCameraDistance = length(mvPosition.xyz);`,
-      );
+    installCameraDistance(shader);
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
-varying float vBsCameraDistance;
 uniform float bsHorizonFadeStart;
 uniform float bsHorizonFadeEnd;`,
       )
@@ -105,7 +138,7 @@ uniform float bsHorizonFadeEnd;`,
   float bsHorizonFade = smoothstep(
     bsHorizonFadeStart, bsHorizonFadeEnd, vBsCameraDistance
   );
-  // Opaque screen-door dissolve: reveal what is behind rather than trusting a
+  // Opaque screen-door dissolve: reveal the real sky rather than trusting a
   // colour mix to survive tone mapping identically to the sky dome. Keeping the
   // material opaque preserves its underlay ordering beneath detailed chunks;
   // transparent terrain would move to three's late pass and wash over them.
@@ -113,19 +146,53 @@ uniform float bsHorizonFadeEnd;`,
     floor(gl_FragCoord.xy), vec2(0.06711056, 0.00583715)
   )));
   if (bsHorizonFade >= bsHorizonDither) discard;
-${
-  // The mix belongs to a band that ends IN SKY. A road's band ends over solid
-  // ground, where a sky push would frost the deck against the ground behind it.
-  skyMix
-    ? `#ifdef USE_FOG
+#ifdef USE_FOG
+  // 0.82: at 0.65 a dark survivor — the road corridor's tint — still traced a
+  // legible line through the band from the air (reported).
   gl_FragColor.rgb = mix(
-    gl_FragColor.rgb, bsSkyRadiance(vFogElev) * fogColor, bsHorizonFade * 0.65
+    gl_FragColor.rgb, bsSkyRadiance(vFogElev) * fogColor, bsHorizonFade * 0.82
   );
-#endif`
-    : ""
-}
+#endif
 }`,
       );
+  };
+}
+
+/**
+ * Alpha fade-out over `fade`, for everything built that dies at the DETAILED
+ * ring: the road ribbon, waystones, dens, lamp glow. Not the dither above — a
+ * screen-door over a skin stipples whatever lies beneath into its surface,
+ * which shipped as white sand dots all over a dune road (reported). Same
+ * explicit blend factors as world/props.ts's foliage fade, so the material
+ * stays in the opaque pass and in GTAO while honouring alpha. Fully faded
+ * fragments DISCARD, or their depth writes would hole the water behind an
+ * invisible bridge deck.
+ */
+export function installRingFade(material: THREE.Material, band: RingBand): void {
+  material.transparent = false;
+  material.blending = THREE.CustomBlending;
+  material.blendEquation = THREE.AddEquation;
+  material.blendSrc = THREE.SrcAlphaFactor;
+  material.blendDst = THREE.OneMinusSrcAlphaFactor;
+  material.blendSrcAlpha = THREE.OneFactor;
+  material.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+  bakeRingDefines(material, band);
+  band.materials.add(material);
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey.bind(material);
+  material.customProgramCacheKey = () => `${previousKey()}|bs-ring-fade-v2`;
+  // The hook adds NO uniforms on purpose (see `RingBand`): a cached-program
+  // reuse skips it entirely, and the code below must be complete without it.
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile.call(material, shader, renderer);
+    installCameraDistance(shader);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <opaque_fragment>",
+      `float bsRingAlpha = 1.0 - smoothstep(float(BS_RING_START), float(BS_RING_END), vBsCameraDistance);
+if (bsRingAlpha < 0.004) discard;
+#include <opaque_fragment>
+gl_FragColor.a *= bsRingAlpha;`,
+    );
   };
 }
 
@@ -186,12 +253,12 @@ export interface DistantTerrainDebug extends Record<string, unknown> {
   viewDistance: number;
   waterFadeStart: number;
   waterFadeEnd: number;
-  /** Where the world dissolves to sky, and where roads must already be gone —
-   *  both bands of the one render-distance authority. */
+  /** Where the far ground dissolves to sky, and the detailed ring everything
+   *  BUILT dies on — both bands of the one render-distance authority. */
   horizonFadeStart: number;
   horizonFadeEnd: number;
-  roadFadeStart: number;
-  roadFadeEnd: number;
+  ringFadeStart: number;
+  ringFadeEnd: number;
   building: boolean;
   ready: boolean;
 }
@@ -391,9 +458,13 @@ export class DistantTerrain {
     const lz = this.nextLayout.xz[i + 1];
     const wx = this.nextAnchorX + lx;
     const wz = this.nextAnchorZ + lz;
-    // columnInfo samples the centre of a column, hence the half-unit shift.
-    this.field.columnInfo(wx - 0.5, wz - 0.5, this.scratch);
     const d = Math.hypot(lx, lz);
+    // The road's wear tint rides out with the road: full at the detailed ring
+    // (the chunk colours it meets there carry it in full), gone 96 on — or the
+    // corridor stays a legible dark line through total haze from the air.
+    const wearCap = 1 - smoothstep(this.detailDistance, this.detailDistance + 96, d);
+    // columnInfo samples the centre of a column, hence the half-unit shift.
+    this.field.columnInfo(wx - 0.5, wz - 0.5, this.scratch, wearCap);
     const waterFade = smoothstep(
       Math.max(0, this.detailDistance - WATER_DETAIL_FADE_WIDTH),
       this.detailDistance,
@@ -496,8 +567,8 @@ export class DistantTerrain {
       waterFadeEnd: this.detailDistance,
       horizonFadeStart: this.horizonFade.start.value,
       horizonFadeEnd: this.horizonFade.end.value,
-      roadFadeStart: this.horizonFade.roadStart.value,
-      roadFadeEnd: this.horizonFade.roadEnd.value,
+      ringFadeStart: this.horizonFade.ring.start.value,
+      ringFadeEnd: this.horizonFade.ring.end.value,
       building: this.building,
       ready: this.ready,
     };

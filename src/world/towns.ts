@@ -6,7 +6,12 @@
  * road exit, where the route crosses its radius.
  */
 import * as THREE from "three";
-import type { CelestialState, TownInfo, TownRegistry } from "../core/types";
+import {
+  excludeFromAO,
+  type CelestialState,
+  type TownInfo,
+  type TownRegistry,
+} from "../core/types";
 import { VoxelModel } from "../core/voxel";
 import { t, type StringKey } from "../i18n";
 import { content, defineFactory, resolveText, TOWN_LAYOUT_KIND, type TownData } from "../content";
@@ -42,7 +47,7 @@ import {
   signArm,
 } from "./town-parts";
 import { buildFence, type Fence, type FenceNode, type FenceOptions } from "./fences";
-import { installHorizonFade, type HorizonFade } from "./distant-terrain";
+import { installRingFade, type HorizonFade } from "./distant-terrain";
 import { mulberry32 } from "./noise";
 import { TOWN_NO_SPAWN_MARGIN } from "./safe-zones";
 
@@ -239,10 +244,10 @@ function hub(sites: readonly TownSite[]): { start: TownSite; spurs: readonly Tow
 function makeRibbonMaterial(terrainMat: THREE.Material, horizonFade: HorizonFade): THREE.Material {
   const mat = terrainMat.clone();
   // A ribbon is one mesh spanning its whole road, so unlike every chunked thing
-  // it would outlive the detailed ground it stands on. The ROAD band of the one
+  // it would outlive the detailed ground it stands on. The RING band of the one
   // render-distance authority ends it at the streamed-detail ring, beside its
   // own lamps and fences; the clipmap's corridor tint is the road beyond that.
-  installHorizonFade(mat, { start: horizonFade.roadStart, end: horizonFade.roadEnd }, false);
+  installRingFade(mat, horizonFade.ring);
   return mat;
 }
 
@@ -966,9 +971,9 @@ export class Towns {
     };
     const fireGlow = mkGlow();
     const lampGlow = mkGlow();
-    // A lamp's POST is a solid prop and fades by ~160; its glow head must die on
-    // the SAME band or the road is a string of floating lights (reported).
-    installHorizonFade(lampGlow, props.solidFadeBand, false);
+    // A lamp's POST is a solid prop and fades by the same ring; the glow head
+    // must die with it or the road is a string of floating lights (reported).
+    installRingFade(lampGlow, horizonFade.ring);
     // A THIRD glow material for the campfire: `fireGlow` is shared with the braziers.
     const hearthGlow = mkGlow();
     const nightGlow = mkGlow();
@@ -976,10 +981,15 @@ export class Towns {
     nightGlow.emissiveIntensity = 0;
     nightGlow.userData.bsNightRole = "town-windows";
 
-    const emit = (acc: Accum, mat: THREE.Material, parent: THREE.Group, shadows: boolean): void => {
+    const emit = (
+      acc: Accum,
+      mat: THREE.Material,
+      parent: THREE.Group,
+      shadows: boolean,
+    ): THREE.Mesh | null => {
       const geo = acc.toGeometry();
       if (!geo) {
-        return;
+        return null;
       }
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = shadows;
@@ -987,6 +997,7 @@ export class Towns {
       mesh.matrixAutoUpdate = false;
       parent.add(mesh);
       this.geos.push(geo);
+      return mesh;
     };
 
     for (const town of plan.towns.all) {
@@ -1102,7 +1113,12 @@ export class Towns {
         builtFences.push(...addBridgeFurniture(solid, parts, built, surfaceAt));
       }
       emit(solid.acc, props.solidMat, g, true);
-      emit(glow, lampGlow, g, false);
+      // A glow head is a LIGHT, not an occluder, and it ring-fades: in the AO
+      // G-buffer it would stamp dots along the road the beauty pass discarded.
+      const glowMesh = emit(glow, lampGlow, g, false);
+      if (glowMesh) {
+        excludeFromAO(glowMesh);
+      }
       this.group.add(g);
       const mid = road.pts[Math.floor(road.pts.length / 2)];
       this.sites.push({ g, x: mid.x, z: mid.z, r: roadLength(road) * 0.5 + 20 });
@@ -1197,6 +1213,12 @@ export class Towns {
       mesh.name = name;
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
+      // OUT OF THE AO G-BUFFER: the override pass knows nothing of the ring
+      // fade, so a full-length ribbon stamped a road-shaped AO darkening onto
+      // the fog far past where the beauty pass had discarded it (issue #39's
+      // signature, reported from the air). The carved terrain a hair beneath
+      // the deck carries the near contact AO instead.
+      excludeFromAO(mesh);
       this.pathGroup.add(mesh);
       this.geos.push(geo);
     };

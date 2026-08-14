@@ -665,8 +665,15 @@ export function createWorld(
   }
   spawnPoint.y = terrain.getHeight(spawnPoint.x, spawnPoint.z);
 
+  // THE RENDER-DISTANCE AUTHORITY, created before anything that must respect
+  // it. DistantTerrain (built later, after the height field settles) is its
+  // only writer — a view-distance change moves ground, roads and structures
+  // together. `ringBand` is the streamed-detail ring everything BUILT dies on.
+  const horizonFade = makeHorizonFade(initialViewDistance);
+  const ringBand = horizonFade.ring;
+
   const spots = placeShops(terrain, spawnPoint, seed, townReg, plan?.network.roads ?? []);
-  const shops = new Shops(spots, spawnPoint);
+  const shops = new Shops(spots, spawnPoint, ringBand);
   scene.add(shops.group);
 
   // The debug spawner's stage. Its part library is not baked until something is
@@ -674,10 +681,6 @@ export function createWorld(
   const spawned = new SpawnedSolids(propLib, (x, z) => terrain.getHeight(x, z));
   scene.add(spawned.group);
 
-  // Created before Towns: the ribbons and lamps compile against these uniform
-  // objects, and DistantTerrain (built later, after the height field settles) is
-  // their only writer — so a view-distance change moves road and ground together.
-  const horizonFade = makeHorizonFade(initialViewDistance);
   const towns = plan
     ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain, horizonFade)
     : null;
@@ -701,6 +704,7 @@ export function createWorld(
           // What the ROAD stood up along itself — signposts and lamps.
           furniture: towns?.furniture ?? [],
         }),
+        ringBand,
       )
     : null;
   if (waypoints && plan) {
@@ -1685,7 +1689,8 @@ export function createWorld(
         clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius, ISLAND_KEEL);
       }
       clouds?.update(focus, dt);
-      shops.update(time);
+      shops.update(time, focus);
+      waypoints?.update(focus);
       towns?.update(time, focus);
       npcs?.update(dt, time, focus);
 

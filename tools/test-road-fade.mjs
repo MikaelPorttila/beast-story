@@ -143,8 +143,8 @@ let fade;
   fade = {
     start: scout.distant?.horizonFadeStart,
     end: scout.distant?.horizonFadeEnd,
-    roadStart: scout.distant?.roadFadeStart,
-    roadEnd: scout.distant?.roadFadeEnd,
+    roadStart: scout.distant?.ringFadeStart,
+    roadEnd: scout.distant?.ringFadeEnd,
   };
   check(
     typeof fade.start === "number" && typeof fade.end === "number" && fade.end > fade.start,
@@ -154,7 +154,7 @@ let fade;
   // starts thinning, so a road is never drawn over dissolving or absent ground.
   check(
     typeof fade.roadEnd === "number" && fade.roadEnd <= fade.start && fade.roadStart < fade.roadEnd,
-    `the road band does not close before the ground band opens: ${JSON.stringify(fade)}`,
+    `the ring band does not close before the ground band opens: ${JSON.stringify(fade)}`,
   );
   spawn = scout.spawn;
   const pts = (scout.paths ?? [])
