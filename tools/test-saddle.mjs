@@ -200,6 +200,25 @@ await wait(300);
 // dropped back under a sprint must.
 {
   const HERO_SPRINT = 9.6; // player/index.ts, and the whole comparison.
+  // OPEN GROUND FIRST (issue #226). The boot pose stands INSIDE the walled camp
+  // facing its own huts, and the camp is allowed to grow — the taming pen
+  // (issue #178) resited them and put timber a few strides down the held-W
+  // line, so the run measured a mount pinned against a wall, not a gait.
+  // `spawn` is the reference stretch of road fifty units out (test-gfx.mjs
+  // measures there for the same reason); aim OUT along the camp-to-road
+  // bearing so the run keeps leaving the walls behind.
+  const open = await page.evaluate(() => window.__dbgTowns().spawn);
+  await page.evaluate(([x, z]) => window.__dbgTp(x, z), [open.x, open.z]);
+  for (let i = 0; i < 40; i++) {
+    if (!(await page.evaluate(() => window.__dbgZone().streaming))) {
+      break;
+    }
+    await advance(0.25);
+  }
+  const start = await page.evaluate(() => window.__dbgStart().start);
+  await page.evaluate((b) => window.__dbgAim(b), Math.atan2(open.x - start.x, open.z - start.z));
+  await advance(0.8);
+
   await page.evaluate(() => window.__dbgRide("emberfox"));
   await advance(0.5);
   const m0 = await mnt();
@@ -208,7 +227,7 @@ await wait(300);
   await page.keyboard.down("KeyW");
   let peak = 0;
   // Sampled rather than read once at the end: the run is on open world ground
-  // and a hut or a rise can slow the last slice. Top speed is the claim.
+  // and a rise can slow the last slice. Top speed is the claim.
   for (let i = 0; i < 12; i++) {
     await advance(0.25);
     const s = (await mnt()).speed;
