@@ -222,7 +222,7 @@ const ACT1_QUESTS = [
  * so `story-sea` ships with the boot — its island settlement must exist when
  * `planSettlements` runs — and holds the act's entry quest beside it.
  */
-const SEA_QUESTS = ["quest:sea/salt-and-rope"];
+const SEA_QUESTS = ["quest:sea/salt-and-rope", "quest:sea/dark-water"];
 const BOOT_QUESTS = ACT1_QUESTS.length + SEA_QUESTS.length;
 
 /** What a boot holds: the world, then the campaigns that are set in it. */

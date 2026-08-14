@@ -105,6 +105,9 @@ const SOLO = new Set([
   // Sails the ferry to the Brine Reach and back — two long teleports that each
   // stream a far corner of the world in, and a staged content flag.
   "brine",
+  // Drives the hero into the channel on foot and mounted, tames a staged
+  // Aquaxol, and measures the auto-mount crossing — motion, tames and key holds.
+  "dark-water",
   // Presses E to take a quest and throws orbs to finish it, then reads what the
   // frame drew — every one of those needs a frame loop the tab is not given in
   // the background.
