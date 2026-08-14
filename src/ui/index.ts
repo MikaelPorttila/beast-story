@@ -892,6 +892,10 @@ export class HUD {
       tapeX: this.lastTapeX,
       markers: this.markers.map((r) => ({
         id: r.m.id,
+        // The marker's own world point, so a probe can hold a chip against the
+        // fact it points at (test-map does, for the planted flag).
+        x: +r.m.x.toFixed(2),
+        z: +r.m.z.toFixed(2),
         rel: +r.rel.toFixed(2),
         px: r.lastPx,
         clamped: r.lastEdge !== 0,

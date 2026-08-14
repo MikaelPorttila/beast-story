@@ -134,6 +134,7 @@ import {
   type GearSlotView,
 } from "./ui/inventory";
 import { JournalPanel, type JournalEntry, type JournalModel, type JournalTab } from "./ui/journal";
+import { MapPanel, type MapTerrain } from "./ui/map";
 import {
   exitFullscreen,
   fullscreenSupported,
@@ -385,6 +386,9 @@ function exitToTitle(): void {
   refreshOrbHud();
   inventory.close();
   journal.close();
+  map.close();
+  // The flag is the character's, and the chip goes with it.
+  setPlayerMarker(null);
   // `attackStat` is the one loadout field Player.reset deliberately leaves alone (see BASE_ATTACK); giveStartingKit re-equips and calls applyLoadout.
   equippedWeapon = null;
   attackBuff = 0;
@@ -566,6 +570,7 @@ function collectSave(): SaveDocument {
     mounts: mountUnlocks.list(),
     content: content.state.toJSON(),
     dayPhase: dayNight.phase,
+    ...(playerMarker ? { marker: { ...playerMarker } } : {}),
   };
   if (carriedExtra) {
     saved.extra = carriedExtra;
@@ -596,6 +601,11 @@ function applySave(doc: SaveDocument): void {
     dayNight.setPhase(doc.dayPhase);
 
     mountUnlocks.restore(doc.mounts);
+
+    // The map marker: a zone this build no longer has drops the flag, never the load.
+    playerMarker =
+      doc.marker && zones.zoneIds.includes(doc.marker.zone) ? { ...doc.marker } : null;
+    syncMarkerChip();
 
     // 4. THE PARTY. Reset first: the roster holds every species, bonded or not.
     for (const b of roster) {
@@ -1298,8 +1308,9 @@ const zones = new ZoneManager({
     content.state.discover(`zone:${def.id}`);
     advanceObjectives({ kind: "zone-arrival", id: def.id });
     // Quest chips are recomputed rather than copied, because the waypoint for "reach the Hold" is
-    // a different door from either side of it.
+    // a different door from either side of it. The marker chip is per-zone too.
     refreshQuestChips();
+    syncMarkerChip();
     // A new zone is new meshes, and a visibility flag went with the old world's chunks.
     gfx.applyAll();
   },
@@ -2206,6 +2217,127 @@ const journal = new JournalPanel({
   },
 });
 
+// THE WORLD MAP (issue #245), and the one marker the player may plant on it.
+// The marker is session state under issue #171's rule — reset in exitToTitle,
+// saved, loaded — and carries its ZONE: a flag planted on the overworld must
+// not point at a spot inside the Hold, so the chip and the map only show it in
+// the zone it was planted in, and a save naming a zone this build no longer
+// has drops the flag rather than the load.
+let playerMarker: { zone: string; x: number; z: number } | null = null;
+const MARKER_CHIP_ID = "player-marker";
+
+function syncMarkerChip(): void {
+  if (playerMarker && playerMarker.zone === zones.id) {
+    hud.addCompassMarker({
+      id: MARKER_CHIP_ID,
+      x: playerMarker.x,
+      z: playerMarker.z,
+      // The waystone crystal's cyan — the player's own things share a colour.
+      color: 0x8be3ff,
+      label: "⚑",
+    });
+  } else {
+    hud.removeCompassMarker(MARKER_CHIP_ID);
+  }
+}
+
+function setPlayerMarker(spot: { x: number; z: number } | null): void {
+  playerMarker = spot ? { zone: zones.id, x: spot.x, z: spot.z } : null;
+  syncMarkerChip();
+}
+
+/**
+ * What the map paints its base image from. Bounds are DERIVED from what the
+ * zone contains — spawn, towns, stones and roads — so a grown world grows its
+ * map without anyone updating a constant.
+ */
+function mapTerrain(): MapTerrain {
+  let minX = world.spawnPoint.x;
+  let maxX = minX;
+  let minZ = world.spawnPoint.z;
+  let maxZ = minZ;
+  const take = (x: number, z: number): void => {
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
+  };
+  for (const town of world.towns.all) {
+    take(town.x - town.outerRadius, town.z - town.outerRadius);
+    take(town.x + town.outerRadius, town.z + town.outerRadius);
+  }
+  for (const w of world.waypoints?.all ?? []) {
+    take(w.x, w.z);
+  }
+  const roads: Array<Array<readonly [number, number]>> = [];
+  for (const r of world.towns.roads) {
+    const line: Array<readonly [number, number]> = [];
+    for (let i = 0; i < r.path.length; i += 3) {
+      line.push([r.path[i], r.path[i + 2]]);
+      take(r.path[i], r.path[i + 2]);
+    }
+    roads.push(line);
+  }
+  // Margin so nothing sits on the edge of the paper; the sea past it is context.
+  const M = 140;
+  return {
+    zoneId: zones.id,
+    heightAt: (x, z) => world.getHeight(x, z),
+    waterLevel: world.waterLevel,
+    roads,
+    bounds: { minX: minX - M, minZ: minZ - M, maxX: maxX + M, maxZ: maxZ + M },
+  };
+}
+
+const map = new MapPanel({
+  model: () => ({
+    towns: world.towns.all.map((town) => ({
+      id: town.id,
+      name: t(town.nameKey),
+      color: town.color,
+      x: town.x,
+      z: town.z,
+    })),
+    stones: (world.waypoints?.all ?? []).map((w) => ({
+      id: w.id,
+      x: w.x,
+      z: w.z,
+      lit: waypointLit(w.id),
+    })),
+    quests: questSpots(),
+    player: { x: player.position.x, z: player.position.z, facing: player.facing },
+    marker:
+      playerMarker && playerMarker.zone === zones.id
+        ? { x: playerMarker.x, z: playerMarker.z }
+        : null,
+  }),
+  terrain: mapTerrain,
+  onTravel: (stoneId) => {
+    const stone = world.waypoints?.all.find((w) => w.id === stoneId);
+    // Lit is re-checked at the moment of travel — the panel's list is a frame old.
+    if (!stone || !waypointLit(stone.id)) {
+      return;
+    }
+    map.close("travel");
+    teleportTo(stone.x, stone.z);
+  },
+  onMarker: (spot) => {
+    setPlayerMarker(spot);
+    if (spot) {
+      bus.emit({ type: "toast", text: t("toast.markerPlaced") });
+    }
+  },
+  onOpen: () => input.releaseLock(),
+  onClose: (by) => {
+    if (isTouchPrimary()) {
+      return;
+    }
+    if (by !== "escape" || escapeIsLocked()) {
+      input.requestLock();
+    }
+  },
+});
+
 // Quest marks over the world (PR feedback on #181), recomputed from quest facts rather than pushed.
 // Keyed the way the WORLD keys — `gain` not `npc:gain`, `sproutle` not `wild-sproutle` — so the frame
 // loop is two lookups.
@@ -2343,8 +2475,8 @@ function syncQuestMarks(dt: number): void {
  * Nothing here knows a quest by name, and a quest that names no place gets no
  * chip rather than a chip pointing at the middle of the world.
  */
-function questCompassSpots(): CompassMarker[] {
-  const out: CompassMarker[] = [];
+function questSpots(): Array<{ id: string; name: string; x: number; z: number }> {
+  const out: Array<{ id: string; name: string; x: number; z: number }> = [];
   for (const row of questTrackRows()) {
     const asset = content.get<QuestData>(row.id);
     if (!asset) {
@@ -2354,19 +2486,23 @@ function questCompassSpots(): CompassMarker[] {
     if (!spot) {
       continue;
     }
-    out.push({
-      // The asset id IS the chip id: it already carries its `quest:` namespace, and
-      // a second one only makes `quest:quest:land/…`.
-      id: asset.id,
-      x: spot.x,
-      z: spot.z,
-      // The gold the world marks are drawn in, so the chip on the rim and the
-      // glyph over the head are recognisably the same thing.
-      color: 0xffc44d,
-      label: row.name.slice(0, 4).toUpperCase(),
-    });
+    // The asset id IS the spot id: it already carries its `quest:` namespace, and
+    // a second one only makes `quest:quest:land/…`.
+    out.push({ id: asset.id, name: row.name, x: spot.x, z: spot.z });
   }
   return out;
+}
+
+function questCompassSpots(): CompassMarker[] {
+  return questSpots().map((s) => ({
+    id: s.id,
+    x: s.x,
+    z: s.z,
+    // The gold the world marks are drawn in, so the chip on the rim and the
+    // glyph over the head are recognisably the same thing.
+    color: 0xffc44d,
+    label: s.name.slice(0, 4).toUpperCase(),
+  }));
 }
 
 /** The one place `questCompassSpots` sends you for this quest, or null. */
@@ -4148,17 +4284,26 @@ const refitHero = (): void => {
   }
 }
 
-(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (
-  x,
-  z,
-  y,
-) => {
-  // THE SADDLE FIRST: while mounted the hero's position is rewritten from the mount every slice, so setting these fields alone was a teleport that did nothing.
+// THE ONE WAY TO MOVE THE HERO ACROSS THE WORLD — the saddle first (while
+// mounted his position is rewritten from the mount every slice, so setting the
+// fields alone was a teleport that did nothing), then the ground that is there
+// NOW. The map's waystone travel and `__dbgTp` share it.
+function teleportTo(x: number, z: number, y?: number): void {
   mount.teleport(x, z, y);
   player.position.x = x;
   player.position.z = z;
   player.position.y = y ?? Math.max(world.getHeight(x, z), world.waterLevel);
   player.velocity.set(0, 0, 0);
+}
+(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp =
+  teleportTo;
+// TEST HOOK, `__dbgTp`'s argument exactly: it DRIVES the map marker without the
+// panel, which is how test-saves plants a flag to round-trip.
+(window as unknown as { __dbgMarker: (x: number | null, z?: number) => void }).__dbgMarker = (
+  x,
+  z,
+) => {
+  setPlayerMarker(x === null || z === undefined ? null : { x, z });
 };
 // Swing the camera so a held W walks along that bearing — movement is camera-relative. A WALK bearing, and the swing takes a few hundred ms.
 (window as unknown as { __dbgAim: (bearing: number) => void }).__dbgAim = (bearing) => {
@@ -4720,7 +4865,8 @@ function updateCursorMode(): void {
     hud.isShopOpen() ||
     hud.isControlsOpen() ||
     inventory.isOpen ||
-    journal.isOpen;
+    journal.isOpen ||
+    map.isOpen;
   const want = altHeld || (menuUp && input.lastSource === "kbm");
   if (want === cursorFree) {
     return;
@@ -5530,6 +5676,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     pauseMenu.isOpen ||
     inventory.isOpen ||
     journal.isOpen ||
+    map.isOpen ||
     !!devConsole?.isOpen ||
     perfPanel.isTyping;
   nearShop = false;
@@ -5748,6 +5895,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
         } else {
           journal.activate();
         }
+      } else if (map.isOpen) {
+        // Its own Escape spends the press on the travel dialog first, then the panel.
+        if (cancel) {
+          map.onEscape();
+        } else {
+          map.activate();
+        }
       } else if (hud.isControlsOpen()) {
         hud.closeControls();
       } else {
@@ -5868,6 +6022,7 @@ function frame(): void {
     pauseMenu.isOpen ||
     inventory.isOpen ||
     journal.isOpen ||
+    map.isOpen ||
     perfPanel.isTyping;
   // A modal does not turn the camera, and the controls sheet keeps pointer lock, so unlike the shop it
   // goes on collecting mouse delta that no slice will spend. See Input.clearLook.
@@ -6051,6 +6206,9 @@ function frame(): void {
   }
   if (!photoMode && input.takePress("KeyJ") && (journal.isOpen || !(modal || devConsole?.isOpen))) {
     journal.toggle();
+  }
+  if (!photoMode && input.takePress("KeyM") && (map.isOpen || !(modal || devConsole?.isOpen))) {
+    map.toggle();
   }
   if (input.takePress("F2")) {
     debug.toggle();
@@ -6399,6 +6557,13 @@ beginPlay();
     y: +s.y.toFixed(2),
     z: +s.z.toFixed(2),
   })),
+});
+
+// THE MAP: the live view, marker counts and every travel target's screen position,
+// so a probe can aim a real click. `marker` is the planted flag with its zone.
+(window as unknown as { __dbgMap: () => unknown }).__dbgMap = () => ({
+  ...(map.debug() as Record<string, unknown>),
+  planted: playerMarker,
 });
 
 (window as unknown as { __dbgJournal: () => unknown }).__dbgJournal = () => ({

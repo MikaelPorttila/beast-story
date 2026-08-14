@@ -825,6 +825,45 @@ const CSS = `
 }
 
 
+/* ---- world map (M) ------------------------------------------------------- */
+/* src/ui/map.ts. Fullscreen, one canvas: the base image is generated terrain,
+   the markers are drawn over it per frame. Same modal family as the journal —
+   z-index 40, --bs-vw/--bs-vh, .bs-glass, .bs-shop-x. */
+.bs-map{position:fixed;inset:0;z-index:40;display:flex;
+  pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#eef2f8;user-select:none;-webkit-user-select:none}
+.bs-map .bs-scrim{opacity:0}
+.bs-map.open .bs-scrim{opacity:1}
+.bs-map .pane{position:relative;width:var(--bs-vw,100vw);height:var(--bs-vh,100dvh);
+  display:flex;flex-direction:column;min-height:0;border-radius:0;border:none;
+  opacity:0;transition:opacity .2s ease}
+.bs-map.open .pane{opacity:1}
+.bs-map .head{display:flex;align-items:center;gap:14px;padding:14px 18px 12px;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.bs-map .head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
+  text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.bs-map .head .cap{display:flex;gap:5px;opacity:.62}
+/* The canvas owns every remaining pixel; its cursor says the ground is draggable. */
+.bs-map .mc{flex:1;min-height:0;width:100%;cursor:grab;display:block}
+.bs-map .mc:active{cursor:grabbing}
+.bs-map .foot{display:flex;gap:18px;flex-wrap:wrap;padding:10px 18px;
+  border-top:1px solid rgba(255,255,255,.1);font-size:16px;color:rgba(238,242,248,.72)}
+.bs-map .foot span{display:inline-flex;align-items:center;gap:7px}
+/* The travel question, floated over the middle of the map. */
+.bs-map .mconfirm{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  padding:18px 22px;border-radius:14px;display:flex;flex-direction:column;gap:14px;
+  box-shadow:0 18px 48px rgba(0,0,0,.55)}
+.bs-map .mconfirm p{font-size:17px;font-weight:700}
+.bs-map .mconfirm .row{display:flex;gap:10px;justify-content:center}
+.bs-map .mconfirm .bs-buy{font-size:16px;padding:7px 16px}
+.bs-map .mconfirm .bs-buy.ghost{background:rgba(255,255,255,.1);color:rgba(238,242,248,.8)}
+.bs-map .mconfirm .bs-buy:focus-visible{outline:2px solid #ffd23f;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .bs-map .bs-scrim,.bs-map .pane{transition:none}
+}
+
+
 /* ---- in-game menu (Escape / Start / the touch overlay's MENU) ------------ */
 /* src/ui/pause.ts. Borrows the TITLE SCREEN's controls (.bs-menu-btn, .bs-opts)
    because it does the title screen's job, and only .bs-scrim / .bs-glass from the

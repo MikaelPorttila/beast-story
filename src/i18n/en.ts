@@ -194,6 +194,23 @@ export const en = {
   // is named from the item table instead — see `rewardLines` in main.ts.
   "journal.reward.xp": "XP",
 
+  // ---- world map (issue #245) ----------------------------------------------
+  "map.title": "Map",
+  "map.travel.ask": "Travel to this waystone?",
+  "map.travel.go": "Travel",
+  "map.travel.stay": "Stay",
+  // The footer's four hints: a caps chip (device labels, never translated in
+  // spirit but the words around them are) and what the gesture does.
+  "map.hint.dragKeys": "Drag / Arrows / Stick",
+  "map.hint.pan": "Pan",
+  "map.hint.wheelKeys": "Wheel / + − / Shoulders",
+  "map.hint.zoom": "Zoom",
+  "map.hint.clickKeys": "Click / P / Y",
+  "map.hint.marker": "Place or lift your marker",
+  "map.hint.stoneKeys": "Tab / D-pad, then Enter / A",
+  "map.hint.travel": "Travel to a lit waystone",
+  "toast.markerPlaced": "Marker placed. The compass will keep it in view.",
+
   // ---- the campaign: Act 1, Land (game-story.md §4, issue #143) -------------
   // Keyed by the quest id with the slash dropped and the name camel-cased:
   // `quest:land/first-light` -> `quest.land.firstLight`. Objectives hang off
@@ -881,6 +898,7 @@ export const en = {
   "keys.interact": "Talk · open a skill den · enter a gateway",
   "keys.inventory": "Inventory",
   "keys.journal": "Quest journal",
+  "keys.map": "Map",
   /**
    * THE MENU KEY, which is F10 and no longer Escape. The two rows are separate
    * because the keys are: this one opens and closes the in-game menu, and the
