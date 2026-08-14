@@ -2922,6 +2922,79 @@ function tickMarketStage(dt: number): void {
   }
 }
 
+// THE ROOKERY — Gullspire's turned flock and Corwin Vane's wreck (issue #155).
+// The Galebird lives in no biome table, which is the point: the flock is HERE
+// because something turned it, so the quest stages it and nothing else does.
+const ROOKERY_BIRD = "wild-galebird";
+const ROOKERY_FLOCK_N = 3;
+const ROOKERY_COMPONENT = "component-vane";
+/** The wreck: a fixed bearing off the town, away from the gate — the drove-ground rule. */
+const WRECK_OUT = 26;
+const ROOKERY_STAGE_REACH = 60;
+let rookeryStagePollIn = 0;
+
+function vaneWreck(): { x: number; y: number; z: number } | null {
+  const town = world.towns.get("gullspire");
+  if (!town) {
+    return null;
+  }
+  const away = Math.atan2(town.x - town.gateX, town.z - town.gateZ);
+  const x = town.x + Math.sin(away) * WRECK_OUT;
+  const z = town.z + Math.cos(away) * WRECK_OUT;
+  return { x, y: world.getHeight(x, z), z };
+}
+
+function tickRookeryStage(dt: number): void {
+  rookeryStagePollIn -= dt;
+  if (rookeryStagePollIn > 0) {
+    return;
+  }
+  rookeryStagePollIn = PRACTICE_POLL;
+  if (zones.id !== "overworld") {
+    return;
+  }
+  const asset = content.get<QuestData>("quest:sea/the-rookery");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  const wreck = vaneWreck();
+  if (!wreck) {
+    return;
+  }
+  if (
+    !inReach(
+      wreck.x,
+      wreck.y,
+      wreck.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      ROOKERY_STAGE_REACH,
+      30,
+      30,
+    )
+  ) {
+    return;
+  }
+  // The flock, until one is CALMED: a bond empties the objective, not the sky.
+  // LIVING, not `targetable`: a bird held inside a mid-flight orb is still of
+  // the flock, and counting it out restocked the third bird DURING the bond.
+  if (content.state.progress(asset.id, "calm-the-flock") < 1) {
+    const standing = combat.enemies.filter((e) => !e.isDead && e.species === ROOKERY_BIRD).length;
+    for (let i = standing; i < ROOKERY_FLOCK_N; i++) {
+      const a = (i / ROOKERY_FLOCK_N) * Math.PI * 2;
+      combat.spawnOne(ROOKERY_BIRD, wreck.x + Math.sin(a) * 6, wreck.z + Math.cos(a) * 6);
+    }
+  }
+  if (
+    content.state.progress(asset.id, "recover-component") < 1 &&
+    bag.count(ROOKERY_COMPONENT) === 0 &&
+    !combat.dropSnapshot().some((d) => d.itemId === ROOKERY_COMPONENT && !d.claimed)
+  ) {
+    combat.spawnDrop(ROOKERY_COMPONENT, wreck.x, wreck.y + 0.6, wreck.z);
+  }
+}
+
 // The camera looks through the pinned crosshair, so its forward vector IS the crosshair ray. A module scratch because casting must not allocate.
 const _aim = new THREE.Vector3();
 // Steer strength for a shot fired down the crosshair, as a fraction of full lock-on: 0.35 closes a small aiming
@@ -5268,6 +5341,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickHoldStage(dt);
   tickBossStage(dt);
   tickMarketStage(dt);
+  tickRookeryStage(dt);
   tickWaypoints(dt);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
@@ -7190,6 +7264,7 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
   holdFloor: holdFloorSpot(),
   droveGround: droveGround(),
   drownedMarket: drownedMarket(),
+  vaneWreck: vaneWreck(),
   // The Encampment's taming pen — the camp layout's own answer (issue #178).
   pen: world.tamingPen,
 });
@@ -7291,6 +7366,9 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
       hp: +e.hp.toFixed(2),
       maxHp: e.maxHp,
       isDead: e.isDead,
+      // What every combat scan filters on (`!isDead && !held`) — a staging probe
+      // must count what a player could actually engage (tools/test-rookery.mjs).
+      targetable: e.targetable,
       overFeet: at(e.position, e.position.y),
       // The AUTHORED footprint and, for a wild beast, the one its rig measured. They drift silently: the hp bar floats and the thing is reached from the wrong distance.
       radius: +e.radius.toFixed(2),

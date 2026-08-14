@@ -245,6 +245,15 @@ export const ITEMS: Record<string, ItemDef> = {
     descriptionKey: "item.componentLens.desc",
     rarity: "rare",
   },
+  // The second device part (issue #155), salvaged from Corwin Vane's wreck.
+  "component-vane": {
+    id: "component-vane",
+    nameKey: "item.componentVane",
+    kind: "quest",
+    color: 0xc9d3dd,
+    descriptionKey: "item.componentVane.desc",
+    rarity: "rare",
+  },
 
   // Handed out via the `item.give` action; reachable today through `/give`.
   "gain-token": {

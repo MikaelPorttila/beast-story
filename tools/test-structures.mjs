@@ -522,6 +522,9 @@ const BUDGET = {
   // KELPHOLD (issue #154): the second island, an ordinary hamlet on wetter
   // ground — three fewer fence bays than Saltrest kept, same three roofs.
   kelphold: { total: 32, roofs: 3 },
+  // GULLSPIRE (issue #155): the third island — the lighthouse-and-rookery kit
+  // is future work under #228's banner; until then a hamlet on stack ground.
+  gullspire: { total: 34, roofs: 3 },
   // The hamlet counts were 38 -> 40 and 25 -> 27 boxes when the paddock arc
   // became a fence CHAIN (world/fences.ts, issue #105) instead of seven fixed
   // panels: a chain's collider is one box per bay — the top plank, which spans
