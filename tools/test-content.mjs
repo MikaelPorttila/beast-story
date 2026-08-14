@@ -569,7 +569,9 @@ async function consoleClosed(tries = 40) {
       // An ISLAND town takes no hub slot, so the road planner's three-ground-town
       // rule still holds beside it.
       town: 5,
-      npc: 6,
+      // 6 -> 7: `npc:gain/saltrest` (issue #152), the trainer's second placement
+      // — one body factory, one name key, a new stand on the harbour (§2).
+      npc: 7,
       biome: 8,
       // +2: `enemy:thread-anchor` (issue #150) and `enemy:bellwether` (issue
       // #151), the two enemies `story-land` brings with it. +1 again for
@@ -591,7 +593,13 @@ async function consoleClosed(tries = 40) {
     [...TOWNS.map((t) => t.id), "saltrest", SKYHAVEN.id],
     "towns that reached the world",
   );
-  eq(c.resolved.npcs, [GAIN.id, MERA, COIL, ...SKYFOLK], "npcs that reached the world");
+  eq(
+    c.resolved.npcs,
+    // Saltrest's Gain lands between core's residents and the sky folk — package
+    // load order, which is what the registry iterates.
+    [GAIN.id, MERA, COIL, "gain/saltrest", ...SKYFOLK],
+    "npcs that reached the world",
+  );
   // The pre-migration three FIRST and in their old order, then the wild beasts.
   // Same argument as the towns above: asserting the whole list rather than a
   // filtered one is what makes "a wild beast stopped reaching the world" as

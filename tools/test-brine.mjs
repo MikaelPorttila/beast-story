@@ -21,7 +21,11 @@
 //   4. THE FERRY IS MOORED BY `sea-revealed` — both halves: before the flag the
 //      boats are absent and a press on the pier moves nobody; after it they are
 //      moored and the press SAILS, landing the hero at Saltrest's quay.
-//   5. THE WAY HOME WORKS: the quay pad is disarmed until walked off (the
+//   5. SALT AND ROPE RUNS END TO END (issue #152): available once the
+//      Bellwether is done, reach-saltrest advanced by the arrival the sail just
+//      made, Gain's offer starts it and marks the talk, his second line hands
+//      over the boat and completes it — has-boat set, the shards paid.
+//   6. THE WAY HOME WORKS: the quay pad is disarmed until walked off (the
 //      landing-pad rule), then a press sails back to Embervale's pier.
 //
 // Exits non-zero on failure.
@@ -69,6 +73,40 @@ const dbg = (fn, ...args) => page.evaluate(fn, ...args);
 const ferry = () => dbg(() => window.__dbgFerry());
 const pos = () => dbg(() => window.__dbgPlayerPos());
 const tp = (x, z) => dbg((p) => window.__dbgTp(p.x, p.z), { x, z });
+const state = () =>
+  dbg(async () => {
+    const { content } = await import("/src/content/index.ts");
+    const q = "quest:sea/salt-and-rope";
+    return {
+      status: content.state.questStatus(q),
+      reach: content.state.progress(q, "reach-saltrest"),
+      talk: content.state.progress(q, "talk-to-gain"),
+      boat: content.state.progress(q, "take-the-boat"),
+      hasBoat: content.state.flag("has-boat"),
+    };
+  });
+const shelfOf = (id) =>
+  dbg((q) => window.__dbgJournal().model.find((e) => e.id === q)?.tab ?? null, id);
+const purse = () => dbg(() => window.__dbgZone().shards);
+
+/** Stand beside an NPC and press E — tools/test-story-land.mjs's pattern. */
+async function talkTo(id) {
+  const who = (await dbg(() => window.__dbgNpcs())).all.find((n) => n.id === id);
+  if (!who) {
+    return null;
+  }
+  await dbg((n) => window.__dbgTp(n.x + 2, n.z), who);
+  await wait(300);
+  for (let i = 0; i < 20; i++) {
+    await page.keyboard.press("KeyE");
+    await wait(200);
+    const talking = (await dbg(() => window.__dbgNpcs())).talking;
+    if (talking?.id === id) {
+      return talking.line;
+    }
+  }
+  return null;
+}
 
 // ---------- 1. Embervale is bit-identical ------------------------------------
 {
@@ -203,6 +241,9 @@ let quay;
 {
   await dbg(async () => {
     const { content } = await import("/src/content/index.ts");
+    // The act's prerequisite AND its key, the way the Bellwether's turn-in sets
+    // them — the quest section below needs the shelf, the ferry needs the flag.
+    content.state.setQuestStatus("quest:land/the-bellwether", "completed");
     content.state.setFlag("sea-revealed", true);
   });
   await wait(400);
@@ -244,7 +285,44 @@ let quay;
   }
 }
 
-// ---------- 5. and the way home ----------------------------------------------
+// ---------- 5. Salt and Rope, end to end (issue #152) -------------------------
+{
+  const shelf = await shelfOf("quest:sea/salt-and-rope");
+  results.quest = { shelf };
+  check(shelf === "available", `salt-and-rope sits on the "${shelf}" shelf, not "available"`);
+
+  const before = await purse();
+  const offer = await talkTo("gain/saltrest");
+  const started = await state();
+  results.quest.offer = {
+    line: offer,
+    status: started.status,
+    talk: started.talk,
+    reach: started.reach,
+  };
+  check(offer !== null, "Gain has nothing to say in Saltrest");
+  check(started.status === "active", `the offer left the quest "${started.status}"`);
+  check(started.talk >= 1, "talking to Gain did not mark talk-to-gain");
+  // The quest is handed out INSIDE its destination, so activation must replay
+  // the standing arrival — "reach X" is a state, not an edge (main.ts, #152).
+  check(
+    started.reach >= 1,
+    "starting the quest inside Saltrest did not mark reach-saltrest",
+  );
+
+  await page.keyboard.press("Escape");
+  await wait(300);
+  const done = await talkTo("gain/saltrest");
+  const ended = await state();
+  const paid = (await purse()) - before;
+  results.quest.done = { line: done, ...ended, paid };
+  check(ended.status === "completed", `the second talk left the quest "${ended.status}"`);
+  check(ended.boat >= 1, "take-the-boat was not marked by the hand-over");
+  check(ended.hasBoat === true, "has-boat was not set by the completion");
+  check(paid === 60, `the reward paid ${paid} shards, not the 60 the quest promises`);
+}
+
+// ---------- 6. and the way home ----------------------------------------------
 {
   // Walk off to arm the quay pad, then sail home.
   await tp(quay.x + 10, quay.z + 10);
