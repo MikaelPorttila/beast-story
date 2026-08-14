@@ -85,7 +85,7 @@ import { BundledProvider } from "./content/storage/bundled";
 import { contentIssues, reportContentIssue } from "./core/content-bridge";
 import { ColliderView } from "./core/collider-view";
 import { createWorld, type LandmarkProbe } from "./world/index";
-import { SEA_DIR } from "./world/terrain";
+import { SEA_DIR, SEA_FULL } from "./world/terrain";
 import { NPC_TALK_RANGE } from "./world/npc";
 import { QuestMarkers, type QuestMarkerKind, type QuestMarkerSpot } from "./world/quest-markers";
 import { TRAIL_PROFILE } from "./world/path-profile";
@@ -2294,6 +2294,19 @@ function questCompassSpots(): CompassMarker[] {
 
 /** The one place `questCompassSpots` sends you for this quest, or null. */
 function questWaypoint(asset: ContentAsset<QuestData>): { x: number; z: number } | null {
+  // A LANDMARK OBJECTIVE HAS NO TRIGGER TO POINT WITH: the reef ring is not a
+  // town, so the closer's waypoint is named here, in the file that owns the
+  // site. The first landmark quest earns the special case; a second one buys a
+  // `site` field on the trigger instead of a third branch.
+  if (
+    asset.id === "quest:sea/what-the-tide-kept" &&
+    content.state.progress(asset.id, "reach-maws-rest") < 1
+  ) {
+    const ring = mawsRest();
+    if (ring) {
+      return { x: ring.x, z: ring.z };
+    }
+  }
   for (const objective of asset.data.objectives) {
     if (content.state.progress(asset.id, objective.key) >= (objective.count ?? 1)) {
       continue;
@@ -2992,6 +3005,96 @@ function tickRookeryStage(dt: number): void {
     !combat.dropSnapshot().some((d) => d.itemId === ROOKERY_COMPONENT && !d.claimed)
   ) {
     combat.spawnDrop(ROOKERY_COMPONENT, wreck.x, wreck.y + 0.6, wreck.z);
+  }
+}
+
+// MAW'S REST — the reef ring, the act's boss, and Act 4's re-used arena (issues
+// #156, #144). A LANDMARK, not a settlement: nothing is built, nothing loads —
+// the site is the fourth anchor down the lobe, in water a swimmer can fight in.
+// Kill the Brineholder and the ring is a place again; guardian-sea (Act 4)
+// fights on the same ground, which is why the site helper knows no quest.
+const MAWS_BOSS = "brineholder";
+const MAWS_STAGE_REACH = 55;
+/** The ring's water: deep enough to dive a fight in, never the unswimmable dark. */
+const MAWS_BED_MIN = 4.2;
+const MAWS_BED_MAX = 6.8;
+let mawsStagePollIn = 0;
+let mawsSite: { x: number; y: number; z: number } | null = null;
+
+function mawsRest(): { x: number; y: number; z: number } | null {
+  if (mawsSite) {
+    return mawsSite;
+  }
+  const along = SEA_FULL + 320 + 3 * 380;
+  const ax = SEA_DIR.x * along;
+  const az = SEA_DIR.z * along;
+  let best: { x: number; y: number; z: number } | null = null;
+  let bestOff = Infinity;
+  for (let ri = 0; ri <= 8; ri++) {
+    const dist = (ri / 8) * 260;
+    const steps = ri === 0 ? 1 : 14;
+    for (let k = 0; k < steps; k++) {
+      const a = (k / steps) * Math.PI * 2;
+      const x = ax + Math.sin(a) * dist;
+      const z = az + Math.cos(a) * dist;
+      const bed = world.getHeight(x, z);
+      if (bed >= MAWS_BED_MIN && bed <= MAWS_BED_MAX && world.isWater(x, z)) {
+        // Prefer the middle of the band: room to dive under the fight.
+        const off = Math.abs(bed - (MAWS_BED_MIN + MAWS_BED_MAX) / 2) + dist * 0.005;
+        if (off < bestOff) {
+          bestOff = off;
+          best = { x, y: bed, z };
+        }
+      }
+    }
+  }
+  mawsSite = best;
+  return best;
+}
+
+function tickMawsStage(dt: number): void {
+  mawsStagePollIn -= dt;
+  if (mawsStagePollIn > 0) {
+    return;
+  }
+  mawsStagePollIn = PRACTICE_POLL;
+  if (zones.id !== "overworld") {
+    return;
+  }
+  const asset = content.get<QuestData>("quest:sea/what-the-tide-kept");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  const ring = mawsRest();
+  if (!ring) {
+    return;
+  }
+  const near = inReach(
+    ring.x,
+    ring.y,
+    ring.z,
+    player.position.x,
+    player.position.y,
+    player.position.z,
+    MAWS_STAGE_REACH,
+    30,
+    30,
+  );
+  if (!near) {
+    return;
+  }
+  // ARRIVAL: a landmark is not a town, so the stage's own reach test marks it —
+  // the same inReach rule town-arrival uses, pointed at a ring of water.
+  if (content.state.progress(asset.id, "reach-maws-rest") < 1) {
+    content.run([
+      { do: "progress.add", quest: asset.id, objective: "reach-maws-rest" },
+    ]);
+  }
+  if (
+    content.state.progress(asset.id, "defeat-brineholder") < 1 &&
+    !combat.enemies.some((e) => e.targetable && e.species === MAWS_BOSS)
+  ) {
+    combat.spawnOne(MAWS_BOSS, ring.x + 4, ring.z);
   }
 }
 
@@ -5342,6 +5445,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickBossStage(dt);
   tickMarketStage(dt);
   tickRookeryStage(dt);
+  tickMawsStage(dt);
   tickWaypoints(dt);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
@@ -7265,6 +7369,7 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
   droveGround: droveGround(),
   drownedMarket: drownedMarket(),
   vaneWreck: vaneWreck(),
+  mawsRest: mawsRest(),
   // The Encampment's taming pen — the camp layout's own answer (issue #178).
   pen: world.tamingPen,
 });

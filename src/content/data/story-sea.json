@@ -293,14 +293,161 @@
         "body": "coil",
         "homeOffset": 6,
         "acrossFocus": false,
-        "_role": "The rival, already here (game-story.md §2). Her case — a leashed beast hurts nobody — lands once the player has seen the collared guardian; her Act 2 quest rows (What the Tide Kept, #156) and her Act 4 gate stack above these later.",
+        "_role": "The rival, already here (game-story.md §2). Her case — a leashed beast hurts nobody — lands once the player has seen the collared guardian; her act-closer rows stand above it, and her Act 4 gate (guardian-sea, on mount-water) stacks above these later.",
         "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/what-the-tide-kept",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/what-the-tide-kept",
+                  "objective": "defeat-brineholder",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.coil.sea5.done" },
+            "actions": [
+              {
+                "do": "progress.add",
+                "quest": "quest:sea/what-the-tide-kept",
+                "objective": "assemble-the-device"
+              },
+              { "do": "quest.complete", "quest": "quest:sea/what-the-tide-kept" }
+            ]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/the-drowned-market",
+                  "status": "completed"
+                },
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/the-rookery",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/what-the-tide-kept",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/what-the-tide-kept",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.coil.sea5.offer" },
+            "actions": [
+              { "do": "quest.start", "quest": "quest:sea/what-the-tide-kept" }
+            ]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sea/what-the-tide-kept",
+              "status": "active"
+            },
+            "line": { "key": "npc.coil.sea5.busy" }
+          },
           {
             "when": { "test": "flag", "flag": "component-lens" },
             "line": { "key": "npc.coil.sea3.after" }
           },
           { "line": { "key": "npc.coil.sea3.case" } }
         ]
+      }
+    },
+    {
+      "id": "enemy:brineholder",
+      "schema": 1,
+      "name": { "key": "enemy.brineholder.name" },
+      "tags": ["story", "act2", "boss"],
+      "data": {
+        "model": "beast-coralback",
+        "_model": "PLACEHOLDER (issue #236): a Coralback's reef-backed body at boss stats until the Brineholder has a rig of its own. Fought in and under the water of the Maw's Rest ring — the arena the whole act teaches toward, and the one Act 4's guardian-sea re-uses.",
+        "flying": false,
+        "hp": 700,
+        "atk": 14,
+        "speed": 3.6,
+        "xp": 400,
+        "radius": 1.1,
+        "height": 1.4,
+        "aggro": 30,
+        "variants": [
+          {
+            "element": "water",
+            "main": "#2e5f66",
+            "dark": "#173a41",
+            "belly": "#7fb5ae",
+            "accent": "#c4423c"
+          },
+          {
+            "element": "water",
+            "main": "#28565e",
+            "dark": "#12333a",
+            "belly": "#74a9a2",
+            "accent": "#c4423c"
+          },
+          {
+            "element": "water",
+            "main": "#356870",
+            "dark": "#1c4249",
+            "belly": "#8ac0b8",
+            "accent": "#c4423c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "quest:sea/what-the-tide-kept",
+      "schema": 1,
+      "name": { "key": "quest.sea.whatTheTideKept.name" },
+      "description": { "key": "quest.sea.whatTheTideKept.desc" },
+      "tags": ["story", "act2"],
+      "data": {
+        "category": "main",
+        "arc": "sea",
+        "giver": "npc:coil/kelphold",
+        "location": "town:kelphold",
+        "prerequisites": ["quest:sea/the-drowned-market", "quest:sea/the-rookery"],
+        "_seam": "THE ACT 2 -> ACT 3 SEAM. Both fork arms required, either order — the archipelago's structure as prerequisites. Act 3's opener names this quest; everything else tests sky-revealed. Nothing gates on act-2-complete: that flag is a record.",
+        "objectives": [
+          {
+            "key": "reach-maws-rest",
+            "text": { "key": "quest.sea.whatTheTideKept.obj.reachMawsRest" },
+            "_reach": "Advanced by the arena stage when the hero swims into the ring — a landmark is not a town, so town-arrival cannot carry it; the stage's reach test is the same inReach rule."
+          },
+          {
+            "key": "defeat-brineholder",
+            "text": { "key": "quest.sea.whatTheTideKept.obj.defeatBrineholder" },
+            "trigger": { "kind": "enemy-killed", "enemies": ["enemy:brineholder"] }
+          },
+          {
+            "key": "assemble-the-device",
+            "text": { "key": "quest.sea.whatTheTideKept.obj.assembleTheDevice" },
+            "_assemble": "Coil's turn-in row marks it: three components on one table, and her hands are steadier than yours."
+          }
+        ],
+        "onComplete": [
+          { "do": "flag.set", "flag": "device-built" },
+          { "do": "flag.set", "flag": "sky-revealed" },
+          { "do": "flag.set", "flag": "act-2-complete" }
+        ],
+        "rewards": { "xp": 700, "shard": 200 }
       }
     },
     {
