@@ -222,7 +222,7 @@ const ACT1_QUESTS = [
  * so `story-sea` ships with the boot — its island settlement must exist when
  * `planSettlements` runs — and holds the act's entry quest beside it.
  */
-const SEA_QUESTS = ["quest:sea/salt-and-rope", "quest:sea/dark-water", "quest:sea/the-drowned-market"];
+const SEA_QUESTS = ["quest:sea/salt-and-rope", "quest:sea/dark-water", "quest:sea/the-drowned-market", "quest:sea/the-rookery"];
 const BOOT_QUESTS = ACT1_QUESTS.length + SEA_QUESTS.length;
 
 /** What a boot holds: the world, then the campaigns that are set in it. */
@@ -568,10 +568,10 @@ async function consoleClosed(tries = 40) {
       // 4 -> 5: `town:saltrest`, the sea region's island harbour (issue #144).
       // An ISLAND town takes no hub slot, so the road planner's three-ground-town
       // rule still holds beside it.
-      town: 6,
+      town: 7,
       // 6 -> 7: `npc:gain/saltrest` (issue #152), the trainer's second placement
       // — one body factory, one name key, a new stand on the harbour (§2).
-      npc: 9,
+      npc: 10,
       biome: 8,
       // +2: `enemy:thread-anchor` (issue #150) and `enemy:bellwether` (issue
       // #151), the two enemies `story-land` brings with it. +1 again for
@@ -590,14 +590,14 @@ async function consoleClosed(tries = 40) {
     c.resolved.towns,
     // Saltrest after the hub towns (the island placer runs after the roads) and
     // before the carried settlement, which the registry folds in last.
-    [...TOWNS.map((t) => t.id), "saltrest", "kelphold", SKYHAVEN.id],
+    [...TOWNS.map((t) => t.id), "saltrest", "kelphold", "gullspire", SKYHAVEN.id],
     "towns that reached the world",
   );
   eq(
     c.resolved.npcs,
     // Saltrest's Gain lands between core's residents and the sky folk — package
     // load order, which is what the registry iterates.
-    [GAIN.id, MERA, COIL, "gain/saltrest", "brack", "coil/kelphold", ...SKYFOLK],
+    [GAIN.id, MERA, COIL, "gain/saltrest", "brack", "coil/kelphold", "sky-pilot/gullspire", ...SKYFOLK],
     "npcs that reached the world",
   );
   // The pre-migration three FIRST and in their old order, then the wild beasts.

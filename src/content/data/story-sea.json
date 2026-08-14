@@ -345,6 +345,167 @@
       }
     },
     {
+      "id": "town:gullspire",
+      "schema": 1,
+      "name": { "key": "town.gullspire.name" },
+      "tags": ["settlement", "act2"],
+      "data": {
+        "sign": { "key": "town.gullspire.sign" },
+        "layout": "hamlet",
+        "island": true,
+        "radius": 15,
+        "color": "#cfd8d3",
+        "waterside": true,
+        "order": 6,
+        "start": false
+      }
+    },
+    {
+      "id": "npc:sky-pilot/gullspire",
+      "schema": 1,
+      "name": { "key": "npc.skyPilot.name" },
+      "tags": ["resident", "quest-giver", "act2"],
+      "data": {
+        "town": "town:gullspire",
+        "body": "sky-pilot",
+        "homeOffset": 10,
+        "acrossFocus": false,
+        "_role": "Corwin Vane, wrecked (game-story.md §2): the same body and name key as Skyhaven's pilot, found beside a balloon nobody in the Reach believes came from anywhere. Rescuing him is load-bearing for Act 3 — the ascent has no pilot without this placement.",
+        "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/the-rookery",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/the-rookery",
+                  "objective": "calm-the-flock",
+                  "atLeast": 1
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/the-rookery",
+                  "objective": "escort-vane",
+                  "atLeast": 1
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/the-rookery",
+                  "objective": "recover-component",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.skyPilot.sea4.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:sea/the-rookery" }]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/the-rookery",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/the-rookery",
+                  "objective": "calm-the-flock",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.skyPilot.sea4.down" },
+            "actions": [
+              {
+                "do": "progress.add",
+                "quest": "quest:sea/the-rookery",
+                "objective": "escort-vane"
+              }
+            ],
+            "_escort": "THE DOCUMENTED FAILURE MODE IS 'HE CANNOT DIE' (#155): an NPC is not damageable, so the walk down the stack is this beat, told — the flock that would have knocked him off it is already calmed, which is why this row gates on calm-the-flock. Issue #234 is the real follower mechanic."
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/dark-water",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/the-rookery",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/the-rookery",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.skyPilot.sea4.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:sea/the-rookery" }]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sea/the-rookery",
+              "status": "active"
+            },
+            "line": { "key": "npc.skyPilot.sea4.busy" }
+          },
+          { "line": { "key": "npc.skyPilot.sea4.after" } }
+        ]
+      }
+    },
+    {
+      "id": "quest:sea/the-rookery",
+      "schema": 1,
+      "name": { "key": "quest.sea.rookery.name" },
+      "description": { "key": "quest.sea.rookery.desc" },
+      "tags": ["story", "act2"],
+      "data": {
+        "category": "main",
+        "arc": "sea",
+        "giver": "npc:sky-pilot/gullspire",
+        "location": "town:gullspire",
+        "prerequisites": ["quest:sea/dark-water"],
+        "_fork": "Requires dark-water ONLY — the other arm of the fork beside the-drowned-market (#154); neither requires the other and quest 5 lists both.",
+        "objectives": [
+          {
+            "key": "calm-the-flock",
+            "text": { "key": "quest.sea.rookery.obj.calmTheFlock" },
+            "trigger": { "kind": "tamed", "species": ["wild-galebird"] }
+          },
+          {
+            "key": "escort-vane",
+            "text": { "key": "quest.sea.rookery.obj.escortVane" }
+          },
+          {
+            "key": "recover-component",
+            "text": { "key": "quest.sea.rookery.obj.recoverComponent" },
+            "trigger": { "kind": "item-picked", "item": "component-vane" }
+          }
+        ],
+        "onComplete": [
+          { "do": "flag.set", "flag": "component-vane" },
+          { "do": "flag.set", "flag": "knows-the-sky" },
+          { "do": "discover", "id": "town:gullspire" }
+        ],
+        "rewards": { "xp": 350, "shard": 100 }
+      }
+    },
+    {
       "id": "quest:sea/the-drowned-market",
       "schema": 1,
       "name": { "key": "quest.sea.drownedMarket.name" },

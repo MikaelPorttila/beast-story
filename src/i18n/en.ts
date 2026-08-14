@@ -106,6 +106,10 @@ export const en = {
   "item.componentLens.other": "Lenses",
   "item.componentLens.desc":
     "Ground glass in a brass cage, and none of it local. It bends light toward something that is not the sun.",
+  "item.componentVane.one": "The Vane",
+  "item.componentVane.other": "Vanes",
+  "item.componentVane.desc":
+    "A balanced sliver of metal off the wrecked balloon. Hang it from a thread and it settles — never north, always UP.",
 
   // ---- inventory -----------------------------------------------------------
   "inv.title": "Inventory",
@@ -245,6 +249,12 @@ export const en = {
   "quest.sea.drownedMarket.obj.diveTheMarket": "Reach the drowned market at Kelphold",
   "quest.sea.drownedMarket.obj.collectSalvage": "Dive the stalls and bring up the salvage",
   "quest.sea.drownedMarket.obj.recoverComponent": "Recover the lens from the deepest stall",
+  "quest.sea.rookery.name": "The Rookery",
+  "quest.sea.rookery.desc":
+    "Gullspire's flock has turned and nobody can get up the stack. Halfway up is a wrecked balloon the Reach does not believe in, and a man beside it who has been drinking rain for a week.",
+  "quest.sea.rookery.obj.calmTheFlock": "Calm the flock — bond one of the turned Galebirds",
+  "quest.sea.rookery.obj.escortVane": "Get Corwin Vane down the stack",
+  "quest.sea.rookery.obj.recoverComponent": "Salvage the vane from the wreck",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -300,6 +310,8 @@ export const en = {
   "town.saltrest.sign": "SALTREST",
   "town.kelphold.name": "Kelphold",
   "town.kelphold.sign": "KELPHOLD",
+  "town.gullspire.name": "Gullspire",
+  "town.gullspire.sign": "GULLSPIRE",
   /**
    * SKYHAVEN — the town that flies (issue #68). A settlement like any other as
    * far as this table is concerned; that it is carried rather than sited is
@@ -416,6 +428,18 @@ export const en = {
   "npc.skyPilot.name": "Corwin Vane",
   "npc.skyPilot.greeting":
     "She drifts where the warm air takes her. I only ask her not to drift into a mountain.",
+  // His Gullspire placement — the wreck, a week of rain, and the first proof
+  // anything lives above the weather (issue #155).
+  "npc.skyPilot.sea4.offer":
+    "Before you ask: yes, I fell out of the sky, and no, the sky did not mind. The birds minded. They have the whole stack and my balloon, and I have had rainwater for a week. Calm one of them — they bond like anything else that is frightened — and I will tell you what I was flying FROM.",
+  "npc.skyPilot.sea4.busy":
+    "One bird, bonded, and the rest will follow it like weather. Then the wreck, then, please, somewhere with a roof.",
+  "npc.skyPilot.sea4.down":
+    "Steady — shoulder, not the arm, it is spoken for. There. A week on a rock teaches you what a stair is worth... and you will want the vane off her before the salt has it. She owes you that much for the rescue, and so do I.",
+  "npc.skyPilot.sea4.done":
+    "Down, dry, and the vane out of the salt. Now the part you carried me for: there are CITIES up there. Well-run, well-lit, and very sure nobody would ever drop in. When your instrument starts pointing up — and it will — I can get you there. You will not like it.",
+  "npc.skyPilot.sea4.after":
+    "I have flown over the whole Reach and I still could not tell you where the sea ends. Up is simpler. Up has lamps.",
   "npc.skyGardener.name": "Mother Pell",
   "npc.skyGardener.greeting":
     "Soil this thin, and every root has to hold on twice — once for itself, once for the rest of us.",
