@@ -71,7 +71,19 @@ async function hover(page, x, y, z, ms) {
   await page.evaluate(
     (a, b, c) => {
       window.__dbgTp(a, c, b);
-      window.__holdTimer = setInterval(() => window.__dbgTp(a, c, b), 16);
+      window.__holdMinY = b;
+      window.__holdTimer = setInterval(() => {
+        // Read BEFORE re-pinning: whatever the hero sagged to between ticks is
+        // the height the swing actually happened at. A wall-clock interval
+        // slips under load — gravity is 24 u/s², so a one-second stall IS the
+        // whole 12-unit hold — and without this number a failure cannot say
+        // whether the hold slipped or the refusal band broke (issue #186).
+        const p = window.__dbgPlayerPos();
+        if (p.y < window.__holdMinY) {
+          window.__holdMinY = p.y;
+        }
+        window.__dbgTp(a, c, b);
+      }, 16);
     },
     x,
     y,
@@ -277,35 +289,62 @@ const gate = zone0.gate;
     );
 
     // ---- and the swing itself, held aloft while it plays out --------------
-    const hpOf = async () => {
+    //
+    // BOTH HALVES CARRY AN INSTRUMENT AND RETRY AN INVALID TRIAL (issue #186).
+    // The holds are wall-clock intervals in a page the suite can starve, and a
+    // starved hold desynchronises from the game's own clock: the hero sags off
+    // the pin, the swing happens somewhere else, and the failure blamed
+    // `inRise` for what was the harness slipping. Each attempt now records
+    // what the hold actually held — the hero's lowest y aloft, the widest gap
+    // on the ground — and a trial whose hold demonstrably slipped is restaged
+    // rather than asserted on. A trial that HELD and still fails is a real
+    // finding, and the instrument in the message says which kind it was.
+    const hpOf = async (id) => {
       const b = await probe(page, "__dbgBodies");
-      const e = b.enemies.find((q) => q.id === near.id && !q.isDead);
+      const e = b.enemies.find((q) => q.id === id && !q.isDead);
       return e?.hp ?? null;
     };
-    // From the sky: pinned above it for the whole animation.
-    await hover(page, near.x + 1.2, near.y + SKY, near.z, 500);
-    const hpBeforeAir = await hpOf();
-    await setButton(B_RT, true);
-    await wait(150);
-    await setButton(B_RT, false);
-    await wait(900);
-    const hpAfterAir = await hpOf();
-    await release(page);
+    const reacquire = async (from) => {
+      const b = await probe(page, "__dbgBodies");
+      return b.enemies.find((e) => e.id === from.id && !e.isDead);
+    };
+
+    // From the sky: pinned above it for the whole animation. Valid while the
+    // hero never sagged within 6 of the ground — still far over any melee
+    // band, so the refusal claim is intact for every height the trial saw.
+    let air = null;
+    const airTrials = [];
+    for (let attempt = 0; attempt < 3 && air === null; attempt++) {
+      const t = await reacquire(near);
+      if (!t) {
+        break;
+      }
+      await hover(page, t.x + 1.2, t.y + SKY, t.z, 500);
+      const before = await hpOf(t.id);
+      await setButton(B_RT, true);
+      await wait(150);
+      await setButton(B_RT, false);
+      await wait(900);
+      const after = await hpOf(t.id);
+      const minY = await page.evaluate(() => window.__holdMinY ?? null);
+      await release(page);
+      // Valid while the hero never sagged within 6 of the ground — still far
+      // over any melee band. A hit taken while the hold slipped says nothing
+      // about the refusal band; a REFUSAL from a sagged hold is not a pass
+      // either, so only a held trial counts in either direction.
+      const held = minY !== null && minY - t.y >= 6;
+      airTrials.push({ before, after, minY: minY === null ? null : +minY.toFixed(2), held });
+      if (held && before !== null && after !== null) {
+        air = { before, after, minY };
+      }
+    }
 
     // From the ground, beside it, facing it: the control. Reacquire immediately
     // before the swing. The wild enemy has been steering for the entire airborne
     // animation above; aiming at its several-seconds-old `near` coordinate made
     // this control depend on render timing and miss when issue #96 added two far
     // landscape draws, even though the reach query and combat code were unchanged.
-    const reacquire = async (from) => {
-      const b = await probe(page, "__dbgBodies");
-      return b.enemies.find((e) => e.id === from.id && !e.isDead);
-    };
-    const groundTarget = await reacquire(near);
-    await page.evaluate((x, z) => window.__dbgTp(x, z), groundTarget.x + 0.6, groundTarget.z);
-    await wait(400);
-    await page.evaluate((b) => window.__dbgAim(b), Math.atan2(-1.2, 0));
-    await wait(400);
+    //
     // PIN THE HERO TO THE LIVE TARGET for the whole swing, the same way the
     // airborne half is pinned aloft — one teleport before the button and a fixed
     // wait was a race the target won as soon as it moved, and a wild beast now
@@ -313,38 +352,80 @@ const gate = zone0.gate;
     // its position each tick keeps the two 0.6 m apart whatever it does, so the
     // control measures the reach rule and not the animal's timing. The bearing
     // does not need re-aiming: the offset is constant, so it is.
-    await page.evaluate((eid) => {
-      window.__holdTimer = setInterval(() => {
-        const e = window.__dbgBodies().enemies.find((q) => q.id === eid && !q.isDead);
-        if (e) {
-          window.__dbgTp(e.x + 0.6, e.z);
-        }
-      }, 16);
-    }, groundTarget.id);
-    await wait(100);
-    const hpBeforeGround = await hpOf();
-    await setButton(B_RT, true);
-    await wait(150);
-    await setButton(B_RT, false);
-    await wait(900);
-    const hpAfterGround = await hpOf();
-    await release(page);
+    let ground = null;
+    const groundTrials = [];
+    for (let attempt = 0; attempt < 3 && ground === null; attempt++) {
+      const t = await reacquire(near);
+      if (!t) {
+        break;
+      }
+      await page.evaluate((x, z) => window.__dbgTp(x, z), t.x + 0.6, t.z);
+      await wait(400);
+      await page.evaluate((b) => window.__dbgAim(b), Math.atan2(-1.2, 0));
+      await wait(400);
+      await page.evaluate((eid) => {
+        window.__holdMaxD = 0.6;
+        window.__holdTimer = setInterval(() => {
+          const e = window.__dbgBodies().enemies.find((q) => q.id === eid && !q.isDead);
+          if (e) {
+            const p = window.__dbgPlayerPos();
+            const d = Math.hypot(p.x - e.x, p.z - e.z);
+            if (d > window.__holdMaxD) {
+              window.__holdMaxD = d;
+            }
+            window.__dbgTp(e.x + 0.6, e.z);
+          }
+        }, 16);
+      }, t.id);
+      await wait(100);
+      const before = await hpOf(t.id);
+      await setButton(B_RT, true);
+      await wait(150);
+      await setButton(B_RT, false);
+      await wait(900);
+      const after = await hpOf(t.id);
+      const maxD = await page.evaluate(() => window.__holdMaxD ?? null);
+      await release(page);
+      // A LANDED swing is a valid control whatever the gap read — the recorder
+      // samples the beast mid-lunge between re-pins, and 1.7 with a hit is the
+      // pin working. The gap only excuses a MISS: a miss with the pair apart is
+      // the harness slipping and is restaged; a miss with the pair held tight
+      // is the real finding. `after` null after a landed swing is the enemy
+      // dying of it, which is a hit.
+      const hit = before !== null && (after === null || after < before);
+      const held = maxD !== null && maxD <= 1.5;
+      groundTrials.push({ before, after, maxD: maxD === null ? null : +maxD.toFixed(2), held });
+      if (hit) {
+        ground = { before, after: after ?? 0, maxD };
+      } else if (held) {
+        ground = { before, after, maxD };
+      }
+    }
 
-    results.swordOutcome = {
-      air: { before: hpBeforeAir, after: hpAfterAir },
-      ground: { before: hpBeforeGround, after: hpAfterGround },
-    };
+    results.swordOutcome = { airTrials, groundTrials };
     check(
-      hpBeforeAir !== null && hpAfterAir !== null && hpAfterAir >= hpBeforeAir,
-      `a swing from ${SKY} units up took an enemy on the ground from ${hpBeforeAir} to ${hpAfterAir}`,
+      air !== null,
+      `the airborne hold slipped in every trial — ${JSON.stringify(airTrials)} — ` +
+        "the pin cannot keep the hero aloft on this host",
+    );
+    check(
+      air === null || (air.before !== null && air.after !== null && air.after >= air.before),
+      `a swing from ${SKY} units up (held, lowest y ${air?.minY?.toFixed?.(2)}) took an ` +
+        `enemy on the ground from ${air?.before} to ${air?.after}`,
     );
     // The control. Wild enemies move, so a miss here is not necessarily a bug in
     // the game — but it does mean the pair above proved nothing, and a silent
     // pass is exactly what this file exists to prevent.
     check(
-      hpBeforeGround !== null && hpAfterGround !== null && hpAfterGround < hpBeforeGround,
-      `the ground swing missed too (${hpBeforeGround} -> ${hpAfterGround}) — ` +
+      ground !== null,
+      `the ground pin slipped in every trial — ${JSON.stringify(groundTrials)} — ` +
         "the airborne refusal above is unproven, not passing",
+    );
+    check(
+      ground === null ||
+        (ground.before !== null && ground.after !== null && ground.after < ground.before),
+      `the ground swing missed too (${ground?.before} -> ${ground?.after}, widest gap ` +
+        `${ground?.maxD?.toFixed?.(2)}) — the airborne refusal above is unproven, not passing`,
     );
   }
 }
