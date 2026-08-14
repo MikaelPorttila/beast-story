@@ -69,8 +69,13 @@ const ORB_LOFT_MAX = 0.5;
  * it the orb pursues STRAIGHT and may SKIM the ground instead of dying on it —
  * outside it, nothing changes: a hill mid-flight stays an honest miss. See
  * `updateProjectiles` for both halves (issue #198).
+ *
+ * 4.5, NOT 2.5: the issue's misses were measured at throw distances 2.96–4.16,
+ * and at 2.5 the window opened only after the lerp had already had its chance
+ * to overshoot — test-taming's arrival section still caught one loop-miss in
+ * six at 4.08. The window must cover the whole range the report names.
  */
-const ORB_LOCK_R = 2.5;
+const ORB_LOCK_R = 4.5;
 /** Total seconds a homing orb may spend skimming before the ground wins. */
 const ORB_SKIM_MAX = 0.6;
 const PROJ_CAP = 14;
