@@ -1247,14 +1247,21 @@ const ferry: Ferry | null = (() => {
         boatX: p.x + Math.cos(away) * 8,
         boatZ: p.z + Math.sin(away) * 8,
       },
-      {
-        id: "saltrest",
-        x: saltrest.gateX,
-        z: saltrest.gateZ,
-        y: world.getHeight(saltrest.gateX, saltrest.gateZ),
-        boatX: saltrest.gateX + Math.sin(saltrest.gateAngle) * 8,
-        boatZ: saltrest.gateZ + Math.cos(saltrest.gateAngle) * 8,
-      },
+      // The harbour layout says where its pier head is (#228); the gate is the
+      // fallback for a world whose saltrest is not a harbour (towns=0 A/Bs).
+      (() => {
+        const port = world.portOf("saltrest");
+        return port
+          ? { id: "saltrest", ...port }
+          : {
+              id: "saltrest",
+              x: saltrest.gateX,
+              z: saltrest.gateZ,
+              y: world.getHeight(saltrest.gateX, saltrest.gateZ),
+              boatX: saltrest.gateX + Math.sin(saltrest.gateAngle) * 8,
+              boatZ: saltrest.gateZ + Math.cos(saltrest.gateAngle) * 8,
+            };
+      })(),
     ],
     SURFACE_Y,
     () => content.state.flag("sea-revealed"),

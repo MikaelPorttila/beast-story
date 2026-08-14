@@ -99,11 +99,16 @@ await wait(400);
 const geom = await dbg((t) => {
   const ux = Math.sin((t.gateBearingDeg * Math.PI) / 180);
   const uz = Math.cos((t.gateBearingDeg * Math.PI) / 180);
+  // OFF the pier's own line: #228 built a walkable deck straight down the quay
+  // bearing, and a deck is FOR walking over water — the refusal is a property
+  // of the bare channel, so the march runs a lane beside the harbour works.
+  const ox = Math.cos((t.gateBearingDeg * Math.PI) / 180) * -9;
+  const oz = -Math.sin((t.gateBearingDeg * Math.PI) / 180) * -9;
   let shore = null;
   let deep = null;
   for (let d = t.radius; d < 220; d += 2) {
-    const x = t.x + ux * d;
-    const z = t.z + uz * d;
+    const x = t.x + ox + ux * d;
+    const z = t.z + oz + uz * d;
     const w = window.__dbgWorld(x, z);
     if (!w.water && deep === null) {
       shore = { x, z, d };

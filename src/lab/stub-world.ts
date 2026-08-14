@@ -39,6 +39,10 @@ export class StubWorld implements World {
   debugWear(): number {
     return 0;
   }
+  /** No settlements, so no pier for a boat to call at either. */
+  portOf(): null {
+    return null;
+  }
   debugColumn(): number {
     return 0;
   }

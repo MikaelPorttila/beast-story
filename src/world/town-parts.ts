@@ -10,7 +10,7 @@
 import { VoxelModel, shade } from "../core/voxel";
 import { bakeProp, type Template } from "./props";
 import type { SolidStamp } from "./structures";
-import { bakeSolid } from "./structures";
+import { bakeSolid, measurePlatform } from "./structures";
 import { buildFence, type Fence, type FenceParts } from "./fences";
 import { builtDeck, type Junction, type Road, type RoadSample } from "./roads";
 import { type PathProfile } from "./path-profile";
@@ -852,6 +852,134 @@ function bridgePier(): Template {
 const PIER_VOX = 11;
 
 /** Every baked piece, built once. towns.ts stamps from here. */
+// ---------------------------------------------------------------------------
+// The harbour kit (issue #228): quays on piles, the steps down to them, a
+// working ship, and the bollards she ties to. Deck TOPS are the walkable
+// surface — `bakeSolid` measures the colliders off the same voxels, so what
+// you see is what you stand on, by construction.
+// ---------------------------------------------------------------------------
+
+/** How many voxels of pile hang under a deck span: 20 × V = 5.6 units, enough
+ *  to bury the feet in any bed the quay band allows (>= 4). */
+const DECK_PILE_H = 20;
+/** One quay span: DECK_SPAN_U × V units of planking per stamp. */
+const DECK_SPAN_VOX = 10;
+export const DECK_SPAN_U = DECK_SPAN_VOX * 2 * V;
+/** A span's width across the walk, rub rails included: 11 voxels. */
+export const DECK_SPAN_W = 11 * V;
+
+/** A quay span: two piles and their cap, planked over. Stamped end to end along
+ *  the walk; the planks run ACROSS it, the way a wharf is actually laid. */
+function deckSpan(): Template {
+  const v = new VoxelModel();
+  const r = rnd(0x5ea1);
+  // BRACKETED: the planks are the walkable platform. The body band cannot see
+  // them (they ride 5.6 up on the piles), so they are measured by region —
+  // `measurePlatform` — or a hero walking the pier falls through it (#228).
+  const walk = v.region(() => {
+    for (let x = -DECK_SPAN_VOX; x < DECK_SPAN_VOX; x++) {
+      for (let z = -5; z <= 5; z++) {
+        // Per-plank weathering, banded across the walk so the boards read.
+        v.set(x, DECK_PILE_H, z, shade(x % 2 === 0 ? PLANK : PLANK_DARK, 0.82 + r() * 0.3));
+      }
+    }
+  });
+  // The rub rail along both edges, half a step proud so the edge reads.
+  for (let x = -DECK_SPAN_VOX; x < DECK_SPAN_VOX; x++) {
+    v.set(x, DECK_PILE_H + 1, -5, TIMBER);
+    v.set(x, DECK_PILE_H + 1, 5, TIMBER);
+  }
+  // Two pile bents under the span ends.
+  for (const px of [-DECK_SPAN_VOX + 1, DECK_SPAN_VOX - 2]) {
+    for (const pz of [-4, 4]) {
+      v.box(px, 0, pz, px + 1, DECK_PILE_H - 1, pz + 1, shade(TIMBER, 0.9));
+    }
+    // The cross brace, one voxel of it showing under the lip.
+    v.box(px, DECK_PILE_H - 2, -4, px + 1, DECK_PILE_H - 2, 4, LOG);
+  }
+  const t = bakeSolid(v, V);
+  const deck = measurePlatform(v, V, walk);
+  if (deck) {
+    t.solid = [...(t.solid ?? []), deck];
+  }
+  return t;
+}
+
+/** The steps from the town pad down onto the quay: rises the way the hero can
+ *  walk (each tread is under MAX_STEP_UP at V scale), descending toward +z. */
+function harbourStairs(): Template {
+  const v = new VoxelModel();
+  const treads = 6;
+  for (let i = 0; i < treads; i++) {
+    const y = (treads - 1 - i) * 2;
+    v.box(-4, y, i * 2, 4, y + 1, i * 2 + 1, shade(i % 2 === 0 ? PLANK : PLANK_DARK, 0.95));
+  }
+  // Stringers down both sides, so the flight reads as carpentry, not floating boards.
+  for (const sx of [-4, 4] as const) {
+    for (let i = 0; i < treads; i++) {
+      v.box(sx, (treads - 1 - i) * 2 - 1, i * 2, sx, (treads - 1 - i) * 2, i * 2 + 1, TIMBER);
+    }
+  }
+  return bakeSolid(v, V);
+}
+
+/** A bollard: what she ties to, and what a boot finds in the dark. */
+function bollard(): Template {
+  const v = new VoxelModel();
+  v.box(-1, 0, -1, 1, 3, 1, shade(TIMBER, 0.85));
+  v.box(-1, 4, -1, 1, 4, 1, IRON);
+  return bakeSolid(v, V);
+}
+
+/**
+ * THE SHIP (issue #228) — a working coaster, moored: clinker hull, one mast,
+ * the sail furled on its boom because she is HOME. Painted with the bow toward
+ * +z; the stamp yaw lays her along the quay. Solid, with her colliders measured
+ * off the hull like every other stamped thing — walking on deck is standing on
+ * what you see.
+ */
+function ship(): Template {
+  const v = new VoxelModel();
+  const r = rnd(0xb0a7);
+  const LEN = 16;
+  const HULL_H = 6;
+  for (let z = -LEN; z <= LEN; z++) {
+    // The hull narrows to stem and stern; the sheer rises a strake at the ends.
+    const t = Math.abs(z) / LEN;
+    const half = Math.max(1, Math.round(5 * (1 - t * t * 0.8)));
+    const sheer = t > 0.75 ? 1 : 0;
+    for (let y = 0; y <= HULL_H + sheer; y++) {
+      for (let x = -half; x <= half; x++) {
+        const skin = Math.abs(x) === half || y === 0 || Math.abs(z) === LEN;
+        if (!skin && y < HULL_H) {
+          continue;
+        }
+        const strake = y % 2 === 0 ? PLANK_DARK : PLANK;
+        v.set(x, y, z, shade(y >= HULL_H ? PLANK : strake, 0.84 + r() * 0.26));
+      }
+    }
+  }
+  // The wale, one dark band proud at the waterline sheer.
+  for (let z = -LEN + 1; z < LEN; z++) {
+    const half = Math.max(1, Math.round(5 * (1 - (Math.abs(z) / LEN) ** 2 * 0.8)));
+    v.set(-half, HULL_H - 2, z, TIMBER);
+    v.set(half, HULL_H - 2, z, TIMBER);
+  }
+  // Mast, boom, and the furled sail lashed along it.
+  v.box(0, HULL_H, 2, 0, HULL_H + 22, 2, TIMBER);
+  v.box(-6, HULL_H + 16, 2, 6, HULL_H + 16, 2, LOG);
+  for (let x = -5; x <= 5; x++) {
+    v.set(x, HULL_H + 15, 2, shade(0xd8d2c0, 0.88 + r() * 0.2));
+  }
+  // Bowsprit and the stern tiller.
+  v.box(0, HULL_H + 1, LEN, 0, HULL_H + 2, LEN + 4, TIMBER);
+  v.box(0, HULL_H + 1, -LEN - 1, 0, HULL_H + 1, -LEN + 1, LOG);
+  // Deck cargo: two lashed casks, so she reads as WORKING.
+  v.box(-2, HULL_H + 1, -6, -1, HULL_H + 3, -5, LOG_PALE);
+  v.box(1, HULL_H + 1, -9, 2, HULL_H + 3, -8, LOG_PALE);
+  return bakeSolid(v, V);
+}
+
 export class TownParts {
   readonly palisade = palisadeSpan();
   readonly cornerPost = cornerPost();
@@ -877,6 +1005,11 @@ export class TownParts {
   readonly forgeGlow = forgeCoals();
   readonly post = signPost();
   readonly pier = bridgePier();
+  // The harbour kit (issue #228).
+  readonly deckSpan = deckSpan();
+  readonly harbourStairs = harbourStairs();
+  readonly bollard = bollard();
+  readonly ship = ship();
   /** The fence kit in the shape world/fences.ts stamps from. */
   readonly fence: FenceParts = {
     post: fencePost(),

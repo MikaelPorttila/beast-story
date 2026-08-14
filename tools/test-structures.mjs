@@ -511,14 +511,12 @@ const BUDGET = {
   // fire-side reshuffle its claim forced on the clutter. Measured, not derived:
   // the count is a reading of what the seed's ground let the ring keep.
   encampment: { total: 77, roofs: 5 }, // 3 huts, 2 ridge tents, the pen ring, 59 boxes
-  // SALTREST, the sea region's first island town (issue #144). Built by the
-  // PLACEHOLDER harbour layout — buildHamlet under a harbour name — so the count
-  // is a hamlet's on its own island ground (33 boxes, of which the fence chains
-  // kept what the flatten pad allowed). Issue #228's real kit (quays, deck
-  // bridges, ships) re-baselines this in the commit that lands it.
-  // 36 -> 37 WHEN GAIN MOVED IN (#152) — a character is solid by the same
-  // primitive a crate is, the Mera precedent from Redbriar.
-  saltrest: { total: 37, roofs: 3 },
+  // SALTREST, the sea region's first island town (issue #144), rebuilt by the
+  // REAL harbour layout (#228): three huts, well, cargo, braziers and Gain
+  // inside the radius. The quay, pier, stairs and ship all stand SEAWARD of it,
+  // outside this count's window — their colliders exist (the deck is stood on)
+  // but are not budgeted here. 37 (hamlet placeholder) -> 13.
+  saltrest: { total: 13, roofs: 3 },
   // KELPHOLD (issue #154): the second island, an ordinary hamlet on wetter
   // ground — three fewer fence bays than Saltrest kept, same three roofs.
   kelphold: { total: 32, roofs: 3 },

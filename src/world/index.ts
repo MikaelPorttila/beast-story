@@ -1189,6 +1189,8 @@ export function createWorld(
       const pen = start ? (towns?.penOf(start.id) ?? null) : null;
       return pen ? { x: pen.x, y: terrain.getHeight(pen.x, pen.z), z: pen.z, r: pen.r } : null;
     })(),
+    // The pier head's y is the DECK, which the layout knew and the height field never will.
+    portOf: (townId) => towns?.portOf(townId) ?? null,
     shopPositions: shops.positions,
     towns: withCarriedTowns(townReg, sky ? [sky.town] : []),
     safeZones,

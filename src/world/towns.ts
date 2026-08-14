@@ -38,6 +38,8 @@ import {
   addBridgeFurniture,
   buildJunctionApron,
   buildRoadRibbon,
+  DECK_SPAN_U,
+  DECK_SPAN_W,
   fitPalisadeRun,
   signArm,
 } from "./town-parts";
@@ -121,11 +123,16 @@ export type TownLayout = (
   town: TownInfo,
   network: RoadNetwork,
   rng: () => number,
+  /** The walking surface OUTSIDE the levelled pad — a harbour must find its own
+   *  shoreline (issue #228). Inside the pad the answer is `town.y`, as ever. */
+  groundAt: (x: number, z: number) => number,
 ) => {
   x: number;
   z: number;
   /** The camp's taming pen, where a layout built one — see `World.tamingPen`. */
   pen?: { x: number; z: number; r: number };
+  /** A harbour's pier head: where a boat calls (issue #228). `y` is the DECK, not the seabed. */
+  port?: { x: number; z: number; y: number; boatX: number; boatZ: number };
 } | null;
 
 const LAYOUTS: ReadonlySet<string> = new Set<TownInfo["kind"]>(["camp", "hamlet", "harbour"]);
@@ -1087,6 +1094,11 @@ export class Towns {
   private readonly fires = new Map<string, { x: number; z: number }>();
   /** Per town, where the camp layout built its taming pen (issue #178). */
   private readonly pens = new Map<string, { x: number; z: number; r: number }>();
+  /** Per town, the harbour layout's pier head (issue #228). */
+  private readonly ports = new Map<
+    string,
+    { x: number; z: number; y: number; boatX: number; boatZ: number }
+  >();
 
   constructor(
     plan: SettlementPlan,
@@ -1148,11 +1160,17 @@ export class Towns {
       const rng = mulberry32((seed ^ 0x5eed) + town.id.length * 7919 + town.x * 31);
       // WHICH BUILDER, BY NAME: the factory registry turns `TownInfo.kind` into a function.
       const layout = content.factory<TownLayout>(TOWN_LAYOUT_KIND, town.kind);
-      const fire = layout?.(solid, glow, hearth, night, parts, town, plan.network, rng) ?? null;
+      const fire =
+        layout?.(solid, glow, hearth, night, parts, town, plan.network, rng, (x, z) =>
+          terrain.getHeight(x, z),
+        ) ?? null;
       if (fire) {
         this.fires.set(town.id, fire);
         if (fire.pen) {
           this.pens.set(town.id, fire.pen);
+        }
+        if (fire.port) {
+          this.ports.set(town.id, fire.port);
         }
       }
       emit(solid.acc, props.solidMat, g, true);
@@ -1300,6 +1318,11 @@ export class Towns {
   /** This town's taming pen, or null — a layout that built none stays null. */
   penOf(townId: string): { x: number; z: number; r: number } | null {
     return this.pens.get(townId) ?? null;
+  }
+
+  /** This town's pier head, or null — only a harbour layout reports one. */
+  portOf(townId: string): { x: number; z: number; y: number; boatX: number; boatZ: number } | null {
+    return this.ports.get(townId) ?? null;
   }
 
   /** A/B every ribbon and apron inside one page load — `test-road-fade` proves the
@@ -1771,13 +1794,187 @@ function buildHamlet(
   return null;
 }
 
-/** The two behaviours a town's `layout` field may select. AT MODULE LOAD, before
+/** How high the quay decking stands over the water surface: enough that a swell
+ *  never wets the boards, low enough that a moored deck is a step, not a climb. */
+const QUAY_FREEBOARD = 1.2;
+/** The water surface the freeboard is measured from (water.ts SURFACE_Y). */
+const QUAY_WATER_SURFACE = WATER_LEVEL + 0.28;
+
+/**
+ * THE HARBOUR (issue #228) — a working waterfront: the hamlet's living half on
+ * the landward arc, and on the seaward side a boardwalk along the shore, a pier
+ * out over the water on piles, a coaster moored at its head, and the rails,
+ * bollards and lamp that make the deck a place. The gate faces the water for an
+ * island town, so `gateAngle` IS the seaward bearing. `groundAt` is why the
+ * layout signature grew an accessor: a quay must find its own shoreline.
+ */
+function buildHarbour(
+  solid: SolidStamp,
+  glow: Accum,
+  _hearth: Accum,
+  night: Accum,
+  parts: TownParts,
+  town: TownInfo,
+  network: RoadNetwork,
+  rng: () => number,
+  groundAt: (x: number, z: number) => number,
+): ReturnType<TownLayout> {
+  const { x: cx, z: cz, y: cy, radius: R, gateAngle } = town;
+  const taken: Spot[] = [];
+  const at = (ang: number, dist: number): [number, number] => [
+    cx + Math.sin(ang) * dist,
+    cz + Math.cos(ang) * dist,
+  ];
+  const sx = Math.sin(gateAngle);
+  const sz = Math.cos(gateAngle);
+  // Along-shore unit: perpendicular to the seaward bearing.
+  const px = Math.cos(gateAngle);
+  const pz = -Math.sin(gateAngle);
+
+  const deckTop = QUAY_WATER_SURFACE + QUAY_FREEBOARD;
+  /** The walking plank's top sits (DECK_PILE_H + 1) voxels over a span's stamp base. */
+  const deckStampY = deckTop - (20 + 1) * 0.28;
+
+  // -- The living half, landward: huts, well, cargo, braziers ----------------
+  // Huts claim the back arc FIRST — they are the widest claims, and a well
+  // placed ahead of them refused all three (7.4 of separation cannot exist
+  // between a spot 5.5 out and one 9 out on the same bearing).
+  const [wx, wz] = at(gateAngle + Math.PI, 4.0);
+  for (let k = 0; k < 3; k++) {
+    const a = gateAngle + Math.PI + (k - 1) * 1.1 + (rng() - 0.5) * 0.15;
+    const [x, z] = at(a, R - 5.5 - rng() * 1.5);
+    if (!place(taken, network, x, z, 4.4, 2)) {
+      continue;
+    }
+    const yaw = Math.atan2(wx - x, wz - z);
+    solid.add(parts.huts[k % parts.huts.length], x, cy, z, yaw);
+    addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
+  }
+  // The well stands INSIDE the huts' elbow room but clear of their timber by
+  // construction: hut faces start 6.1 out, the well ends 5.2 out.
+  solid.add(parts.well, wx, cy, wz, rng() * 6.28);
+  taken.push({ x: wx, z: wz, r: 3 });
+  // Cargo staged where the boardwalk meets the town: the quay's working yard.
+  for (let k = 0; k < 8; k++) {
+    const a = gateAngle + (rng() - 0.5) * 1.6;
+    const [x, z] = at(a, R - 4 - rng() * 5);
+    if (!place(taken, network, x, z, 1.4, -1)) {
+      continue;
+    }
+    const tpl = k % 3 === 0 ? parts.crateL : k % 3 === 1 ? parts.barrel : parts.crateS;
+    solid.add(tpl, x, cy, z, rng() * 6.28);
+  }
+  for (const side of [-1.1, 1.1]) {
+    const [x, z] = at(gateAngle + Math.PI + side, R - 4);
+    if (place(taken, network, x, z, 1.6, -1)) {
+      solid.add(parts.brazier, x, cy, z, 0);
+      glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
+    }
+  }
+
+  // -- The shoreline, found, not assumed -------------------------------------
+  let shoreD = R + 24;
+  for (let d = R - 2; d < R + 40; d += 1) {
+    const [x, z] = at(gateAngle, d);
+    if (groundAt(x, z) < WATER_LEVEL - 0.2) {
+      shoreD = d;
+      break;
+    }
+  }
+
+  // -- The boardwalk along the beach edge, and the steps up onto it ----------
+  const span = DECK_SPAN_U;
+  const walkD = shoreD - 1.5;
+  for (const k of [-1, 0, 1]) {
+    const x = cx + sx * walkD + px * k * span;
+    const z = cz + sz * walkD + pz * k * span;
+    solid.add(parts.deckSpan, x, deckStampY, z, gateAngle);
+    taken.push({ x, z, r: 2.6 });
+  }
+  {
+    // Steps at the landward face of the centre span; the lower treads bury into
+    // the beach, which is what beach steps do.
+    const x = cx + sx * (walkD - 3.4);
+    const z = cz + sz * (walkD - 3.4);
+    solid.add(parts.harbourStairs, x, deckTop - 2.9, z, gateAngle + Math.PI);
+  }
+
+  // -- The pier, out over the water on piles ---------------------------------
+  // Its first span starts flush against the boardwalk's seaward edge — a gap
+  // there is open water on the only route to the ship.
+  const pierSpans = 3;
+  const pierStart = walkD + DECK_SPAN_W / 2;
+  const pierHeadD = pierStart + span * pierSpans;
+  for (let k = 0; k < pierSpans; k++) {
+    const d = pierStart + span * (k + 0.5);
+    const x = cx + sx * d;
+    const z = cz + sz * d;
+    solid.add(parts.deckSpan, x, deckStampY, z, gateAngle + Math.PI / 2);
+    taken.push({ x, z, r: 2.6 });
+  }
+  // Rails down both edges of the pier — the deck bridge's railings, from the
+  // fence system like every post-and-rail thing (world/fences.ts). The nodes
+  // carry the DECK's height: the chain stands on the planks it guards.
+  const clearForRails = clearRun(network, []);
+  for (const side of [-1, 1]) {
+    const rail: FenceNode[] = [];
+    for (let s = 0; s <= pierSpans * 2; s++) {
+      const d = pierStart + 0.4 + ((span * pierSpans - 1.2) * s) / (pierSpans * 2);
+      rail.push({
+        x: cx + sx * d + px * side * 1.15,
+        y: deckTop,
+        z: cz + sz * d + pz * side * 1.15,
+      });
+    }
+    buildFence(solid, parts.fence, rail, { accept: clearForRails, glow });
+  }
+  // Bollards where she ties, and the lamp a harbour keeps lit at the head.
+  for (const d of [pierStart + span * 0.7, pierHeadD - 0.8]) {
+    solid.add(parts.bollard, cx + sx * d + px * 1.0, deckTop, cz + sz * d + pz * 1.0, 0);
+  }
+  {
+    // `pierHeadD` is the deck's END now — keep the lamp's post on the planks.
+    const x = cx + sx * (pierHeadD - 0.9) + px * -1.0;
+    const z = cz + sz * (pierHeadD - 0.9) + pz * -1.0;
+    solid.add(parts.lamp, x, deckTop, z, 0);
+    glow.add(parts.lampGlow, x, deckTop, z, 0, 1, 1, 1, 1);
+  }
+
+  // -- The ship, moored alongside the pier head ------------------------------
+  {
+    const d = pierHeadD - span * 0.6;
+    const x = cx + sx * d + px * 4.6;
+    const z = cz + sz * d + pz * 4.6;
+    // Two strakes of draft: the stamp puts the waterline into the hull. Her
+    // LENGTH is the template's local Z, which `gateAngle` lays along the pier —
+    // a quarter turn here rammed her bow across the deck (the ferry pad).
+    solid.add(parts.ship, x, QUAY_WATER_SURFACE - 2 * 0.28, z, gateAngle);
+  }
+
+  // A harbour's social focus is the quay yard, where the boardwalk meets town.
+  const [fx, fz] = at(gateAngle, R - 5);
+  return {
+    x: fx,
+    z: fz,
+    // The ferry calls at the pier head, on the deck; its boat moors on the
+    // free flank, opposite the ship. MID-SPAN, not at the very head: the head
+    // holds a bollard and the lamp, and a hero set down against their boxes is
+    // pushed off a deck only 3 wide.
+    port: {
+      x: cx + sx * (pierHeadD - span * 0.5),
+      z: cz + sz * (pierHeadD - span * 0.5),
+      y: deckTop,
+      boatX: cx + sx * (pierHeadD - span * 0.5) + px * -3.4,
+      boatZ: cz + sz * (pierHeadD - span * 0.5) + pz * -3.4,
+    },
+  };
+}
+
+/** The behaviours a town's `layout` field may select. AT MODULE LOAD, before
  *  `bootstrapContent()`, which also PUBLISHES the names to the content type. */
 defineFactory(TOWN_LAYOUT_KIND, "camp", buildEncampment satisfies TownLayout);
 defineFactory(TOWN_LAYOUT_KIND, "hamlet", buildHamlet satisfies TownLayout);
-// PLACEHOLDER (issue #228): harbour towns ship as open settlements while the real
-// kit — quays, deck bridges, moored ships — is its own build.
-defineFactory(TOWN_LAYOUT_KIND, "harbour", buildHamlet satisfies TownLayout);
+defineFactory(TOWN_LAYOUT_KIND, "harbour", buildHarbour satisfies TownLayout);
 
 /**
  * What lines a road: lamps at intervals, fence on some stretches, and a fingerpost
