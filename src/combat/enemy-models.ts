@@ -337,10 +337,189 @@ function buildThreadAnchor(root: THREE.Group, v: Variant): EnemyBody {
   return { parts: { body } };
 }
 
+/**
+ * THE BRIDLE-HOUND (issue #232) — the drowned market's guardian, already on the
+ * Bridle order's rope when the player arrives. The COLLAR IS THE STORY: it and
+ * the taut lead down to a stake are painted in `v.accent`, which every variant
+ * keeps at the red-thread hex, tying the leash to Act 1's threads. The part set
+ * is the standard quadruped (body, head, four legs) so a borrowed behaviour can
+ * pose it the day it needs to move; today it stands its post.
+ */
+function buildBridleHound(root: THREE.Group, v: Variant): EnemyBody {
+  const bm = new VoxelModel();
+  // Leaner than a Snortle: a working dog's barrel, ribs showing at the flanks.
+  bm.ellipsoid(0, 4.4, -0.4, 2.8, 2.8, 5.2, v.main);
+  bm.ellipsoid(0, 3.2, 0.2, 2.3, 1.8, 4.0, v.belly);
+  for (const z of [-2, 0, 2]) {
+    bm.set(-3, 4, z, v.dark);
+    bm.set(3, 4, z, v.dark);
+  }
+  // The tail, tucked low — leashed, not cowed.
+  bm.set(0, 3, -6, v.dark);
+  bm.set(0, 2, -7, v.dark);
+  const bodyMesh = bm.build(0.1);
+  const body = new THREE.Group();
+  body.position.y = 0.34;
+  body.add(bodyMesh);
+  root.add(body);
+
+  const hm = new VoxelModel();
+  hm.box(0, -1, 0, 2, 2, 2, v.main);
+  // A long muzzle, grey at the lip: this animal has kept posts before this one.
+  hm.box(0, -1, 2, 1, 0, 5, v.dark);
+  hm.set(0, 0, 5, shade(v.belly, 0.9));
+  hm.set(2, 1, 1, 0xe8b23c);
+  // Ears up: it is WORKING, which is Coil's whole case about it.
+  hm.box(1, 2, -1, 2, 4, 0, v.dark);
+  hm.mirrorX();
+  const headMesh = hm.build(0.1);
+  // 0.02 Y parting, the snortle ear rule: the ear grid meets the body flank plane.
+  headMesh.position.set(0, -0.18 + 0.02, 0.14);
+  const head = new THREE.Group();
+  head.position.set(0, 0.86, 0.56);
+  head.add(headMesh);
+  root.add(head);
+
+  // THE COLLAR AND THE LEAD — accent red, and the lead runs taut to a stake the
+  // wardens drove beside the post. Its own grid, parted 0.02 in X from the body.
+  const cm = new VoxelModel();
+  for (const [cy, cz] of [
+    [1, 1],
+    [2, 0],
+    [2, -1],
+    [1, -2],
+  ] as const) {
+    cm.set(-2, cy, cz, v.accent);
+    cm.set(2, cy, cz, v.accent);
+  }
+  for (let z = -1; z <= 1; z++) {
+    cm.set(0, 3, z, v.accent);
+    cm.set(0, 0, z, v.accent);
+  }
+  // The lead, stepping down and out to the stake.
+  cm.set(3, 0, -1, v.accent);
+  cm.set(4, -1, -2, v.accent);
+  cm.set(5, -2, -2, v.accent);
+  cm.set(6, -3, -3, v.accent);
+  cm.set(6, -4, -3, shade(v.dark, 0.5));
+  cm.set(6, -5, -3, shade(v.dark, 0.5));
+  const collarMesh = cm.build(0.1);
+  collarMesh.position.set(0.02, 0, 0);
+  const collar = new THREE.Group();
+  collar.position.set(0, 0.72, 0.42);
+  collar.add(collarMesh);
+  root.add(collar);
+
+  const parts: Record<string, THREE.Object3D> = { body, head, collar };
+  const legPositions: Array<[string, number, number]> = [
+    ["legFL", -0.18, 0.3],
+    ["legFR", 0.18, 0.3],
+    ["legBL", -0.18, -0.3],
+    ["legBR", 0.18, -0.3],
+  ];
+  for (const [key, lx, lz] of legPositions) {
+    const lm = new VoxelModel();
+    lm.box(0, 1, 0, 1, 4, 1, v.main);
+    lm.box(0, 0, 0, 1, 0, 1, shade(v.dark, 0.6));
+    const legMesh = lm.build(0.1);
+    legMesh.position.y = -0.5;
+    const leg = new THREE.Group();
+    // Parted in X AND Z: a lean hound's leg fronts meet the barrel's own planes.
+    leg.position.set(lx + Math.sign(lx) * 0.02, 0.5, lz + Math.sign(lz) * 0.02);
+    leg.add(legMesh);
+    root.add(leg);
+    parts[key] = leg;
+  }
+  return { parts };
+}
+
+/**
+ * THE BRINEHOLDER (issue #236) — what has been holding the third component
+ * under Maw's Rest. A reef grown into an animal: the shell ridge carries coral
+ * spurs whose TIPS are `v.accent` — the red thread, because what it is holding
+ * is a leash with the other end in the Bond Engine. Boss bulk on the standard
+ * quadruped part set (body, head, four legs), fought in and under water.
+ */
+function buildBrineholder(root: THREE.Group, v: Variant): EnemyBody {
+  const bm = new VoxelModel();
+  bm.ellipsoid(0, 5.2, 0, 7.4, 4.6, 9.2, v.main);
+  bm.ellipsoid(0, 3.4, 0.6, 6.2, 3.0, 7.6, v.belly);
+  // The SHELL: a dark reef dome grown over the spine.
+  bm.ellipsoid(0, 8.0, -1.0, 5.6, 3.2, 6.6, v.dark);
+  bm.ellipsoid(0, 8.8, -1.0, 4.4, 2.6, 5.2, shade(v.dark, 0.8));
+  // Coral spurs off the ridge, red at the tips — the thread showing through.
+  for (const [sx, sy, sz] of [
+    [0, 11, -4],
+    [-2, 11, -1],
+    [2, 11, -1],
+    [0, 12, 1],
+    [-3, 10, 2],
+    [3, 10, 2],
+  ] as const) {
+    bm.set(sx, sy, sz, shade(v.main, 0.75));
+    bm.set(sx, sy + 1, sz, v.accent);
+  }
+  // Barnacle pale flecks along the flanks: it has been down there a long time.
+  for (const [fx, fy, fz] of [
+    [-6, 5, 3],
+    [6, 4, -2],
+    [-5, 3, -4],
+    [6, 6, 2],
+    [-7, 4, 0],
+  ] as const) {
+    bm.set(fx, fy, fz, 0xd8d2c0);
+  }
+  const bodyMesh = bm.build(0.1);
+  const body = new THREE.Group();
+  body.position.y = 0.6;
+  body.add(bodyMesh);
+  root.add(body);
+
+  const hm = new VoxelModel();
+  hm.box(0, -2, 0, 3, 2, 4, v.main);
+  hm.box(0, -3, 3, 2, -1, 6, v.dark);
+  // Deep-set lamps of eyes: it wakes hungry.
+  hm.set(3, 0, 2, 0xeafffb);
+  hm.set(3, 1, 2, shade(v.accent, 1.1));
+  hm.mirrorX();
+  const headMesh = hm.build(0.1);
+  // 0.02 Y parting: the jaw grid meets the belly plane at the neck.
+  headMesh.position.set(0, -0.2 + 0.02, 0.3);
+  const head = new THREE.Group();
+  head.position.set(0, 0.9, 1.06);
+  head.add(headMesh);
+  root.add(head);
+
+  const parts: Record<string, THREE.Object3D> = { body, head };
+  // Flipper-footed pillars: it walks the bed and paddles the channel alike.
+  const legPositions: Array<[string, number, number]> = [
+    ["legFL", -0.52, 0.58],
+    ["legFR", 0.52, 0.58],
+    ["legBL", -0.52, -0.6],
+    ["legBR", 0.52, -0.6],
+  ];
+  for (const [key, lx, lz] of legPositions) {
+    const lm = new VoxelModel();
+    lm.box(-1, 2, -1, 1, 5, 1, v.main);
+    lm.box(-2, 0, -2, 2, 1, 2, v.dark);
+    lm.box(-2, 0, 2, 2, 0, 3, shade(v.dark, 0.7));
+    const legMesh = lm.build(0.1);
+    legMesh.position.y = -0.62;
+    const leg = new THREE.Group();
+    leg.position.set(lx + Math.sign(lx) * 0.02, 0.62, lz);
+    leg.add(legMesh);
+    root.add(leg);
+    parts[key] = leg;
+  }
+  return { parts };
+}
+
 export const ENEMY_MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
   ["gloopling", buildGloopling],
   ["snortle", buildSnortle],
   ["peckit", buildPeckit],
   ["bellwether", buildBellwether],
   ["thread-anchor", buildThreadAnchor],
+  ["bridle-hound", buildBridleHound],
+  ["brineholder", buildBrineholder],
 ]);
