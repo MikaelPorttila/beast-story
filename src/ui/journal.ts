@@ -1,5 +1,6 @@
 import { t, type StringKey } from "../i18n";
 import { injectStyles } from "./styles";
+import { seedPadButtons } from "../core/gamepad";
 import { CHECK_ICON, CLOSE_ICON } from "./icons";
 import { Tooltip, type TipContent } from "./tooltip";
 
@@ -141,6 +142,7 @@ export class JournalPanel {
     el.addEventListener("pointerout", this.onPointerOut);
     window.addEventListener("keydown", this.onKeyDown, true);
     this.render();
+    seedPadButtons(this.padDown);
     this.pollPad();
     requestAnimationFrame(() => el.classList.add("open"));
     this.hooks.onOpen?.();

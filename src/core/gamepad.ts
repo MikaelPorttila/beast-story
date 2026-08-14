@@ -128,6 +128,25 @@ const WHEEL_PER_UNIT = 100;
 /** Module-level scratch, so polling allocates nothing. */
 const _stick = { x: 0, y: 0, mag: 0 };
 
+/** Seed a panel's edge history so the button that opened it cannot activate it again. */
+export function seedPadButtons(target: Uint8Array): void {
+  target.fill(0);
+  try {
+    for (const pad of navigator.getGamepads?.() ?? []) {
+      if (!pad?.connected) {
+        continue;
+      }
+      const n = Math.min(pad.buttons.length, target.length);
+      for (let i = 0; i < n; i++) {
+        target[i] = pad.buttons[i]?.pressed ? 1 : 0;
+      }
+      return;
+    }
+  } catch {
+    return;
+  }
+}
+
 /** RADIAL deadzone: a per-axis one squares off the diagonals and speeds up corner pushes. */
 function shape(x: number, y: number, dz: number, expo: number): boolean {
   const mag = Math.hypot(x, y);
@@ -273,16 +292,16 @@ export class GamepadControls {
     const b = pad.buttons;
     const held = (i: number): boolean => i < b.length && (b[i].pressed || b[i].value > TRIGGER_ON);
 
-    // Read BEFORE the modal branch: a player working a panel with B and X is on the pad.
+    // Read BEFORE the modal branch: a player working a panel with B and A/X is on the pad.
     if (anyPressed(b)) {
       this.noteUse();
     }
 
     if (this.modal) {
-      // B and Start cancel, X confirms. Start sends its own key so the button that opened
-      // the menu closes it; B keeps Escape, the back the panels answer for.
+      // B and Start cancel, A confirms. X keeps the older panel-confirm path too.
       this.edge(B_B, () => this.input.tapVirtual("Escape"), held);
       this.edge(B_START, () => this.input.tapVirtual("F10"), held);
+      this.edge(B_A, () => this.input.tapVirtual("KeyE"), held);
       this.edge(B_X, () => this.input.tapVirtual("KeyE"), held);
       // View/Create is the only other key through a modal: it closes the inventory too.
       this.edge(B_SELECT, () => this.input.tapVirtual("KeyI"), held);

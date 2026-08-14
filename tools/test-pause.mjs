@@ -1,5 +1,5 @@
-// The in-game menu: F10 / Start / the touch overlay's MENU, and what the three
-// options behind it do.
+// The action wheel: F10 / Start / the touch overlay's MENU, its panel handoffs,
+// pointer aim and controller aim / confirm / dismiss paths.
 //
 // Usage: bun tools/test-pause.mjs        (dev server must be up)
 //        ...or as sections inside `bun tools/suite.mjs` — same code either way.
@@ -193,7 +193,9 @@ export const sections = [
       a.riseBeforePanel = round((await ctx.ev(() => window.__dbgPlayerPos().y)) - ground.y);
 
       await page.keyboard.press("F10");
-      await ctx.adv(0.3);
+      // One slice spends F10. Sampling 0.3 s later can legitimately find this
+      // short jump on the ground, which proves nothing about an open modal.
+      await ctx.adv(0.05);
       a.menuUp = await has(page, ".bs-pause");
       a.riseWithMenuUp = round((await pos(page)).y - ground.y);
 
@@ -280,8 +282,18 @@ export const sections = [
       // not be carrying the menu as well.
       ctx.check(m.afterEscape === false, "Escape still opens the in-game menu");
       ctx.check(
-        JSON.stringify(m.rows) === JSON.stringify(["continue", "settings", "exit"]),
-        "the three options the issue asks for, in order",
+        JSON.stringify(m.rows) ===
+          JSON.stringify([
+            "continue",
+            "inventory",
+            "journal",
+            "map",
+            "controls",
+            "settings",
+            "save",
+            "exit",
+          ]),
+        "the wheel exposes every panel and action, in data order",
       );
       ctx.check(m.focusOnOpen === "continue", "something is focused on open, for a pad");
       // 0 exactly: a suspended stick is not a slow one, so no slice moves him at
@@ -599,6 +611,65 @@ export const sections = [
       ctx.check(escapeFromSettings.focus === "settings", "and leaves the cursor where it went in");
       ctx.check(closedByContinue, "Continue closes the menu");
       ctx.check(travelAfterContinue > 4, "Continue gives the game back");
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  {
+    id: "wheelActions",
+    run: async (ctx) => {
+      // The settings, Continue and Exit paths have deeper sections of their own.
+      // These are the four HANDOFFS: the wheel must go before the destination
+      // arrives, and the host's one Escape branch must dismiss that destination.
+      const { page } = ctx;
+      const destinations = {};
+      for (const [action, selector] of [
+        ["inventory", ".bs-inv"],
+        ["journal", ".bs-journal"],
+        ["controls", ".bs-keyswrap.open"],
+      ]) {
+        await page.keyboard.press("F10");
+        await ctx.adv(0.3);
+        await ctx.ev((a) => document.querySelector(`.bs-pause [data-act="${a}"]`)?.click(), action);
+        await ctx.frame();
+        const opened = (await has(page, selector)) && !(await has(page, ".bs-pause"));
+        await page.keyboard.press("Escape");
+        await ctx.adv(0.3);
+        destinations[action] = { opened, dismissed: !(await has(page, selector)) };
+      }
+
+      // A REAL POINTER MOVE, not :hover patched onto the button: the wheel owns
+      // the angle and lights the sector before the click confirms it.
+      await page.keyboard.press("F10");
+      await ctx.adv(0.3);
+      const point = await ctx.ev(() => {
+        const el = document.querySelector('.bs-pause [data-act="map"]');
+        const r = el?.getBoundingClientRect();
+        return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+      });
+      if (point) {
+        await page.mouse.move(point.x, point.y);
+      }
+      const selected = await ctx.ev(
+        () => document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ?? null,
+      );
+      if (point) {
+        await page.mouse.click(point.x, point.y);
+      }
+      await ctx.frame();
+      const mapOpened = (await has(page, ".bs-map")) && !(await has(page, ".bs-pause"));
+      await page.keyboard.press("Escape");
+      await ctx.adv(0.3);
+      const mapDismissed = !(await has(page, ".bs-map"));
+
+      ctx.res.wheelActions = { destinations, pointer: { selected, mapOpened, mapDismissed } };
+      for (const [action, result] of Object.entries(destinations)) {
+        ctx.check(result.opened, `${action} did not open from the wheel`);
+        ctx.check(result.dismissed, `${action} did not dismiss through Escape`);
+      }
+      ctx.check(selected === "map", `the pointer aimed ${selected}, expected map`);
+      ctx.check(mapOpened, "click did not confirm the pointer-aimed Map sector");
+      ctx.check(mapDismissed, "Escape did not dismiss Map after the wheel handoff");
     },
   },
 
@@ -950,6 +1021,40 @@ export const sections = [
         await advance(page, 0.4);
         g.reopenedByThirdPress = await has(page, ".bs-pause");
 
+        // LEFT STICK aims a sector continuously. A confirms it, then B uses the
+        // host-owned cancel route to dismiss the panel that took the handoff.
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0.78;
+          window.__fakePad.axes[1] = -0.62;
+        });
+        await page.waitForFunction(
+          () =>
+            document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ===
+            "journal",
+          { timeout: 5000 },
+        );
+        g.stickSelection = await page.evaluate(
+          () =>
+            document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ?? null,
+        );
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0;
+          window.__fakePad.axes[1] = 0;
+        });
+        await setPadButton(page, PAD_BUTTON.A, true);
+        // Button routing starts before the fixed slices in the rendered frame.
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        await setPadButton(page, PAD_BUTTON.A, false);
+        g.confirmedWithA = (await has(page, ".bs-journal")) && !(await has(page, ".bs-pause"));
+        await setPadButton(page, PAD_BUTTON.B, true);
+        await advance(page, 0.1);
+        await setPadButton(page, PAD_BUTTON.B, false);
+        await advance(page, 0.2);
+        g.dismissedWithB = !(await has(page, ".bs-journal"));
+
         ctx.res.gamepad = g;
         ctx.check(g.openWhileHeld, "Start opens the menu");
         // The one that fails on the double edge: the menu has to still be there when the
@@ -957,6 +1062,9 @@ export const sections = [
         ctx.check(g.openAfterRelease, "and one press of Start is ONE edge");
         ctx.check(g.closedBySecondPress, "a second press closes it");
         ctx.check(g.reopenedByThirdPress, "and a third reopens it");
+        ctx.check(g.stickSelection === "journal", "left stick did not aim the Journal sector");
+        ctx.check(g.confirmedWithA, "A did not confirm the aimed sector");
+        ctx.check(g.dismissedWithB, "B did not dismiss the opened panel");
       } finally {
         await bctx.close();
       }
@@ -1028,6 +1136,18 @@ export const sections = [
         exit.movedAwayFromSpawn = round(Math.hypot(away.x - spawn.x, away.z - spawn.z));
 
         await page.keyboard.press("F10");
+        await advance(page, 0.3);
+        await page.evaluate(() => document.querySelector('.bs-pause [data-act="save"]')?.click());
+        await page.waitForFunction(
+          () =>
+            [...document.querySelectorAll(".bs-toast")].some(
+              (el) => el.textContent === "Progress saved",
+            ),
+          { timeout: 5000 },
+        );
+        exit.savedFromWheel = !(await has(page, ".bs-pause"));
+
+        await page.keyboard.press("F10");
         await advance(page, 0.4);
         await page.waitForSelector(".bs-pause", { timeout: 5000 });
         await page.evaluate(() => document.querySelector('.bs-pause [data-act="exit"]')?.click());
@@ -1092,6 +1212,7 @@ export const sections = [
           exit.movedAwayFromSpawn > 20,
           "the first session was somewhere the second is not",
         );
+        ctx.check(exit.savedFromWheel, "Save did not write and close the wheel");
         ctx.check(exit.titleScreenBack && exit.pauseGone, "Exit puts the title screen back");
         ctx.check(exit.step === "options", "and lands on the options, not the splash");
         ctx.check(

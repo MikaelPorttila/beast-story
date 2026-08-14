@@ -123,7 +123,7 @@ export const CONTROL_SECTIONS: readonly BindSection[] = [
       { label: "keys.inventory", mode: "press", codes: ["KeyI"], caps: ["I"], pad: ["inventory"] },
       { label: "keys.journal", mode: "press", codes: ["KeyJ"], caps: ["J"], pad: null },
       { label: "keys.map", mode: "press", codes: ["KeyM"], caps: ["M"], pad: null },
-      // Two keys, two rows: F10 toggles the menu, Escape dismisses the topmost
+      // Two keys, two rows: F10 toggles the wheel, Escape dismisses the topmost
       // panel. Escape alone was unreliable — the browser claims it.
       { label: "keys.menu", mode: "press", codes: ["F10"], caps: ["F10"], pad: ["menu"] },
       { label: "keys.cancel", mode: "press", codes: ["Escape"], caps: ["Esc"], pad: ["cancel"] },
