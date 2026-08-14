@@ -1,6 +1,7 @@
 import { loadPrefs, type Prefs } from "../core/prefs";
 import type { SaveMeta } from "../core/saves";
 import { flags } from "../core/flags";
+import { seedPadButtons } from "../core/gamepad";
 import { t, language, onLanguageChange } from "../i18n";
 import { enterFullscreen, fullscreenSurvivesEscape } from "./fullscreen";
 import { SettingsPanel, FOCUSABLE, type SettingsHooks } from "./settings";
@@ -182,6 +183,7 @@ export class StartMenu {
     el.addEventListener("click", this.onClick);
     window.addEventListener("keydown", this.onKeyDown, true);
     this.renderPanel();
+    this.seedPadInput();
     this.pollPad();
     // Asked here, not on Load: the answer decides whether Load can BE pressed.
     void this.refreshSaves();
@@ -539,6 +541,23 @@ export class StartMenu {
     const from = here >= 0 ? here : this.focusIdx;
     this.focusIdx = (from + d + this.focusables.length) % this.focusables.length;
     this.focusables[this.focusIdx].focus();
+  }
+
+  /** Held controls from the game must return to neutral before navigating the title. */
+  private seedPadInput(): void {
+    seedPadButtons(this.padDown);
+    try {
+      for (const pad of navigator.getGamepads?.() ?? []) {
+        if (!pad?.connected) {
+          continue;
+        }
+        this.padAxisLatched = Math.abs(pad.axes[1] ?? 0) > 0.5;
+        this.padAxisLatchedX = Math.abs(pad.axes[0] ?? 0) > 0.5;
+        return;
+      }
+    } catch {
+      return;
+    }
   }
 
   /**

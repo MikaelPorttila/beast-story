@@ -1126,6 +1126,10 @@ export const sections = [
       try {
         const page = await newPage(bctx, { width: 1100, height: 700 });
         logPageErrors(page);
+        await installFakePad(
+          page,
+          "Xbox 360 Controller (STANDARD GAMEPAD Vendor: 045e Product: 028e)",
+        );
         const settle = async (maxS = 30) => {
           for (let i = 0; i < maxS * 2; i++) {
             if (await page.evaluate(() => !!window.__dbgZone && !window.__dbgZone().streaming)) {
@@ -1150,6 +1154,7 @@ export const sections = [
           () => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance,
           { timeout: 60000 },
         );
+        await page.evaluate(() => window.__connectPad());
         await settle();
         const exit = {};
         exit.playingFirst = !(await has(page, ".bs-menu"));
@@ -1171,11 +1176,28 @@ export const sections = [
         const spawn = await page.evaluate(() => window.__dbgStart().start);
         exit.movedAwayFromSpawn = round(Math.hypot(away.x - spawn.x, away.z - spawn.z));
 
-        await page.keyboard.press("F10");
-        await advance(page, 0.4);
+        await setPadButton(page, PAD_BUTTON.START, true);
+        await advance(page, 0.2);
+        await setPadButton(page, PAD_BUTTON.START, false);
+        await advance(page, 0.2);
         await page.waitForSelector(".bs-pause", { timeout: 5000 });
-        await page.evaluate(() => document.querySelector('.bs-pause [data-act="exit"]')?.click());
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = -0.8;
+          window.__fakePad.axes[1] = -0.6;
+        });
+        await page.waitForFunction(
+          () =>
+            document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ===
+            "exit",
+          { timeout: 5000 },
+        );
+        await setPadButton(page, PAD_BUTTON.A, true);
+        await advance(page, 0.2);
         await page.waitForSelector(".bs-menu", { timeout: 10000 });
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
         exit.titleScreenBack = await has(page, ".bs-menu");
         exit.pauseGone = !(await has(page, ".bs-pause"));
         // Straight to the options, not the splash: a player who chose to leave has
@@ -1183,6 +1205,11 @@ export const sections = [
         exit.step = await page.evaluate(
           () => document.querySelector(".bs-menu")?.getAttribute("data-step") ?? null,
         );
+        await setPadButton(page, PAD_BUTTON.A, false);
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0;
+          window.__fakePad.axes[1] = 0;
+        });
 
         // THE POINTER HAS TO BE BACK, and this is the one assertion here that a
         // synthetic click cannot make for you. `close()` hands the pointer to the
