@@ -190,6 +190,33 @@ export class InventoryStage {
     return null;
   }
 
+  /** Drains the bake queue with the panel CLOSED (issue #246): the journal's
+   *  tips want a portrait without the stage on screen. One bake per frame, the
+   *  full tick's own pace; it stands down the moment the live loop runs. */
+  private pumpRaf = 0;
+  private pump = (): void => {
+    this.pumpRaf = 0;
+    if (this.raf || this.bakeQueue.length === 0) {
+      return;
+    }
+    this.bakeStep();
+    if (this.bakeQueue.length) {
+      this.pumpRaf = requestAnimationFrame(this.pump);
+    }
+  };
+
+  /** `iconFor`, plus the promise that the bake happens even while closed. */
+  requestIcon(sp: BeastSpecies): string | null {
+    if (!this.renderer) {
+      this.build();
+    }
+    const url = this.iconFor(sp);
+    if (url === null && !this.raf && !this.pumpRaf) {
+      this.pumpRaf = requestAnimationFrame(this.pump);
+    }
+    return url;
+  }
+
   private bakeStep(): void {
     const sp = this.bakeQueue.shift();
     const renderer = this.renderer;
@@ -341,6 +368,10 @@ export class InventoryStage {
 
   dispose(): void {
     this.stop();
+    if (this.pumpRaf) {
+      cancelAnimationFrame(this.pumpRaf);
+    }
+    this.pumpRaf = 0;
     this.target?.dispose();
     this.renderer?.dispose();
     this.renderer = null;

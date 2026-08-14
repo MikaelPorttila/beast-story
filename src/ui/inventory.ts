@@ -1,15 +1,9 @@
 import { t } from "../i18n";
-import {
-  MOUNT_KIND_KEYS,
-  type BeastSpecies,
-  type ItemKind,
-  type ItemRarity,
-  type MountKind,
-} from "../core/types";
+import { MOUNT_KIND_KEYS, type BeastSpecies, type ItemKind, type MountKind } from "../core/types";
 import { injectStyles } from "./styles";
-import { CLOSE_ICON, LOCOMOTION_ICONS, RMB_ICON, tameOrbIcon } from "./icons";
-import { isWeaponIcon, weaponIconStyle } from "./weapon-icons";
+import { CLOSE_ICON, LOCOMOTION_ICONS, RMB_ICON } from "./icons";
 import { InventoryStage } from "./inventory-stage";
+import { entryIconHtml, Tooltip, type TipContent } from "./tooltip";
 
 /**
  * The inventory (issues #74, #116). Knows no game rules, only MAPS a gesture to an
@@ -85,21 +79,11 @@ const MOUNT_ICONS: Record<MountKind, string> = {
 const MOUNT_COLOR = 0x69d9ff;
 const MOUNT_LOCKED_COLOR = 0x64748b;
 
-export interface InvStat {
-  label: string;
-  value: string;
-}
+export type { TipStat as InvStat } from "./tooltip";
 
-/** Separate from `InvEntry` so a hoverable-only thing cannot acquire a gesture. */
-export interface InvTip {
-  /** Already plural-resolved for `count` by the host. */
-  name: string;
-  color: number;
-  rarity?: ItemRarity;
-  description?: string;
-  stats?: readonly InvStat[];
-  note?: string;
-}
+/** Separate from `InvEntry` so a hoverable-only thing cannot acquire a gesture.
+ *  The shape is the shared tooltip's (issue #246) — the journal feeds the same box. */
+export type InvTip = TipContent;
 
 export interface InvEntry extends InvTip {
   /** Item id, or `beast:<species>`. Round-tripped to the host untouched. */
@@ -187,15 +171,6 @@ function mountTip(m: MountBadgeView): InvTip {
   };
 }
 
-const RARITY_KEYS: Record<
-  ItemRarity,
-  "inv.rarity.common" | "inv.rarity.rare" | "inv.rarity.legendary"
-> = {
-  common: "inv.rarity.common",
-  rare: "inv.rarity.rare",
-  legendary: "inv.rarity.legendary",
-};
-
 const SLOT_LABELS: Record<
   GearSlotId,
   "inv.slot.weapon" | "inv.slot.primary" | "inv.slot.support" | "inv.slot.orb"
@@ -208,7 +183,7 @@ const SLOT_LABELS: Record<
 
 export class InventoryPanel {
   private el: HTMLDivElement | null = null;
-  private tip: HTMLDivElement | null = null;
+  private tip = new Tooltip();
   private tab: ItemKind | null = null;
   private selected: string | null = null;
   private focusables: HTMLButtonElement[] = [];
@@ -235,10 +210,25 @@ export class InventoryPanel {
   private tips = new Map<string, InvTip>();
   private stage = new InventoryStage();
 
+  /** A second listener on the bake (issue #246): the journal patches its own tip. */
+  onPortrait: ((speciesId: string, url: string) => void) | null = null;
+
   constructor(private hooks: InventoryHooks) {
     injectStyles();
     // Patch, not render: a rebuild per portrait would move the keyboard cursor.
-    this.stage.onIcon = (id, url) => this.paintIcon(id, url);
+    this.stage.onIcon = (id, url) => {
+      this.paintIcon(id, url);
+      this.onPortrait?.(id, url);
+    };
+  }
+
+  /**
+   * The baked portrait for a species, queueing a bake when there is none yet —
+   * the journal's tips read the same cache the slots do. The bake completes
+   * even with this panel closed (`InventoryStage.requestIcon`'s pump).
+   */
+  beastIcon(sp: BeastSpecies): string | null {
+    return this.stage.requestIcon(sp);
   }
 
   get isOpen(): boolean {
@@ -251,12 +241,9 @@ export class InventoryPanel {
     }
     const el = document.createElement("div");
     el.className = "bs-inv";
-    el.innerHTML =
-      '<div class="bs-scrim"></div>' +
-      '<aside class="pane bs-glass"></aside>' +
-      '<div class="tip" aria-hidden="true"></div>';
+    el.innerHTML = '<div class="bs-scrim"></div><aside class="pane bs-glass"></aside>';
     this.el = el;
-    this.tip = el.querySelector(".tip");
+    this.tip.attach(el);
     document.body.appendChild(el);
     el.addEventListener("click", this.onClick);
     el.addEventListener("contextmenu", this.onContextMenu);
@@ -292,9 +279,9 @@ export class InventoryPanel {
     this.stage.stop();
     this.padDown.fill(0);
     this.endDrag();
+    this.tip.detach();
     this.el.remove();
     this.el = null;
-    this.tip = null;
     this.focusables = [];
     this.hooks.onClose?.(by);
   }
@@ -504,20 +491,14 @@ export class InventoryPanel {
    * is what `paintIcon` patches; the orb is SVG for its notch count and colour.
    */
   private iconHtml(e: InvEntry): string {
-    if (e.species) {
-      const url = this.stage.iconFor(e.species);
-      return (
-        `<i class="ic beast${url ? "" : " blob"}" data-beast="${escapeHtml(e.species.id)}"` +
-        ` style="--el:${hexColor(e.color)}${url ? `;background-image:url(${url})` : ""}"></i>`
-      );
-    }
-    if (e.kind === "orb") {
-      return `<i class="ic glyph" style="--el:${hexColor(e.color)}">${tameOrbIcon(e.orbTier)}</i>`;
-    }
-    if (e.icon && isWeaponIcon(e.icon)) {
-      return `<i class="ic" style="${weaponIconStyle(e.icon)}"></i>`;
-    }
-    return `<i class="ic blob" style="--el:${hexColor(e.color)}"></i>`;
+    return entryIconHtml({
+      color: e.color,
+      kind: e.kind,
+      icon: e.icon,
+      orbTier: e.orbTier,
+      speciesId: e.species?.id,
+      iconUrl: e.species ? this.stage.iconFor(e.species) : undefined,
+    });
   }
 
   private paintIcon(speciesId: string, url: string): void {
@@ -614,47 +595,6 @@ export class InventoryPanel {
     );
   }
 
-  private showTip(e: InvTip, x: number, y: number): void {
-    const tip = this.tip;
-    if (!tip) {
-      return;
-    }
-    tip.innerHTML =
-      `<h3 style="--el:${hexColor(e.color)}">${escapeHtml(e.name)}</h3>` +
-      (e.rarity
-        ? `<span class="rar r-${e.rarity}">${escapeHtml(t(RARITY_KEYS[e.rarity]))}</span>`
-        : "") +
-      (e.description ? `<p>${escapeHtml(e.description)}</p>` : "") +
-      (e.stats?.length
-        ? `<div class="bs-chips">${e.stats
-            .map(
-              (s) =>
-                `<span class="bs-chip">${escapeHtml(s.label)} <b>${escapeHtml(s.value)}</b></span>`,
-            )
-            .join("")}</div>`
-        : "") +
-      (e.note ? `<p class="note">${escapeHtml(e.note)}</p>` : "");
-    tip.classList.add("on");
-    this.moveTip(x, y);
-  }
-
-  /** Measured, not flipped at a breakpoint: the dock is on the right edge. */
-  private moveTip(x: number, y: number): void {
-    const tip = this.tip;
-    if (!tip) {
-      return;
-    }
-    const r = tip.getBoundingClientRect();
-    const pad = 12;
-    const left = Math.max(pad, Math.min(x - r.width - 18, window.innerWidth - r.width - pad));
-    const top = Math.max(pad, Math.min(y - 12, window.innerHeight - r.height - pad));
-    tip.style.transform = `translate(${Math.round(left)}px,${Math.round(top)}px)`;
-  }
-
-  private hideTip(): void {
-    this.tip?.classList.remove("on");
-  }
-
   private entryAt(target: EventTarget | null): InvEntry | null {
     const btn = (target as HTMLElement | null)?.closest?.("[data-sel]") as HTMLElement | null;
     const id = btn?.dataset.sel;
@@ -678,9 +618,9 @@ export class InventoryPanel {
     } // the box in the air is what is being read
     const e = this.tipAt(ev.target);
     if (e) {
-      this.showTip(e, ev.clientX, ev.clientY);
+      this.tip.show(e, ev.clientX, ev.clientY);
     } else {
-      this.hideTip();
+      this.tip.hide();
     }
   };
 
@@ -695,14 +635,14 @@ export class InventoryPanel {
       this.dragTo(ev.clientX, ev.clientY);
       return;
     }
-    if (this.tip?.classList.contains("on")) {
-      this.moveTip(ev.clientX, ev.clientY);
+    if (this.tip.visible) {
+      this.tip.move(ev.clientX, ev.clientY);
     }
   };
 
   private onPointerOut = (ev: PointerEvent): void => {
     if (!this.tipAt(ev.relatedTarget)) {
-      this.hideTip();
+      this.tip.hide();
     }
   };
 
@@ -712,7 +652,7 @@ export class InventoryPanel {
   }
 
   private run(id: string, action: InvAction, focus?: string): void {
-    this.hideTip();
+    this.tip.hide();
     this.hooks.onAction(id, action);
     if (!this.el) {
       return;
@@ -823,7 +763,7 @@ export class InventoryPanel {
     this.travelled = false;
     this.dragged = true;
     this.selected = id;
-    this.hideTip();
+    this.tip.hide();
     // Safe before the ghost: `render` rebuilds the PANE, the ghost hangs off the root.
     this.pendingFocus = `[data-sel="${id}"]`;
     this.render();
@@ -937,7 +877,7 @@ export class InventoryPanel {
   };
 
   private move(id: string, slot: number): void {
-    this.hideTip();
+    this.tip.hide();
     this.hooks.onMove(id, slot);
     if (!this.el) {
       return;

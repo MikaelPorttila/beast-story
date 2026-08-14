@@ -211,6 +211,21 @@ export const en = {
   "map.hint.travel": "Travel to a lit waystone",
   "toast.markerPlaced": "Marker placed. The compass will keep it in view.",
 
+  // ---- staged quest sites (issue #246) --------------------------------------
+  // Display names for the tips over quest prose. Each NAME is written the way
+  // the prose writes it ("the wreck", "the drove ground") so the hover finds it
+  // in the line case-insensitively — see `questHovers` in main.ts.
+  "site.vaneWreck.name": "The Wreck",
+  "site.vaneWreck.desc":
+    "A downed survey balloon halfway up Gullspire's stack, picked at by the flock.",
+  "site.mawsRest.name": "Maw's Rest",
+  "site.mawsRest.desc":
+    "A reef ring out in open water, grown on the back of something older than the charts.",
+  "site.droveGround.name": "The Drove Ground",
+  "site.droveGround.desc": "The open herding flats out past Stonewatch, where the herd is led.",
+  "site.holdFloor.name": "The Hold's Floor",
+  "site.holdFloor.desc": "The lowest room of the Sunken Hold, furthest in from the gateway.",
+
   // ---- the campaign: Act 1, Land (game-story.md §4, issue #143) -------------
   // Keyed by the quest id with the slash dropped and the name camel-cased:
   // `quest:land/first-light` -> `quest.land.firstLight`. Objectives hang off

@@ -287,6 +287,43 @@ await toggle(page, true);
   results.escape = { open: (await read(page)).open };
 }
 
+// ---------- 7. a name in an objective previews on hover (issue #246) --------
+// The campaign's opener names the Sproutle in a STRUCTURED trigger, so its
+// objective line carries a data-tip span — derived from the trigger, never
+// parsed from the prose — and a synthetic hover fills the shared tip box.
+await toggle(page, true);
+{
+  // A line whose prose does not name the thing gets NO span, which is correct —
+  // "Bond a wild beast beyond the camp wall" hovers nothing. So walk the
+  // shelves for a line that does; by now first-light's "…the penned Sproutle"
+  // sits on Done, its trigger still naming the species.
+  let span = null;
+  for (const tab of ["available", "active", "completed"]) {
+    await page.click(`.bs-journal [data-tab="${tab}"]`);
+    await wait(150);
+    span = await page.evaluate(() => {
+      const el = document.querySelector(".bs-journal .steps [data-tip]");
+      return el ? { tip: el.dataset.tip, text: el.textContent } : null;
+    });
+    if (span) {
+      break;
+    }
+  }
+  const tip = await page.evaluate(() => {
+    const el = document.querySelector(".bs-journal .steps [data-tip]");
+    if (!el) {
+      return null;
+    }
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(
+      new PointerEvent("pointerover", { bubbles: true, clientX: r.x + 4, clientY: r.y + 4 }),
+    );
+    const box = document.querySelector(".bs-journal .tip");
+    return { on: box?.classList.contains("on") ?? false, text: box?.textContent ?? "" };
+  });
+  results.hover = { open: (await read(page)).open, span, tip };
+}
+
 console.log(JSON.stringify(results, null, 2));
 await browser.close();
 
@@ -424,6 +461,21 @@ check(
 check(results.tabs.emptyState === true, "the Done tab drew no empty state");
 
 check(results.escape.open === false, "Escape did not close the journal");
+
+// Both halves of the hover: the span is derived into the DOM, and hovering it
+// fills the tip with the NAME the span wrapped (issue #246).
+check(!!results.hover.span, "no objective line carries a data-tip span");
+check(
+  (results.hover.span?.tip ?? "").includes(":"),
+  `the span's tip id "${results.hover.span?.tip}" carries no namespace`,
+);
+check(results.hover.tip?.on === true, "hovering the span did not show the tip");
+check(
+  !!results.hover.span &&
+    !!results.hover.tip &&
+    results.hover.tip.text.toLowerCase().includes(results.hover.span.text.toLowerCase()),
+  `the tip reads ${JSON.stringify(results.hover.tip?.text)} — it should name the hovered thing`,
+);
 
 if (fail.length) {
   console.error(`\n${fail.length} failure(s):\n  ${fail.join("\n  ")}`);

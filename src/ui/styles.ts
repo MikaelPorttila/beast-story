@@ -708,24 +708,43 @@ const CSS = `
   border:1px solid rgba(255,90,80,.34);box-shadow:none}
 .bs-inv .pane>.sel .bs-buy.danger:hover{background:rgba(255,90,80,.24);color:#fff}
 
-/* THE TOOLTIP, positioned against the VIEWPORT rather than inside the panel,
-   because it has to be able to leave it. See moveTip for the clamping. */
-.bs-inv .tip{position:fixed;top:0;left:0;z-index:1;max-width:290px;
+/* THE TOOLTIP (ui/tooltip.ts), positioned against the VIEWPORT rather than
+   inside the panel, because it has to be able to leave it. See Tooltip.move
+   for the clamping. TWO HOSTS on every rule (issue #246): the inventory and
+   the journal share the one mechanism, so they share the one look. */
+.bs-inv .tip,.bs-journal .tip{position:fixed;top:0;left:0;z-index:1;max-width:290px;
   padding:11px 13px 12px;border-radius:13px;pointer-events:none;
   background:linear-gradient(165deg,rgba(24,31,45,.97),rgba(12,16,25,.98));
   border:1px solid rgba(255,255,255,.16);
   box-shadow:0 18px 44px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08);
   backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   opacity:0;transition:opacity .12s ease}
-.bs-inv .tip.on{opacity:1}
-.bs-inv .tip h3{font-size:18px;font-weight:800;line-height:1.2;color:#fff}
-.bs-inv .tip .rar{display:inline-block;margin-top:2px;font-size:16px;font-weight:800;
+.bs-inv .tip.on,.bs-journal .tip.on{opacity:1}
+.bs-inv .tip h3,.bs-journal .tip h3{font-size:18px;font-weight:800;line-height:1.2;color:#fff}
+.bs-inv .tip .rar,.bs-journal .tip .rar{display:inline-block;margin-top:2px;font-size:16px;font-weight:800;
   letter-spacing:.05em;text-transform:uppercase;color:rgba(238,242,248,.55)}
-.bs-inv .tip .rar.r-rare{color:#7fd8ff}
-.bs-inv .tip .rar.r-legendary{color:#ffc44d;text-shadow:0 0 12px rgba(255,196,77,.5)}
-.bs-inv .tip p{font-size:16px;line-height:1.4;color:rgba(238,242,248,.78);margin:7px 0 8px}
-.bs-inv .tip .note{font-size:16px;color:rgba(238,242,248,.5);font-style:italic;margin:7px 0 0}
-.bs-inv .tip .bs-chips{margin-bottom:0}
+.bs-inv .tip .rar.r-rare,.bs-journal .tip .rar.r-rare{color:#7fd8ff}
+.bs-inv .tip .rar.r-legendary,.bs-journal .tip .rar.r-legendary{color:#ffc44d;text-shadow:0 0 12px rgba(255,196,77,.5)}
+.bs-inv .tip p,.bs-journal .tip p{font-size:16px;line-height:1.4;color:rgba(238,242,248,.78);margin:7px 0 8px}
+.bs-inv .tip .note,.bs-journal .tip .note{font-size:16px;color:rgba(238,242,248,.5);font-style:italic;margin:7px 0 0}
+.bs-inv .tip .bs-chips,.bs-journal .tip .bs-chips{margin-bottom:0}
+/* The preview's portrait box; the .ic inside is the inventory's own chain. */
+.bs-inv .tip .hd,.bs-journal .tip .hd{display:flex;align-items:center;gap:10px}
+.bs-inv .tip .tico,.bs-journal .tip .tico{flex:none;width:46px;height:46px;border-radius:10px;
+  overflow:hidden;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  display:flex}
+.bs-journal .tip .ic{width:100%;height:100%;display:block;background-repeat:no-repeat;
+  background-position:center;background-size:contain}
+.bs-journal .tip .ic.blob{background-image:none;
+  background:radial-gradient(circle at 38% 32%,#fff2,transparent 60%),var(--el);
+  border-radius:26% 26% 30% 30%/30%;box-shadow:0 0 14px -4px var(--el);
+  width:62%;height:62%;margin:auto}
+.bs-journal .tip .ic.glyph{background:none;width:70%;height:70%;margin:auto;color:var(--el);
+  filter:drop-shadow(0 0 6px rgba(255,255,255,.28))}
+.bs-journal .tip .ic.glyph svg{width:100%;height:100%;display:block}
+/* A hoverable name in a quest line says so quietly. */
+.bs-journal .tipw{text-decoration:underline dotted rgba(238,242,248,.55);
+  text-underline-offset:3px;cursor:help}
 @media (prefers-reduced-motion:reduce){
   .bs-inv .bs-scrim,.bs-inv .pane,.bs-inv .slot,.bs-inv .tip{transition:none}
 }

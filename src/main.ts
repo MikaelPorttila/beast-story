@@ -36,6 +36,7 @@ import {
   MOUNT_KINDS,
   MOUNT_KIND_KEYS,
   MOUNT_KIND_OF,
+  type BeastSpecies,
   type CrownContact,
   type NpcInfo,
   type SkillDef,
@@ -72,6 +73,7 @@ import {
   MUSIC_TRACK_KIND,
   type BiomeData,
   type MusicData,
+  type ObjectiveTrigger,
   type ObjectiveTriggerKind,
   type QuestData,
   type QuestRewards,
@@ -113,6 +115,7 @@ import {
   MELEE_UP_REACH,
   MELEE_DOWN_REACH,
   type Enemy,
+  type EnemySpec,
 } from "./combat/enemies";
 import {
   HUD,
@@ -133,7 +136,14 @@ import {
   type InventoryModel,
   type GearSlotView,
 } from "./ui/inventory";
-import { JournalPanel, type JournalEntry, type JournalModel, type JournalTab } from "./ui/journal";
+import {
+  JournalPanel,
+  type JournalEntry,
+  type JournalHover,
+  type JournalModel,
+  type JournalTab,
+} from "./ui/journal";
+import { entryIconHtml, type TipContent } from "./ui/tooltip";
 import { MapPanel, type MapTerrain } from "./ui/map";
 import {
   exitFullscreen,
@@ -2151,6 +2161,124 @@ function questTab(asset: ContentAsset<QuestData>): JournalTab | null {
   return ready && content.evaluate(asset.data.available) ? "available" : null;
 }
 
+// HOVER PREVIEWS IN QUEST PROSE (issue #246). The hoverable names are derived
+// from the quest's STRUCTURED trigger — never matched out of the prose — so a
+// translation keeps its hovers: the trigger names ids, each id resolves to the
+// display name the same language table wrote into the line, and the journal
+// wraps that name where the line contains it. Prose that names nothing
+// structured gets no hover, which is correct.
+
+/** The staged sites a trigger can name (`QUEST_SITE_NAMES`), as display text. */
+const SITE_TIP_KEYS: Record<string, { name: StringKey; desc: StringKey }> = {
+  "vane-wreck": { name: "site.vaneWreck.name", desc: "site.vaneWreck.desc" },
+  "maws-rest": { name: "site.mawsRest.name", desc: "site.mawsRest.desc" },
+  "drove-ground": { name: "site.droveGround.name", desc: "site.droveGround.desc" },
+  "hold-floor": { name: "site.holdFloor.name", desc: "site.holdFloor.desc" },
+};
+
+const speciesById = (id: string): BeastSpecies | undefined =>
+  ALL_SPECIES.find((sp) => sp.id === id);
+
+/** The beast species whose body an enemy wears, or undefined for a monster's own. */
+function enemyBeast(spec: EnemySpec): BeastSpecies | undefined {
+  return ALL_SPECIES.find((sp) => spec.data.model === `beast-${sp.id}`);
+}
+
+function questHovers(trigger: ObjectiveTrigger | undefined): JournalHover[] {
+  if (!trigger) {
+    return [];
+  }
+  const out: JournalHover[] = [];
+  // A trigger's species list can name a BEAST ("sproutle") or a WILD population
+  // ("wild-sproutle", an enemy species id) — both are previews of an animal.
+  for (const sid of trigger.species ?? []) {
+    const sp = speciesById(sid);
+    if (sp) {
+      out.push({ name: t(sp.nameKey), tip: `beast:${sp.id}` });
+      continue;
+    }
+    const spec = enemySpecies().find((s) => s.id === sid);
+    if (spec) {
+      out.push({ name: t(spec.nameKey), tip: `enemy:${spec.id}` });
+    }
+  }
+  for (const eid of trigger.enemies ?? []) {
+    const spec = enemySpecies().find((s) => `enemy:${s.id}` === eid);
+    if (spec) {
+      out.push({ name: t(spec.nameKey), tip: `enemy:${spec.id}` });
+    }
+  }
+  if (trigger.item !== undefined && isKnownItem(trigger.item)) {
+    out.push({ name: itemName(itemDef(trigger.item), 1), tip: `item:${trigger.item}` });
+  }
+  if (trigger.site !== undefined && SITE_TIP_KEYS[trigger.site]) {
+    out.push({ name: t(SITE_TIP_KEYS[trigger.site].name), tip: `site:${trigger.site}` });
+  }
+  return out;
+}
+
+/** `<i class="ic beast">` for the tip: the baked portrait, or the blob until it lands. */
+function beastTipIcon(sp: BeastSpecies): string {
+  return entryIconHtml({
+    color: ELEMENT_COLORS[sp.element],
+    speciesId: sp.id,
+    iconUrl: inventory.beastIcon(sp),
+  });
+}
+
+/** What a hovered name shows. Ids are namespaced by `questHovers` above. */
+function journalTipFor(id: string): TipContent | null {
+  if (id.startsWith("beast:")) {
+    const sp = speciesById(id.slice("beast:".length));
+    return sp
+      ? {
+          name: t(sp.nameKey),
+          color: ELEMENT_COLORS[sp.element],
+          description: t(sp.descriptionKey),
+          iconHtml: beastTipIcon(sp),
+        }
+      : null;
+  }
+  if (id.startsWith("enemy:")) {
+    const spec = enemySpecies().find((s) => `enemy:${s.id}` === id);
+    if (!spec) {
+      return null;
+    }
+    // A wild body that IS a beast body shows that beast's portrait and nature.
+    const sp = enemyBeast(spec);
+    return {
+      name: t(spec.nameKey),
+      color: sp ? ELEMENT_COLORS[sp.element] : 0xff5d5d,
+      description: sp ? t(sp.descriptionKey) : undefined,
+      ...(sp ? { iconHtml: beastTipIcon(sp) } : {}),
+    };
+  }
+  if (id.startsWith("item:")) {
+    const itemId = id.slice("item:".length);
+    if (!isKnownItem(itemId)) {
+      return null;
+    }
+    const def = itemDef(itemId);
+    return {
+      name: itemName(def, 1),
+      color: def.color,
+      rarity: def.rarity,
+      description: def.descriptionKey ? t(def.descriptionKey) : undefined,
+      iconHtml: entryIconHtml({
+        color: def.color,
+        kind: def.kind,
+        icon: def.icon,
+        orbTier: def.orbTier,
+      }),
+    };
+  }
+  if (id.startsWith("site:")) {
+    const keys = SITE_TIP_KEYS[id.slice("site:".length)];
+    return keys ? { name: t(keys.name), color: 0xffc44d, description: t(keys.desc) } : null;
+  }
+  return null;
+}
+
 // `query.available` rather than `all`: the asset envelope's `when` is how content hides something entirely, and
 // a journal listing it would be the one place that leaked it.
 function journalModel(): JournalModel {
@@ -2175,6 +2303,7 @@ function journalModel(): JournalModel {
         text: resolveText(o.text, o.key),
         have: content.state.progress(asset.id, o.key),
         need: o.count ?? 1,
+        hovers: questHovers(o.trigger),
       })),
       rewards: rewardLines(asset.data.rewards),
       onHud: questOnHud(asset.id),
@@ -2205,6 +2334,7 @@ const journal = new JournalPanel({
   onToggleHud: (id) => {
     content.state.setFlag(hudFlag(id), questOnHud(id));
   },
+  tipFor: journalTipFor,
   // The inventory's bargain: a panel with buttons needs a cursor, and re-taking the lock after Escape is what makes one press close two things.
   onOpen: () => input.releaseLock(),
   onClose: (by) => {
@@ -2216,6 +2346,8 @@ const journal = new JournalPanel({
     }
   },
 });
+// A portrait that finishes baking while a journal tip is up lands in it (issue #246).
+inventory.onPortrait = (id, url) => journal.patchPortrait(id, url);
 
 // THE WORLD MAP (issue #245), and the one marker the player may plant on it.
 // The marker is session state under issue #171's rule — reset in exitToTitle,
