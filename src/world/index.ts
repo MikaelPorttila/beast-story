@@ -469,6 +469,28 @@ class NpcFields implements NpcField {
       p.endTalk();
     }
   }
+
+  startEscort(
+    id: string,
+    destX: number,
+    destZ: number,
+    radius: number,
+    onArrive: () => void,
+  ): boolean {
+    // First field that KNOWS the id and can walk him wins; a carried crew's own
+    // refusal (see Npcs.startEscort) falls through to the ground field's no.
+    return this.parts.some((p) => p.startEscort(id, destX, destZ, radius, onArrive));
+  }
+
+  escorting(id: string): boolean {
+    return this.parts.some((p) => p.escorting(id));
+  }
+
+  cancelEscorts(): void {
+    for (const p of this.parts) {
+      p.cancelEscorts();
+    }
+  }
 }
 
 /**
@@ -744,6 +766,7 @@ export function createWorld(
           towns: plan.towns,
           roads: plan.network,
           getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
+          waterLevel: WATER_LEVEL,
           structureTopAt: (x: number, z: number): number => towns.solids.topAt(x, z),
           focusOf: (id: string) => towns.fireOf(id),
         }

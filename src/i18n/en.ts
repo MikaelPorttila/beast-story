@@ -953,6 +953,8 @@ export const en = {
   // reach it, and what that buys you is said in the second line, once, the first
   // time it happens — a player who has never fainted has no idea what it is for.
   "toast.waypointLit": "The waystone lights — you will wake here",
+  "toast.escortStarted": "{name} is following you — lead the way",
+  "toast.escortDone": "{name} has arrived",
   "toast.fainted": "You fainted!",
   "toast.revived": "Back on your feet!",
   // The deep sea, and it names the FIX rather than the refusal. The water going

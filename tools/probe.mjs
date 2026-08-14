@@ -114,6 +114,9 @@ const SOLO = new Set([
   // Stages and calms Gullspire's flock with a forced bond, walks Vane's beat
   // and reads the seam flags — tames, teleports and simulated seconds.
   "rookery",
+  // The follower mechanic (issue #234): presses E to start the walk, leads a
+  // follower by teleport hops and measures his motion — key edges and distances.
+  "escort",
   // The act's closer: drives the fork both orders, stands the boss up in the
   // reef ring and fells it, and closes the Act 2 -> Act 3 seam.
   "tide-kept",

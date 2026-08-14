@@ -567,18 +567,25 @@
                   "quest": "quest:sea/the-rookery",
                   "objective": "calm-the-flock",
                   "atLeast": 1
+                },
+                {
+                  "not": {
+                    "test": "progress",
+                    "quest": "quest:sea/the-rookery",
+                    "objective": "escort-vane",
+                    "atLeast": 1
+                  }
                 }
               ]
             },
             "line": { "key": "npc.skyPilot.sea4.down" },
             "actions": [
               {
-                "do": "progress.add",
-                "quest": "quest:sea/the-rookery",
-                "objective": "escort-vane"
+                "do": "escort.start",
+                "npc": "npc:sky-pilot/gullspire"
               }
             ],
-            "_escort": "THE DOCUMENTED FAILURE MODE IS 'HE CANNOT DIE' (#155): an NPC is not damageable, so the walk down the stack is this beat, told — the flock that would have knocked him off it is already calmed, which is why this row gates on calm-the-flock. Issue #234 is the real follower mechanic."
+            "_escort": "THE REAL WALK (issue #234, was a told beat under #155): the action names WHO, and the objective's escort trigger names WHERE TO — the wreck. He still cannot be hurt; a follower left behind leash-teleports to the hero, so the escort completes or is simply still owed, and this row stays open (escort-vane < 1) to restart it."
           },
           {
             "when": {
@@ -640,7 +647,12 @@
           },
           {
             "key": "escort-vane",
-            "text": { "key": "quest.sea.rookery.obj.escortVane" }
+            "text": { "key": "quest.sea.rookery.obj.escortVane" },
+            "trigger": {
+              "kind": "escort",
+              "npc": "npc:sky-pilot/gullspire",
+              "site": "vane-wreck"
+            }
           },
           {
             "key": "recover-component",

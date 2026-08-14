@@ -682,6 +682,14 @@ export class StructureField implements SiteClearance {
     this.built = false;
   }
 
+  /** Empty every stamp so a field can be re-stamped — an NPC crew whose stations
+   *  change (an escort re-stationing, issue #234) adds everyone again and rebuilds. */
+  reset(): void {
+    this.data.length = 0;
+    this.rdata.length = 0;
+    this.built = false;
+  }
+
   /** Freeze the stamps and index them. Call once, after the last `add`. */
   build(): void {
     if (this.built) {

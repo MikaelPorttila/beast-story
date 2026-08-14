@@ -40,7 +40,8 @@ export type ObjectiveTriggerKind =
   | "enemy-killed"
   | "item-picked"
   | "town-arrival"
-  | "zone-arrival";
+  | "zone-arrival"
+  | "escort";
 
 const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "orb-thrown",
@@ -49,6 +50,7 @@ const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "item-picked",
   "town-arrival",
   "zone-arrival",
+  "escort",
 ];
 
 /**
@@ -64,6 +66,15 @@ export interface ObjectiveTrigger {
   readonly town?: ContentId;
   /** The `ZoneDef` id — `overworld`, `hold`. */
   readonly zone?: string;
+  /** On `escort`: WHO is walked. The `escort.start` action names the same id. */
+  readonly npc?: ContentId;
+  /**
+   * A STAGED SITE the engine derives and content cannot place — the wreck, the
+   * reef ring (the `site` field the questWaypoint note in main.ts priced in).
+   * On `escort` it is the destination; a name the engine does not implement is
+   * a diagnostic at escort start.
+   */
+  readonly site?: string;
 }
 
 /**
@@ -146,6 +157,8 @@ function readTrigger(value: unknown, ctx: Reader): ObjectiveTrigger | undefined 
     item: opt(v.item, ctx.at("item"), (s, c) => str(s, c, { min: 1, max: 64, what: "an item id" })),
     town: opt(v.town, ctx.at("town"), idOf("town")),
     zone: opt(v.zone, ctx.at("zone"), (s, c) => str(s, c, { min: 1, max: 64, what: "a zone id" })),
+    npc: opt(v.npc, ctx.at("npc"), idOf("npc")),
+    site: opt(v.site, ctx.at("site"), (s, c) => str(s, c, { min: 1, max: 64, what: "a site name" })),
   };
 }
 
@@ -249,6 +262,9 @@ function* refs(data: QuestData): Iterable<ContentId> {
     }
     if (trigger.town !== undefined && trigger.town !== "") {
       yield trigger.town;
+    }
+    if (trigger.npc !== undefined && trigger.npc !== "") {
+      yield trigger.npc;
     }
     for (const id of trigger.enemies ?? []) {
       if (id !== "") {

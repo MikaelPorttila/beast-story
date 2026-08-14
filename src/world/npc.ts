@@ -126,6 +126,12 @@ export interface NpcAnimCtx {
    * that every NPC acknowledges one the same way.
    */
   attended: boolean;
+  /**
+   * His own ground speed this frame, world units/second — non-zero only for a
+   * FOLLOWER (issue #234). Optional so a body may ignore it and a caller that
+   * never moves anyone (tools/test-zfight.mjs) need not state it.
+   */
+  speed?: number;
 }
 
 /**
@@ -359,6 +365,22 @@ const NPC_ROAD_CLEAR = 1.2;
 const SPOT_RINGS = [0, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5];
 /** Bearings per ring. 16 puts a candidate every 22.5 degrees. */
 const SPOT_BEARINGS = 16;
+/**
+ * FOLLOWER tuning (issue #234). Base pace a touch under the hero's WALK_SPEED
+ * of 6, so he honestly trails a walker; the catch-up ramp in `tickEscort` is
+ * what closes a gap, the way a companion beast's does.
+ */
+const ESCORT_SPEED = 5.6;
+/** Where he stops: just outside conversation distance, never in the hero's back. */
+const ESCORT_STOP = 2.6;
+/**
+ * The companion TELEPORT_DIST precedent (beasts/framework.ts): a follower left
+ * this far behind beams to the hero rather than being lost. This is the escort's
+ * whole failure model — he cannot die (#155), so he cannot be left either.
+ */
+const ESCORT_TELEPORT = 40;
+/** How far behind the hero a teleport lands him — where he would have walked to. */
+const ESCORT_BEHIND = 2.2;
 
 // ---------------------------------------------------------------------------
 
@@ -371,6 +393,14 @@ type LiveNpcInfo = {
   -readonly [K in keyof NpcInfo]: NpcInfo[K];
 };
 
+/** One escort in flight: where he is walking to, and what to say when he is there. */
+interface EscortRun {
+  destX: number;
+  destZ: number;
+  radius: number;
+  onArrive: () => void;
+}
+
 interface Placed {
   char: Character;
   rig: NpcRig;
@@ -382,6 +412,14 @@ interface Placed {
   /** The bearing he faces when nobody is with him, in the site's frame. */
   restYaw: number;
   yaw: number;
+  /** The ORIGINAL placement, so `cancelEscorts` can put a walked character back. */
+  homeX: number;
+  homeY: number;
+  homeZ: number;
+  homeYaw: number;
+  escort: EscortRun | null;
+  /** Ground speed this frame, for the body's walk cycle. 0 at rest. */
+  walkSpeed: number;
 }
 
 /**
@@ -412,6 +450,8 @@ export interface NpcSite {
   towns: TownRegistry;
   roads: RoadClearance;
   getHeight(x: number, z: number): number;
+  /** Where water stands, so a follower wades rather than walking the seabed. Absent = no water. */
+  waterLevel?: number;
   /**
    * What the SETTLEMENT already blocks. Read-only here, and read only at
    * placement time: it is how a candidate spot discovers there is a hut, a
@@ -448,7 +488,7 @@ export class Npcs implements NpcField {
   private readonly placed: Placed[] = [];
   private talkState: NpcTalk | null = null;
   /** Reused every frame; see the no-per-frame-allocation rule. */
-  private readonly ctx: NpcAnimCtx = { time: 0, dt: 0, attended: false };
+  private readonly ctx: NpcAnimCtx = { time: 0, dt: 0, attended: false, speed: 0 };
 
   /**
    * @param frame The moving reference frame this crew stands in, if any. See
@@ -456,7 +496,7 @@ export class Npcs implements NpcField {
    *   everything this constructor computes; `update` publishes world positions.
    */
   constructor(
-    site: NpcSite,
+    private readonly site: NpcSite,
     private readonly frame: NpcFrame | null = null,
   ) {
     const infos: NpcInfo[] = [];
@@ -518,12 +558,17 @@ export class Npcs implements NpcField {
         localX: spot.x,
         localY: y,
         localZ: spot.z,
+        homeX: spot.x,
+        homeY: y,
+        homeZ: spot.z,
+        homeYaw: restYaw,
+        escort: null,
+        walkSpeed: 0,
       });
-      // The same call shape `SolidStamp.add` uses, and the same field type —
-      // his box is stamped at the pose he was placed in.
-      this.solids.add(rig, spot.x, y, spot.z, restYaw, 1, 1);
     }
-    this.solids.build();
+    // The same call shape `SolidStamp.add` uses, and the same field type — his
+    // box is stamped at the pose he stands in, and re-stamped when that changes.
+    this.restamp();
     this.all = infos;
   }
 
@@ -585,6 +630,129 @@ export class Npcs implements NpcField {
     this.talkState = null;
   }
 
+  // -- escort (issue #234) ---------------------------------------------------
+
+  /**
+   * See `NpcField.startEscort`. Refused on a moving frame: a carried crew's deck
+   * is its whole world and there is nowhere on it to walk an escort to.
+   * Restarting a running escort just repoints it — no restamp, he is already up.
+   */
+  startEscort(
+    id: string,
+    destX: number,
+    destZ: number,
+    radius: number,
+    onArrive: () => void,
+  ): boolean {
+    if (this.frame) {
+      return false;
+    }
+    const p = this.placed.find((q) => q.char.id === id);
+    if (!p) {
+      return false;
+    }
+    const fresh = p.escort === null;
+    p.escort = { destX, destZ, radius, onArrive };
+    if (fresh) {
+      // A walker is NOT solid — a body box gliding under the hero's feet would
+      // shove him — so his stamp comes out until he stands again.
+      this.restamp();
+    }
+    return true;
+  }
+
+  escorting(id: string): boolean {
+    return this.placed.some((p) => p.char.id === id && p.escort !== null);
+  }
+
+  cancelEscorts(): void {
+    let changed = false;
+    for (const p of this.placed) {
+      // HOME, not the last station: teardown hands the next session the world
+      // exactly as `readCharacters` placed it.
+      if (p.escort === null && p.localX === p.homeX && p.localZ === p.homeZ) {
+        continue;
+      }
+      p.escort = null;
+      p.walkSpeed = 0;
+      p.localX = p.homeX;
+      p.localY = p.homeY;
+      p.localZ = p.homeZ;
+      p.restYaw = p.homeYaw;
+      p.yaw = p.homeYaw;
+      p.info.x = p.homeX;
+      p.info.y = p.homeY;
+      p.info.z = p.homeZ;
+      p.info.restYaw = p.homeYaw;
+      p.rig.root.position.set(p.homeX, p.homeY, p.homeZ);
+      p.rig.root.rotation.y = p.homeYaw;
+      changed = true;
+    }
+    if (changed) {
+      this.restamp();
+    }
+  }
+
+  /** Re-derive the whole solid field from where everyone STANDS. A walker is skipped. */
+  private restamp(): void {
+    this.solids.reset();
+    for (const p of this.placed) {
+      if (p.escort) {
+        continue;
+      }
+      this.solids.add(p.rig, p.localX, p.localY, p.localZ, p.restYaw, 1, 1);
+    }
+    this.solids.build();
+  }
+
+  /**
+   * One follower's slice: arrive, or beam after a lost hero, or walk. All in
+   * SITE coordinates, which for an escort are the world's (no frame — see
+   * `startEscort`); the caller republishes `info` from the locals it writes.
+   */
+  private tickEscort(p: Placed, dt: number, focus: THREE.Vector3): void {
+    const e = p.escort!;
+    const dxD = e.destX - p.localX;
+    const dzD = e.destZ - p.localZ;
+    if (dxD * dxD + dzD * dzD <= e.radius * e.radius) {
+      // Re-station WHERE THE WALK ENDED, facing the way it was going: the
+      // destination is a radius, and walking him to its exact centre would
+      // park him inside whatever the site put there.
+      const done = e.onArrive;
+      p.escort = null;
+      p.walkSpeed = 0;
+      p.restYaw = p.yaw;
+      this.restamp();
+      // After the internal state settles: the callback may read `escorting`.
+      done();
+      return;
+    }
+    const dxH = focus.x - p.localX;
+    const dzH = focus.z - p.localZ;
+    const distH = Math.hypot(dxH, dzH);
+    if (distH > ESCORT_TELEPORT) {
+      const t = (distH - ESCORT_BEHIND) / distH;
+      p.localX += dxH * t;
+      p.localZ += dzH * t;
+      p.walkSpeed = 0;
+    } else if (distH > ESCORT_STOP) {
+      // The companion ramp: pace picks up with the gap, capped well under a
+      // sprinting hero so being outrun is possible and the leash means something.
+      const catchup = distH > 6 ? Math.min(1.8, 1 + (distH - 6) * 0.12) : 1;
+      const step = Math.min(ESCORT_SPEED * catchup * dt, distH - ESCORT_STOP);
+      p.localX += (dxH / distH) * step;
+      p.localZ += (dzH / distH) * step;
+      p.walkSpeed = dt > 0 ? step / dt : 0;
+    } else {
+      p.walkSpeed = 0;
+    }
+    // He wades rather than walking the seabed; a placement never asked, an escort can.
+    p.localY = Math.max(
+      this.site.getHeight(p.localX, p.localZ),
+      this.site.waterLevel ?? -Infinity,
+    );
+  }
+
   // -- frame ----------------------------------------------------------------
 
   /**
@@ -612,6 +780,15 @@ export class Npcs implements NpcField {
         p.info.z = _fw.z;
         p.info.y = frame.y + p.localY;
         p.info.restYaw = p.restYaw + frame.yaw;
+      } else if (p.escort) {
+        // A FOLLOWER MOVES, so off a frame his published record is a reading
+        // too — walked here, then republished, exactly like the frame case.
+        this.tickEscort(p, dt, focus);
+        p.info.x = p.localX;
+        p.info.y = p.localY;
+        p.info.z = p.localZ;
+        p.info.restYaw = p.restYaw;
+        p.rig.root.position.set(p.localX, p.localY, p.localZ);
       }
       const dx = p.info.x - focus.x;
       const dz = p.info.z - focus.z;
@@ -643,10 +820,14 @@ export class Npcs implements NpcField {
       // `frame.yaw` — and `restYaw` never left the frame, which is why it is
       // used raw here and offset above.
       const toFocus = Math.atan2(focus.x - p.info.x, focus.z - p.info.z) - (frame ? frame.yaw : 0);
-      const want = attended ? toFocus : p.restYaw;
+      // A walking follower faces his own line of travel, which IS the hero's
+      // bearing — every step is toward the hero — so the walk and the glance
+      // want the same angle and the rest pose only returns once he stands.
+      const want = attended || p.walkSpeed > 0.05 ? toFocus : p.restYaw;
       p.yaw = approachAngle(p.yaw, want, TURN_LAMBDA, dt);
       p.rig.root.rotation.y = p.yaw;
       this.ctx.attended = attended;
+      this.ctx.speed = p.walkSpeed;
       p.char.body.animate(p.rig, this.ctx);
     }
   }
