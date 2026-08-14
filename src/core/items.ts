@@ -227,6 +227,25 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "rare",
   },
 
+  // The drowned market's floor (issue #154): what the tide buried, dived for by
+  // count, and the first of the three device parts the act assembles.
+  salvage: {
+    id: "salvage",
+    nameKey: "item.salvage",
+    kind: "quest",
+    color: 0x8fb8a8,
+    descriptionKey: "item.salvage.desc",
+    rarity: "common",
+  },
+  "component-lens": {
+    id: "component-lens",
+    nameKey: "item.componentLens",
+    kind: "quest",
+    color: 0x9adfd2,
+    descriptionKey: "item.componentLens.desc",
+    rarity: "rare",
+  },
+
   // Handed out via the `item.give` action; reachable today through `/give`.
   "gain-token": {
     id: "gain-token",

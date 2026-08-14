@@ -2788,6 +2788,140 @@ function tickBossStage(dt: number): void {
   combat.spawnOne(BOSS_STAGE_ENEMY, spot.x, spot.z);
 }
 
+// THE DROWNED MARKET — Kelphold's flooded flats (issue #154). Seaward of the quay,
+// on beds a diver can just reach: he dives to 3.4 under the surface, so the stall
+// floor lies on beds 4.6..6.6 — swimmable water, never the DARK kind, and the
+// auto-mount (issue #153) is how you get out there at all. Like the drove ground,
+// this is a claim on nothing: kill the quest and the flats are what they were.
+const MARKET_ITEM = "salvage";
+const MARKET_COMPONENT = "component-lens";
+const MARKET_GUARD = "bridle-hound";
+const MARKET_SALVAGE_N = 8;
+/** Bed band the salvage lies on, chosen against the 3.4-unit dive: a diver
+ *  reaches y ~4.6 and the pickup magnet spans 3, so a drop 0.6 over a 4.05 bed
+ *  is in reach — and 4.05 keeps every stall strictly out of the DARK water. */
+const MARKET_BED_MIN = 4.05;
+const MARKET_BED_MAX = 7.2;
+/** How near the hero must be before the market is dressed. Inside DESPAWN_DIST. */
+const MARKET_STAGE_REACH = 60;
+let marketStagePollIn = 0;
+/** The stall spots, computed once per session: the terrain never moves under a quest. */
+let marketSpots: Array<{ x: number; y: number; z: number }> | null = null;
+
+/** The market's floor: divable columns marched seaward of Kelphold's quay, the
+ *  component's stall last and furthest — the Bridle crew went deepest first. */
+function drownedMarket(): Array<{ x: number; y: number; z: number }> | null {
+  if (marketSpots) {
+    return marketSpots;
+  }
+  const town = world.towns.get("kelphold");
+  if (!town) {
+    return null;
+  }
+  const spots: Array<{ x: number; y: number; z: number }> = [];
+  // A fan off the quay: the flats fall away fast past an island's shore, so the
+  // stalls take whatever divable shelf the seed left, quay-side first.
+  for (let k = -4; k <= 4 && spots.length <= MARKET_SALVAGE_N + 2; k++) {
+    const a = town.gateAngle + k * 0.25;
+    const ux = Math.sin(a);
+    const uz = Math.cos(a);
+    for (let d = town.radius + 3; d < 90; d += 3) {
+      const x = town.x + ux * d;
+      const z = town.z + uz * d;
+      const bed = world.getHeight(x, z);
+      if (bed >= MARKET_BED_MIN && bed <= MARKET_BED_MAX && world.isWater(x, z)) {
+        if (!spots.some((s) => Math.hypot(s.x - x, s.z - z) < 4)) {
+          spots.push({ x, y: bed, z });
+        }
+      }
+    }
+  }
+  // Shallow stalls first, the DEEPEST last: the component sits where the Bridle
+  // crew dove first, and `tickMarketStage` reads the tail as its post.
+  spots.sort((a, b) => b.y - a.y);
+  if (spots.length <= MARKET_SALVAGE_N) {
+    // Not enough flooded floor this seed: report rather than half-dress the market.
+    reportContentIssue({
+      severity: "warn",
+      code: "unsupported",
+      message: `the drowned market found ${spots.length} divable stalls off Kelphold; wants ${MARKET_SALVAGE_N + 1}`,
+      assetId: "quest:sea/the-drowned-market",
+      assetType: "quest",
+      fix: "widen the lanes or the bed band in drownedMarket()",
+    });
+    return null;
+  }
+  marketSpots = spots;
+  return spots;
+}
+
+function tickMarketStage(dt: number): void {
+  marketStagePollIn -= dt;
+  if (marketStagePollIn > 0) {
+    return;
+  }
+  marketStagePollIn = PRACTICE_POLL;
+  if (zones.id !== "overworld") {
+    return;
+  }
+  const asset = content.get<QuestData>("quest:sea/the-drowned-market");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  const spots = drownedMarket();
+  if (!spots) {
+    return;
+  }
+  const heart = spots[Math.floor(spots.length / 2)];
+  if (
+    !inReach(
+      heart.x,
+      heart.y,
+      heart.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      MARKET_STAGE_REACH,
+      30,
+      30,
+    )
+  ) {
+    return;
+  }
+  const drops = combat.dropSnapshot();
+  // Salvage: keep exactly as many stalls dressed as the count still owes, so a
+  // player who fished three out finds five more, never nine.
+  // PROGRESS, not the bag: every pick advances the counter AND lands in the bag,
+  // so counting both dressed seven stalls and then refused to dress the eighth.
+  const salvageDown = drops.filter((d) => d.itemId === MARKET_ITEM && !d.claimed);
+  let owe =
+    MARKET_SALVAGE_N - content.state.progress(asset.id, "collect-salvage") - salvageDown.length;
+  for (const spot of spots.slice(0, MARKET_SALVAGE_N)) {
+    if (owe <= 0) {
+      break;
+    }
+    if (salvageDown.some((d) => Math.hypot(d.x - spot.x, d.z - spot.z) < 2)) {
+      continue;
+    }
+    combat.spawnDrop(MARKET_ITEM, spot.x, spot.y + 0.6, spot.z);
+    owe--;
+  }
+  // The component, under its leashed guard at the farthest stall. The hound is
+  // SCENERY WITH HIT POINTS (thread-anchor pattern): the Bridle crew got here
+  // first, and Coil's case lands because it truly hurts nobody.
+  const last = spots[spots.length - 1];
+  if (
+    content.state.progress(asset.id, "recover-component") < 1 &&
+    bag.count(MARKET_COMPONENT) === 0 &&
+    !drops.some((d) => d.itemId === MARKET_COMPONENT && !d.claimed)
+  ) {
+    combat.spawnDrop(MARKET_COMPONENT, last.x, last.y + 0.6, last.z);
+  }
+  if (!combat.enemies.some((e) => e.targetable && e.species === MARKET_GUARD)) {
+    combat.spawnOne(MARKET_GUARD, last.x + 2, last.z);
+  }
+}
+
 // The camera looks through the pinned crosshair, so its forward vector IS the crosshair ray. A module scratch because casting must not allocate.
 const _aim = new THREE.Vector3();
 // Steer strength for a shot fired down the crosshair, as a fraction of full lock-on: 0.35 closes a small aiming
@@ -5133,6 +5267,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickPracticeBeast(dt);
   tickHoldStage(dt);
   tickBossStage(dt);
+  tickMarketStage(dt);
   tickWaypoints(dt);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
@@ -7054,6 +7189,7 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
 (window as unknown as { __dbgQuestSites: () => unknown }).__dbgQuestSites = () => ({
   holdFloor: holdFloorSpot(),
   droveGround: droveGround(),
+  drownedMarket: drownedMarket(),
   // The Encampment's taming pen — the camp layout's own answer (issue #178).
   pen: world.tamingPen,
 });

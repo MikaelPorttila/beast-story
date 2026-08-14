@@ -108,6 +108,9 @@ const SOLO = new Set([
   // Drives the hero into the channel on foot and mounted, tames a staged
   // Aquaxol, and measures the auto-mount crossing — motion, tames and key holds.
   "dark-water",
+  // Dives Kelphold's flooded stalls drop by drop and talks the quest through —
+  // teleports, simulated seconds and a damage measurement beside the hound.
+  "drowned-market",
   // Presses E to take a quest and throws orbs to finish it, then reads what the
   // frame drew — every one of those needs a frame loop the tab is not given in
   // the background.

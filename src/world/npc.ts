@@ -54,6 +54,7 @@ import { type RoadClearance } from "./roads";
 import { flags } from "../core/flags";
 import { GAIN_BODY } from "./npc-gain";
 import {
+  BOATWRIGHT_BODY,
   COIL_BODY,
   MERA_BODY,
   SKY_GARDENER_BODY,
@@ -162,6 +163,8 @@ export const NPC_BODIES: Readonly<Record<string, NpcBody>> = {
   "sky-lamplighter": SKY_LAMPLIGHTER_BODY,
   mera: MERA_BODY,
   coil: COIL_BODY,
+  // Saltrest's boatwright, met in Kelphold's drowned market (issue #154).
+  boatwright: BOATWRIGHT_BODY,
 };
 
 /**

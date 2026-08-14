@@ -98,6 +98,14 @@ export const en = {
   "item.gainToken.other": "Gain's Tokens",
   "item.gainToken.desc":
     "A carved weight on a cord. Given, not found, and not yours to throw away.",
+  "item.salvage.one": "Market Salvage",
+  "item.salvage.other": "Market Salvage",
+  "item.salvage.desc":
+    "Crockery, rope, a hinge — a stall's worth of somebody's living, silted but sound. The tide takes rent in kind.",
+  "item.componentLens.one": "The Lens",
+  "item.componentLens.other": "Lenses",
+  "item.componentLens.desc":
+    "Ground glass in a brass cage, and none of it local. It bends light toward something that is not the sun.",
 
   // ---- inventory -----------------------------------------------------------
   "inv.title": "Inventory",
@@ -231,6 +239,12 @@ export const en = {
     "The channels between the islands run too deep and too cold to swim, and the boat cannot follow a thing that dives. Something out in the shallows can — if it chooses you.",
   "quest.sea.darkWater.obj.findTheAquaxol": "Find an Aquaxol in the shallows around Saltrest",
   "quest.sea.darkWater.obj.tameAquaxol": "Bond the Aquaxol",
+  "quest.sea.drownedMarket.name": "The Drowned Market",
+  "quest.sea.drownedMarket.desc":
+    "Kelphold's market floor is only walkable at low tide, and what Brack wants back is under it. The Bridle crew got there first — and left something on a leash to say so.",
+  "quest.sea.drownedMarket.obj.diveTheMarket": "Reach the drowned market at Kelphold",
+  "quest.sea.drownedMarket.obj.collectSalvage": "Dive the stalls and bring up the salvage",
+  "quest.sea.drownedMarket.obj.recoverComponent": "Recover the lens from the deepest stall",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -284,6 +298,8 @@ export const en = {
   "town.stonewatch.sign": "STONEWATCH",
   "town.saltrest.name": "Saltrest",
   "town.saltrest.sign": "SALTREST",
+  "town.kelphold.name": "Kelphold",
+  "town.kelphold.sign": "KELPHOLD",
   /**
    * SKYHAVEN — the town that flies (issue #68). A settlement like any other as
    * far as this table is concerned; that it is carried rather than sited is
@@ -342,6 +358,23 @@ export const en = {
     "Shallow coves, wet feet, one orb. It will find you before you find it — they always do.",
   "npc.gain.sea2.done":
     "Look at it grinning. That is the whole Reach open to you now — when the dark water takes your feet, that animal will take the rest of you. Try it. On purpose, I mean.",
+
+  // Saltrest's boatwright, met minding Kelphold's flooded market (issue #154).
+  "npc.brack.name": "Brack Tulley",
+  "npc.brack.greeting":
+    "Mind the tide-line. Everything above it is mine; everything under it is the sea's, on loan.",
+  "npc.brack.q3.offer":
+    "Half my stock is under that market floor, and worse — a lens I was holding for a customer who pays in questions. The Bridle crew dove for it first and left a dog on a rope to tell me no. Take that swimmer of yours down and bring up what the tide is sitting on. Eight crates and the lens.",
+  "npc.brack.q3.busy":
+    "Down, fill your arms, up, breathe, again. The dog will not bite — that is rather the point the wardens are making with it.",
+  "npc.brack.q3.done":
+    "All eight, and the lens. Look at it — that glass was never ground for looking DOWN. Coil's lot wanted it counted; you went and got it. Remember the difference when she makes her speech.",
+
+  // The Warden's second placement — the rival, already in Kelphold (issue #154).
+  "npc.coil.sea3.case":
+    "Look at the hound before you judge the leash. It guarded this floor for whoever drowned it, and it would have died doing it. On the rope it is fed, it is calm, and it hurts nobody. That is my whole case, and you have yet to hear a better one.",
+  "npc.coil.sea3.after":
+    "So you have the lens. Then you know it was pointed up, not down — and you know less than you think about who is holding whom. We will speak again at the reef.",
 
   // Redbriar's miller. She closes The Mill Road (issue #149) — the quest Gain
   // offers and she ends, which is what `turnIn` on the asset says. Her own
@@ -663,6 +696,7 @@ export const en = {
   // onto at the Hold's floor (issue #150), and the first thing in the game that
   // was PUT somewhere by somebody.
   "enemy.threadAnchor.name": "Thread Anchor",
+  "enemy.bridleHound.name": "Bridle-hound",
   // The lead animal of a flock is the one wearing the bell, and the rest follow
   // it wherever it goes — which is the whole of what has gone wrong in the
   // valley, said in one word (issue #151).
