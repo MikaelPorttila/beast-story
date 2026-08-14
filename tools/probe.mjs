@@ -102,6 +102,9 @@ const SOLO = new Set([
   // may share a page with it, and it is the one probe that measures a crossing's
   // wall clock (issue #211).
   "gateway",
+  // Sails the ferry to the Brine Reach and back — two long teleports that each
+  // stream a far corner of the world in, and a staged content flag.
+  "brine",
   // Presses E to take a quest and throws orbs to finish it, then reads what the
   // frame drew — every one of those needs a frame loop the tab is not given in
   // the background.

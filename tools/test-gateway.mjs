@@ -61,7 +61,9 @@ const tp = (x, z) => dbg((p) => window.__dbgTp(p.x, p.z), { x, z });
 
 /** Stand on the pad and let the world settle around him. */
 async function standOnPad() {
-  const g = (await zone()).gate;
+  // BY DESTINATION, not `gate` (the nearest): the overworld has two arches now,
+  // and this probe is about the Hold's. `test-brine` drives the other one.
+  const g = (await zone()).gates.find((gate) => gate.to === "hold");
   await tp(g.x, g.z);
   await wait(500);
   return g;

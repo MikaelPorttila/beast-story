@@ -829,16 +829,18 @@ async function goToWild(species) {
   results.bellwether.reenter = { standing: again.length };
   check(again.length === 0, `the arena put out ${again.length} more Bellwethers after its death`);
 
-  // 19. THE SEAM — and both halves of its RECEIVING side first (issue #144):
-  // Act 2's package is not resident and its opening quest is on no shelf while
-  // the Bellwether still stands between them. Either arm alone passes against a
-  // build that boot-loads every act or one that never loads the next.
+  // 19. THE SEAM — and both halves of its RECEIVING side first (issue #144).
+  // `story-sea` is BOOT-RESIDENT now: Act 2 is part of the open world, so its
+  // island settlements had to exist when the world was planned. The door is the
+  // PREREQUISITE alone — the opening quest sits on no shelf while the Bellwether
+  // still stands, with its definitions already in the registry. The ferry is the
+  // flag's half of the seam, and tools/test-brine.mjs drives both sides of it.
   const pkgsBefore = await dbg(() => window.__dbgContent().packages.map((p) => p.id));
   const seaTabBefore = await tabOf("quest:sea/salt-and-rope");
   results.bellwether.seamBefore = { packages: pkgsBefore, seaTab: seaTabBefore };
   check(
-    !pkgsBefore.includes("story-sea"),
-    "story-sea was already loaded before the act closed — the flag is not the door",
+    pkgsBefore.includes("story-sea"),
+    "story-sea is not boot-resident — the island settlements were planned from nothing",
   );
   check(
     seaTabBefore === null,
@@ -864,32 +866,27 @@ async function goToWild(species) {
     results.bellwether.turnIn.paid === 120,
     `the reward paid ${results.bellwether.turnIn.paid} Cubloons, not the 120 the quest promises`,
   );
-  // THE DOOR OPENS (issues #143 DoD, #144): setting `sea-revealed` is what loads
-  // `story-sea`, and the moment its definitions land, `quest:sea/salt-and-rope`
-  // is offered — its prerequisite is the quest that was just handed in. Polled,
-  // because the load is async off the flag change.
+  // THE DOOR OPENS (issues #143 DoD, #144): the prerequisite was just handed in,
+  // so `quest:sea/salt-and-rope` moves onto the shelf — no package load between
+  // the turn-in and the offer, because the definitions were resident all along.
+  // Polled once-ish: the shelf recompute rides the same change event.
   let seam = null;
-  for (let i = 0; i < 40 && !seam; i++) {
+  for (let i = 0; i < 20 && seam?.seaTab !== "available"; i++) {
     await wait(250);
-    const pkgs = await dbg(() => window.__dbgContent().packages.map((p) => p.id));
-    if (!pkgs.includes("story-sea")) {
-      continue;
-    }
     seam = {
-      packages: pkgs,
+      packages: await dbg(() => window.__dbgContent().packages.map((p) => p.id)),
       seaTab: await tabOf("quest:sea/salt-and-rope"),
       diagnostics: await dbg(() => window.__dbgContent().diagnostics),
     };
   }
   results.bellwether.seam = seam;
-  check(seam !== null, "story-sea never loaded after sea-revealed was set");
   check(
     seam?.seaTab === "available",
     `quest:sea/salt-and-rope is on the "${seam?.seaTab}" shelf with the Bellwether dead, not "available"`,
   );
   check(
     (seam?.diagnostics ?? []).length === 0,
-    `loading the act's entry raised findings: ${JSON.stringify(seam?.diagnostics)}`,
+    `the act's entry raised findings: ${JSON.stringify(seam?.diagnostics)}`,
   );
 
   // AND NOTHING OF ACT 1 IS LEFT ON THE SHELF: the one main quest offered or

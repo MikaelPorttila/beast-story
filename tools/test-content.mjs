@@ -217,8 +217,16 @@ const ACT1_QUESTS = [
   "quest:land/the-bellwether",
 ];
 
-/** What a boot holds: the world, then the campaign that is set in it. */
-const BOOT_PACKAGES = ["core", "story", "story-land"];
+/**
+ * Act 2's boot-resident share (issue #144): the act is part of the open world,
+ * so `story-sea` ships with the boot — its island settlement must exist when
+ * `planSettlements` runs — and holds the act's entry quest beside it.
+ */
+const SEA_QUESTS = ["quest:sea/salt-and-rope"];
+const BOOT_QUESTS = ACT1_QUESTS.length + SEA_QUESTS.length;
+
+/** What a boot holds: the world, then the campaigns that are set in it. */
+const BOOT_PACKAGES = ["core", "story", "story-land", "story-sea"];
 
 /**
  * The WILD BEASTS (issue #4) — ids and order only, deliberately.
@@ -514,11 +522,7 @@ async function consoleClosed(tries = 40) {
   // if either fetch failed the world below would still be there to walk around
   // in with no quests in it. That is the line this section has always drawn:
   // the starting WORLD needs no request; a story is content like any other.
-  eq(
-    c.packages.map((p) => p.id),
-    ["core", "story", "story-land"],
-    "packages loaded at boot",
-  );
+  eq(c.packages.map((p) => p.id), BOOT_PACKAGES, "packages loaded at boot");
   const core = c.packages[0] ?? {};
   check(
     core.source === "bundled:core",
@@ -528,12 +532,12 @@ async function consoleClosed(tries = 40) {
   eq(core.requires, [], "core package dependencies");
   eq(
     c.packages.map((p) => p.requires),
-    [[], ["core"], ["story"]],
-    "the campaign's dependency chain",
+    [[], ["core"], ["story"], ["story"]],
+    "the campaigns' dependency chain",
   );
   eq(
     c.packages.map((p) => p.leases),
-    [["boot"], ["boot"], ["boot"]],
+    [["boot"], ["boot"], ["boot"], ["boot"]],
     "every boot package is held by the boot lease, which is never released",
   );
   // RE-BASELINED TWICE, and each time the re-baseline IS the claim.
@@ -561,14 +565,17 @@ async function consoleClosed(tries = 40) {
   eq(
     c.assets,
     {
-      town: 4,
+      // 4 -> 5: `town:saltrest`, the sea region's island harbour (issue #144).
+      // An ISLAND town takes no hub slot, so the road planner's three-ground-town
+      // rule still holds beside it.
+      town: 5,
       npc: 6,
       biome: 8,
       // +2: `enemy:thread-anchor` (issue #150) and `enemy:bellwether` (issue
       // #151), the two enemies `story-land` brings with it. +1 again for
       // `enemy:penned-sproutle`, the Encampment's practice animal (issue #178).
       enemy: 6 + WILD_BEASTS.length,
-      quest: ACT1_QUESTS.length,
+      quest: BOOT_QUESTS,
       music: 2,
     },
     "assets by type",
@@ -577,7 +584,13 @@ async function consoleClosed(tries = 40) {
   // is last — then the carried one. Asserting the whole list rather than a
   // filtered one is deliberate: a carried town that stopped reaching the world
   // is exactly as much a regression as a sited one that did.
-  eq(c.resolved.towns, [...TOWNS.map((t) => t.id), SKYHAVEN.id], "towns that reached the world");
+  eq(
+    c.resolved.towns,
+    // Saltrest after the hub towns (the island placer runs after the roads) and
+    // before the carried settlement, which the registry folds in last.
+    [...TOWNS.map((t) => t.id), "saltrest", SKYHAVEN.id],
+    "towns that reached the world",
+  );
   eq(c.resolved.npcs, [GAIN.id, MERA, COIL, ...SKYFOLK], "npcs that reached the world");
   // The pre-migration three FIRST and in their old order, then the wild beasts.
   // Same argument as the towns above: asserting the whole list rather than a
@@ -602,6 +615,7 @@ async function consoleClosed(tries = 40) {
     [
       "/src/content/data/core.json?import",
       "/src/content/data/story-land.json?import",
+      "/src/content/data/story-sea.json?import",
       "/src/content/data/story.json?import",
     ],
     "content data files requested at boot",
@@ -904,8 +918,8 @@ async function consoleClosed(tries = 40) {
 {
   const before = await dbg(() => window.__dbgContent());
   check(
-    before.assets.quest === ACT1_QUESTS.length,
-    `the boot holds ${before.assets.quest} quests, not the campaign's ${ACT1_QUESTS.length}`,
+    before.assets.quest === BOOT_QUESTS,
+    `the boot holds ${before.assets.quest} quests, not the ${BOOT_QUESTS} the two campaigns ship`,
   );
   check(
     !before.packages.some((p) => p.id === "example-quest"),
@@ -959,8 +973,8 @@ async function consoleClosed(tries = 40) {
     check(pkg.source === "bundled:example-quest", `example-quest came from "${pkg.source}"`);
   }
   check(
-    after.assets.quest === ACT1_QUESTS.length + 1,
-    `quest count after the load is ${after.assets.quest}, not ${ACT1_QUESTS.length + 1}`,
+    after.assets.quest === BOOT_QUESTS + 1,
+    `quest count after the load is ${after.assets.quest}, not ${BOOT_QUESTS + 1}`,
   );
   check(graph !== null, "quest:encampment/first-steps is not in the registry after the load");
   if (graph) {
@@ -979,8 +993,8 @@ async function consoleClosed(tries = 40) {
     "packages after the release",
   );
   check(
-    end.assets.quest === ACT1_QUESTS.length,
-    `quest count after the release is ${end.assets.quest}, not ${ACT1_QUESTS.length}`,
+    end.assets.quest === BOOT_QUESTS,
+    `quest count after the release is ${end.assets.quest}, not ${BOOT_QUESTS}`,
   );
   check(
     end.diagnostics.length === 0,

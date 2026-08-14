@@ -511,6 +511,12 @@ const BUDGET = {
   // fire-side reshuffle its claim forced on the clutter. Measured, not derived:
   // the count is a reading of what the seed's ground let the ring keep.
   encampment: { total: 77, roofs: 5 }, // 3 huts, 2 ridge tents, the pen ring, 59 boxes
+  // SALTREST, the sea region's first island town (issue #144). Built by the
+  // PLACEHOLDER harbour layout — buildHamlet under a harbour name — so the count
+  // is a hamlet's on its own island ground (33 boxes, of which the fence chains
+  // kept what the flatten pad allowed). Issue #228's real kit (quays, deck
+  // bridges, ships) re-baselines this in the commit that lands it.
+  saltrest: { total: 36, roofs: 3 },
   // The hamlet counts were 38 -> 40 and 25 -> 27 boxes when the paddock arc
   // became a fence CHAIN (world/fences.ts, issue #105) instead of seven fixed
   // panels: a chain's collider is one box per bay — the top plank, which spans

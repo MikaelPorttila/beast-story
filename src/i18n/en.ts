@@ -256,6 +256,8 @@ export const en = {
   // Keyed by the ZoneDef id in main.ts ('overworld', 'hold').
   "zone.overworld.name": "Embervale",
   "zone.hold.name": "The Sunken Hold",
+  // A REGION, not a zone: Act 2 is part of the open world (issue #144).
+  "region.brine.name": "The Brine Reach",
 
   // ---- towns ---------------------------------------------------------------
   // Keyed by the SiteSpec id in world/towns.ts. The id is what a quest stores
@@ -275,6 +277,8 @@ export const en = {
   "town.redbriar.sign": "REDBRIAR",
   "town.stonewatch.name": "Stonewatch",
   "town.stonewatch.sign": "STONEWATCH",
+  "town.saltrest.name": "Saltrest",
+  "town.saltrest.sign": "SALTREST",
   /**
    * SKYHAVEN — the town that flies (issue #68). A settlement like any other as
    * far as this table is concerned; that it is carried rather than sited is
@@ -730,6 +734,8 @@ export const en = {
   // past 100% while a player stood in an arch that had not fired.
   "hint.zoneUse": "Press {key} to enter {zone}",
   "hint.zoneEntering": "Entering {zone}…",
+  "hint.ferry": "Press {key} to sail to {place}",
+  "hint.sailing": "Sailing to {place}…",
 
   // ---- dialogue ------------------------------------------------------------
   // The talk panel's footer. `{key}` arrives already wrapped in <kbd>, like

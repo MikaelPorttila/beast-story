@@ -15,6 +15,51 @@ export const CHUNK_SIZE = 32;
 export const DEEP_WATER_DEPTH = 4;
 export const DEEP_WATER_TOP = WATER_LEVEL - DEEP_WATER_DEPTH;
 
+/**
+ * The landform a stretch of the world grows from. Every number is read in
+ * `landformHeight` and nowhere else; the biome cuts, the beach threshold and the
+ * water shader all key on WATER_LEVEL and follow whatever shape these make.
+ */
+export interface Landform {
+  /** Height of the median column; above WATER_LEVEL = a land world, below = a sea one. */
+  base: number;
+  /** Continent-field amplitude around `base`. */
+  amp: number;
+  /** Continent-field frequency, radians per unit — higher = smaller landmasses. */
+  freq: number;
+  /** Multiplier on the ridge and mesa terms; an island chain wants hills, not a 58-unit wall. */
+  relief: number;
+  /** Multiplier on the deep-sea basin sink. The channels of an archipelago must pass
+   * DEEP_WATER_TOP with room to spare, or the act's "dark water" is a puddle. */
+  basin: number;
+}
+
+/** Embervale: the shipped land-dominant landform, numerically identical to before this knob existed. */
+export const CONTINENT: Landform = { base: 9.2, amp: 10.5, freq: 0.0045, relief: 1, basin: 1 };
+
+/**
+ * The Brine Reach (issue #144): median column ~4.4 under the waterline, so the
+ * sea is the ground state and land is the exception the continent field raises.
+ * `freq` half again higher than the continent's keeps an island crossable on
+ * foot; `basin` 2 sinks the channels to bed 1.2–3, past DEEP_WATER_TOP 4.
+ */
+export const ARCHIPELAGO: Landform = { base: 3.6, amp: 9.8, freq: 0.007, relief: 0.4, basin: 2 };
+
+/**
+ * WHERE THE SEA BEGINS — Act 2 is part of the open world, not a zone (issue
+ * #144, decided in review of the zone-based first cut). Seaward of a coastline
+ * half-plane the landform blends CONTINENT -> ARCHIPELAGO, so one continuous
+ * height field carries Embervale, its coast, and the island sea beyond.
+ *
+ * The projection is d = x*SEA_DIR.x + z*SEA_DIR.z. Everything the overworld
+ * BUILDS lives under d ~ 260 (stonewatch d=122, the Hold arch d=134, waystones
+ * <= 130, den rings <= ~110), so a blend that starts at 340 leaves every built
+ * thing — and every probe that measures one — on bit-identical ground.
+ */
+export const SEA_DIR = { x: 0.404, z: 0.915 };
+export const SEA_START = 340;
+export const SEA_FULL = 720;
+
 /** 'trampled' and 'deepwater' are biomes because `props.ts` dispatches its
  * whole scatter off this enum, so they need no new tests there. */
 export type BiomeId =
@@ -239,8 +284,46 @@ export class Terrain {
 
   /** Continuous terrain height at any world xz (flatten discs applied). */
   heightCont(x: number, z: number): number {
-    const c = this.continentN.fbm(x * 0.0045, z * 0.0045, 4);
-    let h = 9.2 + c * 10.5;
+    // The coastline half-plane: continent, island sea, or the band between.
+    // Both landforms are sampled only inside the band; either side pays one.
+    const d = x * SEA_DIR.x + z * SEA_DIR.z;
+    let h: number;
+    if (d <= SEA_START) {
+      h = this.landformHeight(x, z, CONTINENT);
+    } else if (d >= SEA_FULL) {
+      h = this.landformHeight(x, z, ARCHIPELAGO);
+    } else {
+      const w = smoothstep(SEA_START, SEA_FULL, d);
+      h =
+        this.landformHeight(x, z, CONTINENT) * (1 - w) +
+        this.landformHeight(x, z, ARCHIPELAGO) * w;
+    }
+    for (let i = 0; i < this.flattens.length; i++) {
+      const f = this.flattens[i];
+      const dx = x - f.x;
+      const dz = z - f.z;
+      const fd = Math.sqrt(dx * dx + dz * dz);
+      if (fd < f.blend) {
+        const w = 1 - smoothstep(f.core, f.blend, fd);
+        h += (f.h - h) * w;
+      }
+    }
+    // Roads LAST, after the flatten discs, so a road into a town is cut through
+    // whatever the town levelled rather than fighting it.
+    const rf = this.roads;
+    if (rf !== null) {
+      const w = rf.carveAt(x, z);
+      if (w > 0) {
+        h += (rf.carveTarget - h) * w;
+      }
+    }
+    return h < 1.2 ? 1.2 : h > 78 ? 78 : h;
+  }
+
+  /** One landform's raw height — no flattens, no roads; `heightCont` mixes and finishes. */
+  private landformHeight(x: number, z: number, lf: Landform): number {
+    const c = this.continentN.fbm(x * lf.freq, z * lf.freq, 4);
+    let h = lf.base + c * lf.amp;
     h += this.hillN.fbm(x * 0.02, z * 0.02, 3) * 2.6;
     // Fine relief: without it `floor()` makes huge plateaus where corner AO
     // bakes nothing. Two unrelated frequencies, or a lattice's diamonds print
@@ -255,12 +338,12 @@ export class Terrain {
       const rd = this.ridgeN.ridged(x * 0.009, z * 0.009, 4);
       // The highland term is ADDITIVE and gated to the top few percent: raising
       // the ridge exponent instead sank the map below the beach threshold.
-      h += mk * (rd * rd * 58 + smoothstep(0.62, 0.95, rd) * 34);
+      h += mk * (rd * rd * 58 + smoothstep(0.62, 0.95, rd) * 34) * lf.relief;
     }
     // Mesas. `sample`, not fbm — hot path. The 4m quantise is gated behind the
     // ridge mask; globally it terraced every meadow swell into a wedding cake.
     const pl = this.plateauN.sample(x * 0.0022, z * 0.0022) * 0.5 + 0.5;
-    const mesa = smoothstep(0.55, 0.75, pl) * 14;
+    const mesa = smoothstep(0.55, 0.75, pl) * 14 * lf.relief;
     if (mesa > 0) {
       if (mk > 0.45) {
         h += Math.round(mesa * 0.25) * 4;
@@ -291,28 +374,9 @@ export class Terrain {
     const wet = smoothstep(WATER_LEVEL - 0.4, WATER_LEVEL - 3.0, h);
     if (wet > 0) {
       const basin = this.plateauN.sample(x * 0.0035 + 57.1, z * 0.0035 - 88.3) * 0.5 + 0.5;
-      h -= wet * (0.9 + smoothstep(0.3, 0.74, basin) * 3.5);
+      h -= wet * (0.9 + smoothstep(0.3, 0.74, basin) * 3.5) * lf.basin;
     }
-    for (let i = 0; i < this.flattens.length; i++) {
-      const f = this.flattens[i];
-      const dx = x - f.x;
-      const dz = z - f.z;
-      const d = Math.sqrt(dx * dx + dz * dz);
-      if (d < f.blend) {
-        const w = 1 - smoothstep(f.core, f.blend, d);
-        h += (f.h - h) * w;
-      }
-    }
-    // Roads LAST, after the flatten discs, so a road into a town is cut through
-    // whatever the town levelled rather than fighting it.
-    const rf = this.roads;
-    if (rf !== null) {
-      const w = rf.carveAt(x, z);
-      if (w > 0) {
-        h += (rf.carveTarget - h) * w;
-      }
-    }
-    return h < 1.2 ? 1.2 : h > 78 ? 78 : h;
+    return h;
   }
 
   /**

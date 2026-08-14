@@ -219,8 +219,8 @@ export interface TownInfo {
   /**
   /** DISPLAY name key; a quest prints this and stores `id`. */
   readonly nameKey: StringKey;
-  /** 'camp' is the walled start town; 'hamlet' is an open settlement. */
-  readonly kind: "camp" | "hamlet";
+  /** 'camp' is the walled start town; 'hamlet' an open settlement; 'harbour' a waterside one (issue #144). */
+  readonly kind: "camp" | "hamlet" | "harbour";
   readonly x: number;
   /** Levelled ground height at the centre. */
   readonly y: number;
