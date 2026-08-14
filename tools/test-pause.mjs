@@ -290,12 +290,16 @@ export const sections = [
             "map",
             "controls",
             "settings",
-            "save",
             "exit",
           ]),
         "the wheel exposes every panel and action, in data order",
       );
       ctx.check(m.focusOnOpen === "continue", "something is focused on open, for a pad");
+      ctx.check(
+        await has(page, '.bs-wheel-sector[data-act="continue"]'),
+        "Continue is not a wheel sector",
+      );
+      ctx.check(!(await has(page, ".bs-wheel-title")), "the wheel still renders a center title");
       // 0 exactly: a suspended stick is not a slow one, so no slice moves him at
       // all — see `Input.suspended`.
       ctx.check(m.travelWithMenuUp === 0, "the hero walks on his own keys while the menu is up");
@@ -1021,11 +1025,11 @@ export const sections = [
         await advance(page, 0.4);
         g.reopenedByThirdPress = await has(page, ".bs-pause");
 
-        // LEFT STICK aims a sector continuously. A confirms it, then B uses the
-        // host-owned cancel route to dismiss the panel that took the handoff.
+        // LEFT STICK aims a sector continuously. A does nothing after release,
+        // then confirms only while the direction is held.
         await page.evaluate(() => {
-          window.__fakePad.axes[0] = 0.78;
-          window.__fakePad.axes[1] = -0.62;
+          window.__fakePad.axes[0] = 0.9;
+          window.__fakePad.axes[1] = 0.2;
         });
         await page.waitForFunction(
           () =>
@@ -1042,12 +1046,27 @@ export const sections = [
           window.__fakePad.axes[1] = 0;
         });
         await setPadButton(page, PAD_BUTTON.A, true);
-        // Button routing starts before the fixed slices in the rendered frame.
+        await advance(page, 0.2);
+        await setPadButton(page, PAD_BUTTON.A, false);
+        await advance(page, 0.2);
+        g.releasedStickBlocked =
+          (await has(page, ".bs-pause")) && !(await has(page, ".bs-journal"));
+
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0.9;
+          window.__fakePad.axes[1] = 0.2;
+        });
+        await advance(page, 0.2);
+        await setPadButton(page, PAD_BUTTON.A, true);
         await page.evaluate(
           () =>
             new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
         await setPadButton(page, PAD_BUTTON.A, false);
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0;
+          window.__fakePad.axes[1] = 0;
+        });
         g.confirmedWithA = (await has(page, ".bs-journal")) && !(await has(page, ".bs-pause"));
         await setPadButton(page, PAD_BUTTON.B, true);
         await advance(page, 0.1);
@@ -1063,7 +1082,8 @@ export const sections = [
         ctx.check(g.closedBySecondPress, "a second press closes it");
         ctx.check(g.reopenedByThirdPress, "and a third reopens it");
         ctx.check(g.stickSelection === "journal", "left stick did not aim the Journal sector");
-        ctx.check(g.confirmedWithA, "A did not confirm the aimed sector");
+        ctx.check(g.releasedStickBlocked, "A confirmed after the left stick was released");
+        ctx.check(g.confirmedWithA, "A did not confirm while the left stick direction was held");
         ctx.check(g.dismissedWithB, "B did not dismiss the opened panel");
       } finally {
         await bctx.close();
@@ -1136,18 +1156,6 @@ export const sections = [
         exit.movedAwayFromSpawn = round(Math.hypot(away.x - spawn.x, away.z - spawn.z));
 
         await page.keyboard.press("F10");
-        await advance(page, 0.3);
-        await page.evaluate(() => document.querySelector('.bs-pause [data-act="save"]')?.click());
-        await page.waitForFunction(
-          () =>
-            [...document.querySelectorAll(".bs-toast")].some(
-              (el) => el.textContent === "Progress saved",
-            ),
-          { timeout: 5000 },
-        );
-        exit.savedFromWheel = !(await has(page, ".bs-pause"));
-
-        await page.keyboard.press("F10");
         await advance(page, 0.4);
         await page.waitForSelector(".bs-pause", { timeout: 5000 });
         await page.evaluate(() => document.querySelector('.bs-pause [data-act="exit"]')?.click());
@@ -1212,7 +1220,6 @@ export const sections = [
           exit.movedAwayFromSpawn > 20,
           "the first session was somewhere the second is not",
         );
-        ctx.check(exit.savedFromWheel, "Save did not write and close the wheel");
         ctx.check(exit.titleScreenBack && exit.pauseGone, "Exit puts the title screen back");
         ctx.check(exit.step === "options", "and lands on the options, not the splash");
         ctx.check(

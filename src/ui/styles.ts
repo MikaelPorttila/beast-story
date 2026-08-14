@@ -926,16 +926,6 @@ const CSS = `
 .bs-wheel-sector.selected,.bs-wheel-sector:focus-visible{outline:none;transform:translate(-50%,-50%) scale(1.09);
   color:#fff4d4;background:linear-gradient(180deg,#775025,#3d2815);border-color:#ffd98f;
   box-shadow:0 0 0 3px rgba(255,207,120,.22),0 12px 34px rgba(0,0,0,.55)}
-.bs-wheel-title{position:absolute;z-index:2;left:50%;top:39%;transform:translate(-50%,-50%);
-  width:28%;text-align:center;color:#d9c29a;font:700 max(16px,1.8vmin)/1.1 inherit;
-  letter-spacing:.05em;text-transform:uppercase;pointer-events:none}
-.bs-wheel-continue{position:absolute;z-index:3;left:50%;top:54%;transform:translate(-50%,-50%);
-  width:clamp(92px,16vmin,116px);height:clamp(92px,16vmin,116px);border-radius:50%;
-  border:1px solid rgba(255,222,158,.5);background:radial-gradient(circle at 50% 35%,#4d3720,#1d140c 74%);
-  box-shadow:0 8px 25px rgba(0,0,0,.5),inset 0 0 20px rgba(255,210,130,.08);
-  color:#fff1d0;font:700 max(16px,1.8vmin)/1.1 inherit;cursor:pointer}
-.bs-wheel-continue:focus-visible,.bs-wheel-continue:hover{outline:none;border-color:#ffe0a4;
-  box-shadow:0 0 0 3px rgba(255,207,120,.22),0 10px 30px rgba(0,0,0,.55)}
 .bs-wheel-hint{margin:4px auto 0;max-width:680px;text-align:center;color:#eadabc;
   font:600 max(16px,1.8vmin)/1.35 inherit;text-shadow:0 2px 8px #000}
 /* Greyed as a whole row, so it does not read as three broken buttons. */
@@ -944,7 +934,6 @@ const CSS = `
   .bs-wheel{width:min(92vw,72vh,460px)}
   .bs-wheel-sector{width:104px;min-height:62px;padding:7px 5px;border-radius:15px}
   .bs-wheel-sector .ic{width:25px;height:25px}
-  .bs-wheel-continue{width:88px;height:88px}
   .bs-wheel-hint{max-width:92vw}
 }
 @media (prefers-reduced-motion:reduce){

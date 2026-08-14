@@ -353,15 +353,6 @@ const pauseMenu = new PauseMenu({
         input.releaseLock();
         hud.toggleControls();
         break;
-      case "save":
-        void saveNow()
-          .then((id) => {
-            if (id !== null) {
-              bus.emit({ type: "toast", text: t("pause.saved") });
-            }
-          })
-          .catch(() => bus.emit({ type: "toast", text: t("pause.saveFailed") }));
-        break;
       case "exit":
         exitToTitle();
         break;
@@ -6030,14 +6021,14 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     ) {
       // Cancel closes the TOPMOST modal, which is why this is an if/else: one press must dismiss one thing.
       // The action wheel goes FIRST and answers for itself — inside Settings Escape means "back" —
-      // so `onEscape` reports whether it spent the press, and pad A/X tap `KeyE` to confirm a row.
+      // so `onEscape` reports whether it spent the press. A pad must keep aiming while A/X confirms.
       // F10 is a cancel in here, which is what makes it a toggle.
       const cancel = input.pressed("Escape") || input.pressed("F10");
       if (pauseMenu.isOpen) {
         if (cancel) {
           pauseMenu.onEscape();
         } else {
-          pauseMenu.activate();
+          pauseMenu.activate(input.lastSource === "gamepad");
         }
       } else if (inventory.isOpen) {
         // Same shape as the menu: cancel asks the panel to spend the press, X (KeyE on the pad) confirms the

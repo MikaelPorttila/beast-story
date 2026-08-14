@@ -8,13 +8,13 @@ import { seedPadButtons } from "../core/gamepad";
 
 type Step = "wheel" | "settings";
 export type CloseBy = "key" | "click";
-export type PauseAction = "inventory" | "journal" | "map" | "controls" | "save" | "exit";
+export type PauseAction = "inventory" | "journal" | "map" | "controls" | "exit";
 
 interface WheelSector {
   id: string;
   icon: string;
   label: StringKey;
-  action: PauseAction | "settings";
+  action: PauseAction | "continue" | "settings";
 }
 
 export interface PauseMenuHooks extends SettingsHooks {
@@ -27,6 +27,12 @@ export interface PauseMenuHooks extends SettingsHooks {
 const svg = (path: string): string => `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
 
 const WHEEL_SECTORS: readonly WheelSector[] = [
+  {
+    id: "continue",
+    icon: svg('<path d="m9 5 10 7L9 19V5Z"/>'),
+    label: "pause.continue",
+    action: "continue",
+  },
   {
     id: "bag",
     icon: svg('<path d="M6 8h12l1 12H5L6 8Zm3 0V6a3 3 0 0 1 6 0v2"/>'),
@@ -62,12 +68,6 @@ const WHEEL_SECTORS: readonly WheelSector[] = [
     ),
     label: "pause.settings",
     action: "settings",
-  },
-  {
-    id: "save",
-    icon: svg('<path d="M5 3h12l2 2v16H5V3Zm3 0v6h8V3M8 14h8v7H8v-7Z"/>'),
-    label: "pause.save",
-    action: "save",
   },
   {
     id: "exit",
@@ -232,10 +232,7 @@ export class PauseMenu {
     }).join("");
     return (
       `<div class="bs-wheel" role="menu" aria-label="${escapeHtml(t("pause.title"))}">` +
-      `<button class="bs-wheel-continue" type="button" data-act="continue">` +
-      `<span>${escapeHtml(t("pause.continue"))}</span></button>` +
       `<div class="bs-wheel-sectors">${sectors}</div>` +
-      `<div class="bs-wheel-title">${escapeHtml(t("pause.title"))}</div>` +
       `</div><p class="bs-wheel-hint">${escapeHtml(t("pause.hint"))}</p>`
     );
   }
@@ -307,13 +304,29 @@ export class PauseMenu {
     }
   }
 
-  activate(): void {
+  activate(fromGamepad = false): void {
+    if (this.step === "wheel" && fromGamepad && !this.padAimHeld()) {
+      return;
+    }
     const active = document.activeElement as HTMLButtonElement | null;
     const selected =
       this.selectedIdx === null
         ? null
         : this.el?.querySelector<HTMLButtonElement>(`[data-sector="${this.selectedIdx}"]`);
     (selected ?? active)?.click();
+  }
+
+  private padAimHeld(): boolean {
+    try {
+      for (const pad of navigator.getGamepads?.() ?? []) {
+        if (pad?.connected && Math.hypot(pad.axes[0] ?? 0, pad.axes[1] ?? 0) > 0.5) {
+          return true;
+        }
+      }
+    } catch {
+      return false;
+    }
+    return false;
   }
 
   private setSelection(idx: number | null, focus = true): void {
@@ -391,7 +404,7 @@ export class PauseMenu {
       this.goto("wheel", '[data-act="settings"]');
     } else {
       const sector = WHEEL_SECTORS.find((item) => item.action === action);
-      if (!sector || sector.action === "settings") {
+      if (!sector || sector.action === "continue" || sector.action === "settings") {
         return;
       }
       this.close(sector.action !== "exit");
@@ -435,14 +448,6 @@ export class PauseMenu {
     if (this.step === "wheel") {
       if (Math.hypot(stickX, stickY) > 0.5) {
         this.selectDirection(stickX, stickY);
-      } else if (this.padEdge[12]) {
-        this.selectDirection(0, -1);
-      } else if (this.padEdge[13]) {
-        this.selectDirection(0, 1);
-      } else if (this.padEdge[14]) {
-        this.selectDirection(-1, 0);
-      } else if (this.padEdge[15]) {
-        this.selectDirection(1, 0);
       }
     } else {
       const dirY = stickY < -0.5 ? -1 : stickY > 0.5 ? 1 : 0;
