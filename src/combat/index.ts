@@ -64,6 +64,15 @@ const ORB_LOFT_CLEAR = 0.7;
  * units while buying nothing anywhere else.
  */
 const ORB_LOFT_MAX = 0.5;
+/**
+ * Terminal window for a homing orb, world units from the target's chest. Inside
+ * it the orb pursues STRAIGHT and may SKIM the ground instead of dying on it —
+ * outside it, nothing changes: a hill mid-flight stays an honest miss. See
+ * `updateProjectiles` for both halves (issue #198).
+ */
+const ORB_LOCK_R = 2.5;
+/** Total seconds a homing orb may spend skimming before the ground wins. */
+const ORB_SKIM_MAX = 0.6;
 const PROJ_CAP = 14;
 const CRIT_CHANCE = 0.1;
 const CRIT_MULT = 1.5;
@@ -100,6 +109,8 @@ interface Projectile {
   hex: number;
   spin: number;
   homing: number;
+  /** Seconds spent skimming the ground in terminal pursuit — see ORB_SKIM_MAX. */
+  skim: number;
   // Carried here, not looked up on impact: the item can leave the bag mid-flight
   // and the orb in the air is already paid for.
   orbItem: ItemDef | null;
@@ -622,6 +633,7 @@ export class CombatSystem {
       hex: 0xffffff,
       spin: 0,
       homing: 1,
+      skim: 0,
     };
     this.projectiles.push(p);
     return p;
@@ -823,6 +835,7 @@ export class CombatSystem {
     p.life = 10;
     p.trailT = 0;
     p.spin = 0;
+    p.skim = 0;
     p.orbItem = def;
     p.orbForce = force;
     this.setProjectileForm(p, "orb", this.orbFor(p, def.color));
@@ -850,12 +863,23 @@ export class CombatSystem {
         continue;
       }
       const t = p.target;
+      let targetDist = Infinity;
       if (t && !t.isDead) {
         _leaf.set(t.position.x - pos.x, t.position.y + 0.55 - pos.y, t.position.z - pos.z);
-        if (_leaf.lengthSq() > 1e-4) {
-          _leaf.normalize().multiplyScalar(PROJ_SPEED);
-          // 3.4 is full lock-on; scaled down, the shot merely leans.
-          p.vel.lerp(_leaf, Math.min(1, 3.4 * p.homing * dt)).setLength(PROJ_SPEED);
+        const d2t = _leaf.lengthSq();
+        if (d2t > 1e-4) {
+          targetDist = Math.sqrt(d2t);
+          _leaf.multiplyScalar(PROJ_SPEED / targetDist);
+          // 3.4 is full lock-on; scaled down, the shot merely leans. AN ORB
+          // PURSUES STRAIGHT inside ORB_LOCK_R instead: at 16 u/s the lerp
+          // turns on a ~5-unit radius, so a hurt animal side-stepping the
+          // first pass sent the orb into a loop that ended on the ground as a
+          // silent fizzle — no bond, no bondFailed, one throw in three from
+          // 3-4 units (issue #198). Straight pursuit at 16 u/s against a
+          // walking animal can only close.
+          const k =
+            p.orbItem !== null && targetDist < ORB_LOCK_R ? 1 : Math.min(1, 3.4 * p.homing * dt);
+          p.vel.lerp(_leaf, k).setLength(PROJ_SPEED);
         }
       }
       pos.addScaledVector(p.vel, dt);
@@ -906,7 +930,21 @@ export class CombatSystem {
       const gy = this.world.getHeight(pos.x, pos.z);
       if (pos.y <= gy + 0.1) {
         pos.y = gy + 0.1;
-        this.explodeProjectile(p, pos.x, pos.y, pos.z, null);
+        // AN ORB IN TERMINAL PURSUIT SKIMS instead of dying: a target that
+        // stepped downhill during the flight drags the intercept through a
+        // terrace lip, and the kill here was issue #198's other silent fizzle.
+        // Bounded two ways — only inside ORB_LOCK_R, so a hill mid-flight
+        // stays the honest miss it always was, and only for ORB_SKIM_MAX in
+        // total, so a target on unreachable ground cannot keep an orb grinding.
+        if (p.orbItem !== null && targetDist < ORB_LOCK_R && p.skim < ORB_SKIM_MAX) {
+          p.skim += dt;
+          if (p.vel.y < 0) {
+            p.vel.y = 0;
+            p.vel.setLength(PROJ_SPEED);
+          }
+        } else {
+          this.explodeProjectile(p, pos.x, pos.y, pos.z, null);
+        }
       }
     }
   }
