@@ -293,38 +293,14 @@ export const sections = [
   {
     id: "compass",
     run: async (ctx) => {
-      // The compass knows where it is now.
-      //
-      // Somewhere with a clear view, and NOT under the island — the bearing to a
-      // marker you are standing on top of swings wildly and says nothing. The
-      // compass is HUD state written in frame(), which is why `adv` ends by
-      // letting a real frame present — see the harness.
-      const a = (await carriers(ctx)).all[0];
-      await ctx.tp(a.x - 160, a.z - 160);
-      await ctx.adv(0.7);
-      const c1 = await ctx.ev(() => window.__dbgCompass());
-      const m1 = c1.markers.find((m) => m.id === "town:skyhaven");
-      await ctx.adv(6);
-      const c2 = await ctx.ev(() => window.__dbgCompass());
-      const m2 = c2.markers.find((m) => m.id === "town:skyhaven");
-      const b = (await carriers(ctx)).all[0];
-      ctx.res.compass = {
-        marker: m1 ? m1.id : null,
-        relBefore: m1 ? m1.rel : null,
-        relAfter: m2 ? m2.rel : null,
-        islandMoved: +Math.hypot(b.x - a.x, b.z - a.z).toFixed(2),
-      };
-      ctx.check(!!m1, "no compass chip for the flying town");
-      // The hero has not moved and the camera has not turned, so any change in
-      // the chip's bearing is the TOWN having moved — which is the whole
-      // assertion. A chip built from a placement-time snapshot reads exactly 0.
-      if (m1 && m2) {
-        ctx.check(
-          Math.abs(m2.rel - m1.rel) > 0.5,
-          `the flying town's compass chip did not move (${m1.rel} -> ${m2.rel}) ` +
-            `while the town travelled ${ctx.res.compass.islandMoved} units`,
-        );
-      }
+      // The rim carries the next objective and the placed marker only (issue
+      // #247) — a flying town earns no chip, and neither does any landmark.
+      const c = await ctx.ev(() => window.__dbgCompass());
+      const landmark = c.markers.find(
+        (m) => m.id.startsWith("town:") || m.id.startsWith("den") || m.id.startsWith("gate:"),
+      );
+      ctx.res.compass = { markers: c.markers.map((m) => m.id) };
+      ctx.check(!landmark, `landmark chip on the rim: ${landmark ? landmark.id : ""}`);
     },
   },
 

@@ -31,7 +31,7 @@
 // So the expected values below are LITERALS, and every one of them was read out
 // of the pre-migration source with `git show HEAD:<file>` — the provenance is on
 // each table. The cross-checks are deliberately taken from the WORLD's own
-// objects (`__dbgTowns`, `__dbgNpcs`, the compass chips in the DOM, the resolved
+// objects (`__dbgTowns`, `__dbgNpcs`, the resolved
 // enemy roster, the nature table) rather than from `__dbgContent()`, because the
 // claim under test is that the DATA REACHED THE WORLD and only the world can
 // answer that.
@@ -676,10 +676,9 @@ async function consoleClosed(tries = 40) {
 // of this file for why that control is what makes the rest mean anything.
 //
 // Everything is read from the WORLD:
-//   towns      __dbgTowns(), plus the compass chips' own `--mc`, which is
-//              `TownInfo.color` on its way to the HUD (main.ts's
-//              syncCompassMarkers) and the only place the resolved colour is
-//              observable outside the module.
+//   towns      __dbgTowns(), whose `color` field is the resolved
+//              `TownInfo.color` (the compass chips that used to expose it
+//              are gone — issue #247).
 //   Gain       __dbgNpcs(), and his line by actually TALKING to him — the
 //              payload the dialogue renders, not the string in the JSON.
 //   enemies    enemySpecies(), the cached roster combat/index.ts spawns from,
@@ -701,12 +700,6 @@ async function consoleClosed(tries = 40) {
 // ===========================================================================
 {
   const towns = await dbg(() => window.__dbgTowns());
-  const marks = await dbg(() =>
-    [...document.querySelectorAll(".bs-compass .mk")].map((el) => ({
-      label: el.textContent,
-      mc: el.style.getPropertyValue("--mc"),
-    })),
-  );
   const fromContent = await dbg(async () => {
     const { content } = await import("/src/content/index.ts");
     return content.all("town").map((a) => ({
@@ -725,22 +718,19 @@ async function consoleClosed(tries = 40) {
   for (const want of TOWNS) {
     const got = towns.towns.find((t) => t.id === want.id);
     const data = fromContent.find((t) => t.id === want.id);
-    const chip = marks.find((m) => m.label === want.id.slice(0, 4).toUpperCase());
-    const hex = `#${want.color.toString(16).padStart(6, "0")}`;
     rows.push({
       id: want.id,
       world: got
-        ? { kind: got.kind, radius: got.radius, x: got.x, z: got.z, name: got.name }
+        ? { kind: got.kind, radius: got.radius, x: got.x, z: got.z, name: got.name, color: got.color }
         : null,
       content: data ?? null,
-      compassChipColor: chip?.mc ?? null,
       expected: {
         kind: want.kind,
         radius: want.radius,
         x: want.x,
         z: want.z,
         name: want.name,
-        color: hex,
+        color: want.color,
         outerRadius: +want.outerRadius.toFixed(4),
       },
     });
@@ -758,7 +748,7 @@ async function consoleClosed(tries = 40) {
     eq(data.waterside, want.waterside, `${want.id}.waterside`);
     eq(data.order, want.order, `${want.id}.order`);
     eq(data.start, want.start, `${want.id}.start`);
-    eq(chip?.mc ?? null, hex, `${want.id} colour as the compass chip drew it`);
+    eq(got.color, want.color, `${want.id} colour as the world resolved it`);
     check(
       data.outerRadiusOverride === null,
       `${want.id} now carries an explicit outerRadius (${data.outerRadiusOverride}); ` +

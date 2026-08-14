@@ -42,7 +42,6 @@ import {
   type Damageable,
   type ItemDef,
   type MountKind,
-  type TownInfo,
   type World,
   type WorldBound,
 } from "./core/types";
@@ -101,7 +100,7 @@ import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./
 import { createDungeon, holdFloorSpot } from "./world/dungeon";
 import { Ferry, type FerryStop } from "./world/ferry";
 import { SURFACE_Y } from "./world/water";
-import { type GateSpec, ZoneManager, type ZoneDef } from "./world/zones";
+import { ZoneManager, type ZoneDef } from "./world/zones";
 import { Underwater } from "./world/underwater";
 import { TouchParticles } from "./world/touch-particles";
 import { Player } from "./player/index";
@@ -1298,12 +1297,8 @@ const zones = new ZoneManager({
     // the hero already standing in the zone; `discover` is the zone's own id and not a town's.
     content.state.discover(`zone:${def.id}`);
     advanceObjectives({ kind: "zone-arrival", id: def.id });
-    // Markers are per-zone; `gates` is the ZoneDef's own answer, not a second search.
-    syncCompassMarkers(w, def.gates(w));
-    // `setCompassMarkers` REPLACES the list, so the quest chips are re-added after it — and they are
-    // recomputed rather than copied, because the waypoint for "reach the Hold" is a different door
-    // from either side of it.
-    questChipIds = [];
+    // Quest chips are recomputed rather than copied, because the waypoint for "reach the Hold" is
+    // a different door from either side of it.
     refreshQuestChips();
     // A new zone is new meshes, and a visibility flag went with the old world's chunks.
     gfx.applyAll();
@@ -1499,38 +1494,8 @@ player.aimAssist = (origin, dir) => {
 };
 
 // Which landmarks earn a chip is gameplay policy; add one with `hud.addCompassMarker`, the id being
-// the identity. Town chips are re-read per frame off the marker OBJECT, so a moving town is two
-// assignments and no DOM work (issue #68) — every town, since `TownInfo` does not say which move.
-const _townChips: Array<{ chip: CompassMarker; town: TownInfo }> = [];
-
-function syncCompassMarkers(w: World, gates: GateSpec[]): void {
-  _townChips.length = 0;
-  hud.setCompassMarkers([
-    // Dens in the shard-shop amber the hint pill and price tags already use.
-    ...w.shopPositions.map((s, i) => ({ id: `den${i}`, x: s.x, z: s.z, color: 0xffd23f })),
-    ...w.towns.all.map((town) => {
-      const chip: CompassMarker = {
-        id: `town:${town.id}`,
-        x: town.gateX,
-        z: town.gateZ,
-        color: town.color,
-        label: town.id.slice(0, 4).toUpperCase(),
-      };
-      _townChips.push({ chip, town: town });
-      return chip;
-    }),
-    // Each gateway takes the colour of its own arch, labelled by where it OPENS —
-    // a player reads the rim for "the way to the sea", not for "a gate".
-    ...gates.map((g) => ({
-      id: `gate:${g.to}`,
-      x: g.x,
-      z: g.z,
-      color: g.hex,
-      label: g.to.slice(0, 4).toUpperCase(),
-    })),
-  ]);
-}
-syncCompassMarkers(world, OVERWORLD.gates(world));
+// the identity. The rim carries the next objective and the player's placed marker only (issue #247)
+// — town/den/gate chips come back through this same API if a setting re-adds them.
 
 // Empty on a new game — riding is three story unlocks (game-story.md §5). `mounts=` is applied here and nowhere else.
 const mountUnlocks = new MountUnlocks();
@@ -6023,12 +5988,7 @@ function frame(): void {
     return { def, cooldownRemaining: remaining, ready: remaining <= 0 };
   });
   hud.setSkills(skillSlots);
-  // Presentation, so not in simulate(): the strip shows where the LENS points, placed by this frame's camera. North is world -Z. A moving town moves its own chip.
-  for (let i = 0; i < _townChips.length; i++) {
-    const c = _townChips[i];
-    c.chip.x = c.town.gateX;
-    c.chip.z = c.town.gateZ;
-  }
+  // Presentation, so not in simulate(): the strip shows where the LENS points, placed by this frame's camera. North is world -Z.
   syncQuestMarks(dt);
   engine.camera.getWorldDirection(_compassFwd);
   hud.setCompass(
@@ -6719,6 +6679,8 @@ beginPlay();
     // The looked-up name, so `?lang=sv` shows what the fingerpost shows; field names stay English.
     name: t(town.nameKey),
     kind: town.kind,
+    // The resolved TownInfo.color — the compass chips that used to expose it are gone (issue #247).
+    color: town.color,
     // Whether something is carrying it: a carried town's colliders are in its carrier's frame and its position is a reading rather than a placement.
     carried: town.carried,
     x: +town.x.toFixed(1),
