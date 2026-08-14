@@ -531,6 +531,13 @@ export interface World {
    */
   readonly tamingPen: { x: number; y: number; z: number; r: number } | null;
   /**
+   * A harbour town's pier head, or null for a town without one (issue #228).
+   *
+   * Where a boat CALLS: `x/z/y` is the deck column a ferry lands on (`y` the
+   * deck top, not the seabed under it), `boatX/boatZ` the mooring beside it.
+   */
+  portOf(townId: string): { x: number; y: number; z: number; boatX: number; boatZ: number } | null;
+  /**
    * The standing stones this world grew, or an empty list where it grew none.
    *
    * A zone SITES them (they are derived from its roads); which ones are LIT is

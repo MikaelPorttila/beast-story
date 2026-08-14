@@ -128,6 +128,47 @@ export function bakeSolid(model: VoxelModel, scale: number, ...roofs: VoxelRegio
 }
 
 /**
+ * A PLATFORM: material a builder brackets as the WALKABLE surface of an
+ * elevated deck — a quay span, a pier (issue #228). `measureFootprint` cannot
+ * see one: planking carried on piles starts above `WALK_UNDER`, which the body
+ * band correctly reads as overhead. One box over the region's own bounds,
+ * blocking from the template base to the plank top — a pier's underside is
+ * deliberately not a route, the way you also cannot swim through its piles.
+ */
+export function measurePlatform(
+  model: VoxelModel,
+  scale: number,
+  deck: VoxelRegion,
+): SolidBox | null {
+  const b = model.bounds(true);
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let z0 = Infinity;
+  let z1 = -Infinity;
+  let topY = -Infinity;
+  model.forEachCell((x, y, z) => {
+    if (!deck.has(x, y, z)) {
+      return;
+    }
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+    z0 = Math.min(z0, z);
+    z1 = Math.max(z1, z);
+    topY = Math.max(topY, y);
+  });
+  if (!Number.isFinite(topY)) {
+    return null;
+  }
+  return {
+    cx: ((x0 + x1 + 1) / 2 - b.ox) * scale,
+    cz: ((z0 + z1 + 1) / 2 - b.oz) * scale,
+    hx: ((x1 - x0 + 1) / 2) * scale,
+    hz: ((z1 - z0 + 1) / 2) * scale,
+    top: (topY - b.oy + 1) * scale,
+  };
+}
+
+/**
  * How far a template's collision material reaches from its own origin.
  *
  * MEASURED off the boxes `bakeSolid` already measured off the model, for the

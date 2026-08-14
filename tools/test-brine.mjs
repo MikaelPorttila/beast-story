@@ -217,7 +217,9 @@ let pier;
 }
 
 async function sailFrom(stop, wantNearId) {
-  await tp(stop.x, stop.z);
+  // ON THE DECK, the way a player arrives: the quay stop stands at a pier
+  // head over deep water (#228), and `stop.y` is the deck top, not the seabed.
+  await dbg((p) => window.__dbgTp(p.x, p.z, p.y + 0.4), { x: stop.x, z: stop.z, y: stop.y });
   await wait(600);
   await page.keyboard.press("KeyE");
   const t0 = Date.now();
