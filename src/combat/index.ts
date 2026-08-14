@@ -1232,10 +1232,18 @@ export class CombatSystem {
     if (!def) {
       return;
     }
-    if (!def.flying && this.world.isWater(x, z)) {
+    const gy = this.world.getHeight(x, z);
+    if (def.swims) {
+      // A swimmer spawns IN the water, deep enough to submerge — `getHeight`
+      // here is the bed, so the depth is the water line over it (issue #191).
+      // The water biomes' tables also roll amphibians, which take the walker's
+      // branch below and keep to the damp shore band they always had.
+      if (!this.world.isWater(x, z) || this.world.waterLevel - gy < def.data.height + 0.5) {
+        return;
+      }
+    } else if (!def.flying && this.world.isWater(x, z)) {
       return;
     }
-    const gy = this.world.getHeight(x, z);
     const variant = variantForHeight(gy - this.world.waterLevel);
     const e = new Enemy(def.id, variant, x, z, this.world);
     this.scene.add(e.root);

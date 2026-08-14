@@ -458,6 +458,7 @@
         "spawns": [
           { "enemy": "enemy:wild-aquaxol", "weight": 4 },
           { "enemy": "enemy:wild-rivotter", "weight": 3 },
+          { "enemy": "enemy:wild-finnick", "weight": 3 },
           { "enemy": "enemy:wild-coralback", "weight": 2 }
         ]
       }
@@ -477,6 +478,8 @@
         "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
         "spawns": [
           { "enemy": "enemy:wild-aquaxol", "weight": 3 },
+          { "enemy": "enemy:wild-finnick", "weight": 2 },
+          { "enemy": "enemy:wild-lanternfin", "weight": 3 },
           { "enemy": "enemy:wild-snapclaw", "weight": 2 }
         ]
       }
@@ -1278,6 +1281,88 @@
             "dark": "#7d6d57",
             "belly": "#e0d3bd",
             "accent": "#2e2619"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-finnick",
+      "schema": 1,
+      "name": { "key": "beast.finnick.name" },
+      "tags": ["wild", "water", "bondable"],
+      "data": {
+        "model": "beast-finnick",
+        "flying": false,
+        "hp": 44,
+        "atk": 8,
+        "speed": 3.0,
+        "xp": 15,
+        "radius": 0.44,
+        "height": 0.86,
+        "aggro": 8,
+        "capture": { "difficulty": 1.5 },
+        "variants": [
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-lanternfin",
+      "schema": 1,
+      "name": { "key": "beast.lanternfin.name" },
+      "tags": ["wild", "water", "bondable"],
+      "data": {
+        "model": "beast-lanternfin",
+        "flying": false,
+        "hp": 52,
+        "atk": 9,
+        "speed": 2.8,
+        "xp": 18,
+        "radius": 0.46,
+        "height": 0.88,
+        "aggro": 7,
+        "capture": { "difficulty": 1.8 },
+        "variants": [
+          {
+            "element": "light",
+            "main": "#f2e28a",
+            "dark": "#b8a355",
+            "belly": "#fff7d0",
+            "accent": "#3a3014"
+          },
+          {
+            "element": "light",
+            "main": "#f2e28a",
+            "dark": "#b8a355",
+            "belly": "#fff7d0",
+            "accent": "#3a3014"
+          },
+          {
+            "element": "light",
+            "main": "#f2e28a",
+            "dark": "#b8a355",
+            "belly": "#fff7d0",
+            "accent": "#3a3014"
           }
         ]
       }

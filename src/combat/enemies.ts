@@ -65,6 +65,13 @@ export interface EnemySpec {
   readonly id: EnemySpeciesId;
   readonly nameKey: StringKey;
   readonly flying: boolean;
+  /**
+   * DERIVED from the body, never authored: a `beast-…` model of a `swimming`
+   * species stays in water — spawn siting and steering both key on this
+   * (issue #191). The schema's only movement field stays `flying`, because a
+   * swimmer is a fact about the species it wears, not a second flag to desync.
+   */
+  readonly swims: boolean;
   readonly model: EnemyModel;
   readonly data: EnemyData;
   /** Hoisted off `data`, so a taming call site is one property access. */
@@ -103,10 +110,15 @@ export function enemySpecies(): readonly EnemySpec[] {
     if (nameKey === null) {
       continue;
     }
+    const beastId = asset.data.model.startsWith(BEAST_MODEL_PREFIX)
+      ? asset.data.model.slice(BEAST_MODEL_PREFIX.length)
+      : null;
     specs.push({
       id: asset.id.slice(asset.type.length + 1),
       nameKey,
       flying: asset.data.flying,
+      swims:
+        beastId !== null && ALL_SPECIES.find((s) => s.id === beastId)?.locomotion === "swimming",
       model,
       data: asset.data,
       capture: asset.data.capture ?? null,
@@ -601,6 +613,22 @@ export class Enemy implements Damageable {
     this.position.z = nz;
   }
 
+  // `moveGround` with the refusal inverted (issue #191): a swimmer keeps to
+  // water deep enough to stay wet in, all-or-nothing, so a shoreline turns it
+  // exactly the way a wall turns a walker.
+  private moveWater(dt: number, dirX: number, dirZ: number, spd: number, ctx: EnemyCtx): void {
+    const nx = this.position.x + dirX * spd * dt;
+    const nz = this.position.z + dirZ * spd * dt;
+    if (!ctx.world.isWater(nx, nz)) {
+      return;
+    }
+    if (ctx.world.waterLevel - ctx.world.getHeight(nx, nz) < this.height * 0.7) {
+      return;
+    }
+    this.position.x = nx;
+    this.position.z = nz;
+  }
+
   // Called on a timer AND on a landed bite, so the caller sets `wCircling`.
   private nextWildPhase(): void {
     this.wCircling = !this.wCircling;
@@ -622,6 +650,9 @@ export class Enemy implements Damageable {
     const rig = this.beastRig!;
     const clock = this.beastClock!;
     const flying = species.locomotion === "flying";
+    // Movement follows the BODY, exactly as `flying` does (issue #191): a wild
+    // swimmer is a fact about the species it wears, not an authored flag.
+    const swimming = species.locomotion === "swimming";
 
     // Bite radius plus a body, so it rests at arm's length, not inside you.
     const stopAt = this.radius + 0.9;
@@ -675,6 +706,8 @@ export class Enemy implements Damageable {
       if (flying) {
         this.position.x += _dir.x * wantSpeed * dt;
         this.position.z += _dir.z * wantSpeed * dt;
+      } else if (swimming) {
+        this.moveWater(dt, _dir.x, _dir.z, wantSpeed, ctx);
       } else {
         this.moveGround(dt, _dir.x, _dir.z, wantSpeed, ctx);
       }
@@ -688,13 +721,25 @@ export class Enemy implements Damageable {
     }
 
     // A hunting flyer drops toward its quarry, or the melee band never reaches.
+    // A SWIMMER holds a band under the surface: toward its quarry's depth when
+    // hunting, a body-length off the bed when not — and never out of the water,
+    // so a hero on the bank is lurked at from the shallows, not beached at.
     const groundY = this.groundAt(ctx, this.position.x, this.position.z);
     const wantY = flying
       ? chasing
         ? Math.max(groundY + 0.6, this.target!.position.y + 0.9)
         : Math.max(groundY, ctx.world.waterLevel) + WILD_FLY_RISE
-      : groundY;
-    this.position.y += (wantY - this.position.y) * Math.min(1, (flying ? 3.5 : 14) * dt);
+      : swimming
+        ? Math.max(
+            groundY + 0.3,
+            Math.min(
+              ctx.world.waterLevel - 0.45,
+              chasing ? this.target!.position.y : groundY + 1.1,
+            ),
+          )
+        : groundY;
+    this.position.y +=
+      (wantY - this.position.y) * Math.min(1, (flying || swimming ? 3.5 : 14) * dt);
 
     // Same shape as the Gloopling's contact attack, vertical cap included.
     if (this.target && this.atkCd <= 0 && !this.target.isDead) {
@@ -728,7 +773,16 @@ export class Enemy implements Damageable {
     }
     const base = species.baseStats.speed;
     const speed01 = base > 0 ? Math.min(1, moved / base) : 0;
-    const gait: BeastAction = flying ? "fly" : moved <= 0.01 ? "idle" : chasing ? "run" : "walk";
+    // A swimmer treads water at rest; "idle" is a standing pose it has no floor for.
+    const gait: BeastAction = flying
+      ? "fly"
+      : swimming
+        ? "swim"
+        : moved <= 0.01
+          ? "idle"
+          : chasing
+            ? "run"
+            : "walk";
     const c = clock.ctx;
     // `time` free-runs every slice (breathing, ear flicks); `actionTime` is how
     // long the CURRENT action has run, which a transient pose reads.
