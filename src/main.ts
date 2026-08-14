@@ -395,6 +395,10 @@ function exitToTitle(): void {
   nearShop = false;
   nearNpc = null;
   world.npcs?.endTalk();
+  // An escort in flight is SESSION state, deliberately not saved (issue #234): the
+  // walk restarts from the giver's still-open dialogue row, so the save owes only
+  // the objective's progress, which ContentState already carries.
+  world.npcs?.cancelEscorts();
   hud.closeShop();
   hud.closeControls();
   hud.reset();
@@ -581,6 +585,10 @@ function applySave(doc: SaveDocument): void {
     if (zones.id !== target) {
       zones.switchTo(target);
     }
+    // A load replaces the session, so a walk in flight ends the way exitToTitle
+    // ends it: everyone back at his placement, the objective's progress restored
+    // below deciding whether the walk is still owed.
+    world.npcs?.cancelEscorts();
 
     // 2. THE FACTS. Tolerant of ids it cannot resolve, and its change notification is what re-derives the journal, the tracker and any quest time-of-day pin.
     content.state.fromJSON(doc.content);
@@ -853,6 +861,94 @@ content.defineAction("mount.unlock", (params) => {
   mountUnlocks.set(kind, true);
   bus.emit({ type: "toast", text: t(MOUNT_UNLOCK_KEYS[kind]) });
 });
+// THE ESCORT SEAM (issue #234). The action names WHO walks; WHERE TO lives on the
+// quest objective's own `escort` trigger (a `site` or a `town`), so the walk and
+// the objective it completes cannot disagree about the destination. The engine
+// half is `Npcs.startEscort` (world/npc.ts): follow the hero, leash-teleport a
+// follower left behind, re-station on arrival. He cannot be hurt (#155's
+// documented decision, kept) — the leash is the escort's whole failure model.
+/** Arrival radius: the walk ends when the FOLLOWER is this near the destination. */
+const ESCORT_ARRIVE = 6;
+content.defineAction("escort.start", (params) => {
+  const npcId = params.npc;
+  if (typeof npcId !== "string" || !npcId.startsWith("npc:")) {
+    return;
+  }
+  const bare = npcId.slice("npc:".length);
+  for (const questId of content.state.activeQuests) {
+    const asset = content.get<QuestData>(questId);
+    for (const objective of asset?.data.objectives ?? []) {
+      const trigger = objective.trigger;
+      if (!trigger || trigger.kind !== "escort" || trigger.npc !== npcId) {
+        continue;
+      }
+      if (content.state.progress(questId, objective.key) >= (objective.count ?? 1)) {
+        continue;
+      }
+      let dest: { x: number; z: number } | null = null;
+      if (trigger.site !== undefined) {
+        dest = questSite(trigger.site);
+      } else if (trigger.town !== undefined) {
+        const town = world.towns.get(trigger.town.slice("town:".length));
+        dest = town ? { x: town.gateX, z: town.gateZ } : null;
+      }
+      if (!dest) {
+        reportContentIssue({
+          severity: "error",
+          code: "unsupported",
+          message: `escort.start for "${npcId}" has no resolvable destination`,
+          assetId: questId,
+          assetType: "quest",
+          field: `data.objectives[${objective.key}].trigger`,
+          fix: `name a staged site (${QUEST_SITE_NAMES.join(", ")}) or a town on the escort trigger`,
+        });
+        return;
+      }
+      const already = world.npcs?.escorting(bare) ?? false;
+      const ok =
+        world.npcs?.startEscort(bare, dest.x, dest.z, ESCORT_ARRIVE, () => {
+          advanceObjectives({ kind: "escort", id: npcId });
+          bus.emit({ type: "toast", text: t("toast.escortDone", { name: escortName(bare) }) });
+        }) ?? false;
+      if (!ok) {
+        reportContentIssue({
+          severity: "error",
+          code: "unsupported",
+          message: `escort.start could not walk "${npcId}" — not in this zone, or on a moving frame`,
+          assetId: questId,
+          assetType: "quest",
+          fix: "escort a ground-placed NPC in the zone the dialogue runs in",
+        });
+      } else if (!already) {
+        bus.emit({ type: "toast", text: t("toast.escortStarted", { name: escortName(bare) }) });
+      }
+      return;
+    }
+  }
+});
+
+function escortName(bareId: string): string {
+  const who = world.npcs?.all.find((n) => n.id === bareId);
+  return who ? t(who.nameKey) : "";
+}
+
+/** The staged sites content may SELECT by name — the same spots `__dbgQuestSites` reads. */
+const QUEST_SITE_NAMES = ["vane-wreck", "maws-rest", "drove-ground", "hold-floor"] as const;
+
+function questSite(name: string): { x: number; z: number } | null {
+  switch (name) {
+    case "vane-wreck":
+      return vaneWreck();
+    case "maws-rest":
+      return mawsRest();
+    case "drove-ground":
+      return droveGround();
+    case "hold-floor":
+      return holdFloorSpot();
+    default:
+      return null;
+  }
+}
 // THE CAMPAIGN LOADS AT BOOT: ZoneManager builds its starting zone directly, so an "on arrival in
 // overworld" hook never fires on a fresh game, and quest 4's definitions must be resident in `hold`.
 const contentBoot = await bootstrapContent({
@@ -2196,6 +2292,15 @@ function refreshQuestMarks(): void {
         markedBeasts.add(id);
         markedEnemies.add(id);
       }
+      // The ESCORTED character wears the target ring — the same "this is the
+      // thing the quest is counting" mark, over a person, following him as he
+      // walks because `syncQuestMarks` reads his live published position.
+      if (trigger.npc !== undefined && trigger.npc !== "") {
+        const who = trigger.npc.slice("npc:".length);
+        if (!markedNpcs.has(who)) {
+          markedNpcs.set(who, "target");
+        }
+      }
     }
   }
 }
@@ -2315,6 +2420,14 @@ function questWaypoint(asset: ContentAsset<QuestData>): { x: number; z: number }
     if (!trigger) {
       continue;
     }
+    // A staged site is a PLACE the same way a town is — the escort's compass
+    // chip points at the destination for as long as the walk is owed.
+    if (trigger.site !== undefined) {
+      const s = questSite(trigger.site);
+      if (s) {
+        return { x: s.x, z: s.z };
+      }
+    }
     if (trigger.town !== undefined && trigger.town !== "") {
       const town = world.towns.get(trigger.town.slice("town:".length));
       if (town) {
@@ -2414,6 +2527,9 @@ function advanceObjectives(fact: QuestFact): void {
         continue;
       }
       if (fact.kind === "zone-arrival" && trigger.zone !== undefined && trigger.zone !== fact.id) {
+        continue;
+      }
+      if (fact.kind === "escort" && trigger.npc !== undefined && trigger.npc !== fact.id) {
         continue;
       }
       // `zone` ON ANY OTHER KIND IS WHERE IT HAPPENED, not what it identifies — the one filter that is
@@ -6195,6 +6311,7 @@ beginPlay();
   all: (world.npcs?.all ?? []).map((n) => ({
     id: n.id,
     name: t(n.nameKey),
+    escorting: world.npcs?.escorting(n.id) ?? false,
     x: +n.x.toFixed(2),
     y: +n.y.toFixed(2),
     z: +n.z.toFixed(2),

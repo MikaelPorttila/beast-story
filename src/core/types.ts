@@ -385,6 +385,24 @@ export interface NpcField {
   talk(id: string): NpcTalk | null;
   readonly talking: NpcTalk | null;
   endTalk(): void;
+  /**
+   * Put a character into FOLLOWER mode (issue #234): he leaves his placement,
+   * walks after the hero along the ground, and re-stations himself the moment he
+   * comes within `radius` of the destination — which is when `onArrive` fires,
+   * once. A follower left too far behind teleports to the hero (the companion
+   * TELEPORT_DIST precedent) — he cannot be lost, and he cannot be hurt.
+   * False for an id this zone does not have, or a crew on a moving frame.
+   */
+  startEscort(
+    id: string,
+    destX: number,
+    destZ: number,
+    radius: number,
+    onArrive: () => void,
+  ): boolean;
+  escorting(id: string): boolean;
+  /** End every escort and return everyone to his ORIGINAL placement. Session teardown — see `exitToTitle`. */
+  cancelEscorts(): void;
 }
 
 /** How a body moves: a walker SHOVES what it passes through, a flyer BLOWS from above. */

@@ -1,8 +1,8 @@
 // ACT 2, QUEST 4 — THE ROOKERY (issue #155): Gullspire, the third island; the
-// turned flock; Corwin Vane got down alive. The escort ships as the documented
-// "he cannot die" beat (#234 is the real follower mechanic), so what this
-// drives is the quest's actual machinery: the staged flock, the bond that
-// calms it, the wreck's salvage, and the seam flags Act 3 will read.
+// turned flock; Corwin Vane got down alive. The escort is the REAL walk since
+// issue #234 (the follower mechanic; tools/test-escort.mjs owns its edges), so
+// what this drives is the quest end to end: the staged flock, the bond that
+// calms it, the descent, the wreck's salvage, and the seam flags Act 3 reads.
 //
 // Usage: bun tools/test-rookery.mjs      (dev server must be up)
 //
@@ -16,8 +16,9 @@
 //   3. THE FLOCK IS STAGED AND CALMED: three Galebirds hold the wreck, one
 //      forced bond marks calm-the-flock, and the stage stops restocking — a
 //      bond empties the objective, not the sky.
-//   4. THE WALK DOWN IS THE BEAT: Vane's post-calm line marks escort-vane, and
-//      the wreck gives up the vane component.
+//   4. THE WALK DOWN IS WALKED (issue #234): Vane's post-calm line starts the
+//      escort, escort-vane ticks when the FOLLOWER reaches the wreck, and the
+//      wreck gives up the vane component.
 //   5. THE TURN-IN CLOSES IT: completed, component-vane AND knows-the-sky set
 //      (the flag Act 3's framing tests), Gullspire discovered, 100 paid.
 //
@@ -165,16 +166,34 @@ await wait(400);
 
 // ---------- 4. the walk down, and the wreck's salvage ------------------------
 {
+  // THE REAL DESCENT (issue #234): the post-calm line puts Vane into follower
+  // mode, and escort-vane ticks when HE reaches the wreck, not when the line is
+  // spoken. Led in two hops under the leash so the walk is walked.
   const down = await talkTo("sky-pilot/gullspire");
   results.down = { line: down };
   await page.keyboard.press("Escape");
   await wait(250);
-  const mid = await state();
-  check(mid.escort >= 1, "Vane's post-calm line did not mark escort-vane");
+  const following = (await dbg(() => window.__dbgNpcs())).all.find(
+    (n) => n.id === "sky-pilot/gullspire",
+  );
+  check(following?.escorting === true, "Vane's post-calm line did not start the escort");
 
   const wreck = await dbg(() => window.__dbgQuestSites().vaneWreck);
-  await adv(2);
+  await dbg((p) => window.__dbgTp((p.vx + p.wx) / 2, (p.vz + p.wz) / 2), {
+    vx: following.x,
+    vz: following.z,
+    wx: wreck.x,
+    wz: wreck.z,
+  });
+  await adv(4);
   await dbg((p) => window.__dbgTp(p.x, p.z), wreck);
+  let mid = await state();
+  for (let i = 0; i < 20 && mid.escort < 1; i++) {
+    await adv(0.5);
+    mid = await state();
+  }
+  check(mid.escort >= 1, "Vane was led to the wreck and escort-vane never ticked");
+
   await adv(1.5);
   const got = await state();
   results.salvaged = { vane: got.vane };

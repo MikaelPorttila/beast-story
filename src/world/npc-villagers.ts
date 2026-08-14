@@ -301,7 +301,7 @@ function buildRig(s: Skin): NpcRig {
     radius: 0.45,
     solid: [],
     disposables: [],
-    state: { attend: 0 },
+    state: { attend: 0, walk: 0, stride: 0 },
   };
 
   const body = new THREE.Group();
@@ -409,6 +409,21 @@ function animateWith(s: Skin, rig: NpcRig, ctx: NpcAnimCtx): void {
   armL.rotation.x = 0.1 + Math.sin(ctx.time * 1.1) * 0.03;
   armL.rotation.z = 0.12;
   p["elbowL"].rotation.x = -0.55 - Math.sin(ctx.time * 1.1 + 0.7) * 0.05;
+
+  // THE WALK, layered over the idle for a follower (issue #234). Stride is
+  // smoothed so stopping settles the arms instead of freezing them mid-swing,
+  // and the phase advances with his own speed — feet and ground agree at any dt.
+  const stride = Math.min(1, (ctx.speed ?? 0) / 4.5);
+  rig.state.stride += (stride - rig.state.stride) * (1 - Math.exp(-8 * ctx.dt));
+  const s2 = rig.state.stride;
+  if (s2 > 0.01) {
+    rig.state.walk += (ctx.speed ?? 0) * 0.55 * Math.PI * ctx.dt;
+    const w = rig.state.walk;
+    body.position.y += Math.abs(Math.sin(w)) * 0.035 * s2;
+    body.rotation.x += 0.07 * s2;
+    armR.rotation.x += Math.sin(w) * 0.5 * s2;
+    armL.rotation.x -= Math.sin(w) * 0.5 * s2;
+  }
 }
 
 // ---------------------------------------------------------------------------
