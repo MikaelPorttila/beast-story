@@ -516,7 +516,9 @@ const BUDGET = {
   // is a hamlet's on its own island ground (33 boxes, of which the fence chains
   // kept what the flatten pad allowed). Issue #228's real kit (quays, deck
   // bridges, ships) re-baselines this in the commit that lands it.
-  saltrest: { total: 36, roofs: 3 },
+  // 36 -> 37 WHEN GAIN MOVED IN (#152) — a character is solid by the same
+  // primitive a crate is, the Mera precedent from Redbriar.
+  saltrest: { total: 37, roofs: 3 },
   // The hamlet counts were 38 -> 40 and 25 -> 27 boxes when the paddock arc
   // became a fence CHAIN (world/fences.ts, issue #105) instead of seven fixed
   // panels: a chain's collider is one box per bay — the top plank, which spans

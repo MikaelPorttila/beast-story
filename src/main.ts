@@ -2488,6 +2488,13 @@ content.state.onChange((change) => {
   const status = content.state.questStatus(change.name);
   if (status === "active") {
     content.run(asset.data.onStart);
+    // "REACH X" IS A STATE, NOT AN EDGE, FOR A QUEST HANDED OUT INSIDE X: the
+    // sea act's opener is given on the quay it asks you to reach (issue #152),
+    // and `syncTownArrival` only fires on crossing the rim. Replayed once per
+    // activation, with the arrival test's own numbers; later arrivals stay edges.
+    if (inTown !== null) {
+      advanceObjectives({ kind: "town-arrival", id: `town:${inTown}` });
+    }
   }
   if (status === "completed") {
     content.run(asset.data.onComplete);

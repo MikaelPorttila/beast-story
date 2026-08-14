@@ -6,7 +6,7 @@
     "title": "Act 2 — Sea: The Brine Reach",
     "note": "The five main quests of Act 2 (game-story.md §4, issue #144). Act 2 is PART OF THE OPEN WORLD — decided in review of the zone-based first cut of #227: seaward of Embervale's coastline the landform blends into an island sea (terrain.ts SEA_DIR/SEA_START/SEA_FULL), island towns stand past it, and the deep water that refuses you on foot is the act gate. There is no `brine` zone and never will be.",
     "loading": "Boot-loaded (see bootstrapContent in main.ts): the islands physically exist from frame 1 because the world is one world, so their settlements must exist when planSettlements runs. What `sea-revealed` opens is the FERRY — the means of crossing — not the geography. The flag-gated loading recorded in issue #209 was a zone-era decision and went with the zone.",
-    "the-stub": "`quest:sea/salt-and-rope` still ships without its giver or objective triggers; `npc:gain/saltrest` and the ferry-borne talk rows are #152's work. `town:saltrest` is here because the island placer sites it at boot."
+    "the-stub": "Nothing is stubbed any more (#152): `npc:gain/saltrest` stands in the harbour with the act's opening talk rows, and the quest names its giver and its triggers. He is the SECOND PLACEMENT of the Encampment's Gain (game-story.md §2): one `body` factory, one display-name key, and the joke that he is always already there when you arrive."
   },
   "assets": [
     {
@@ -26,6 +26,81 @@
       }
     },
     {
+      "id": "npc:gain/saltrest",
+      "schema": 1,
+      "name": { "key": "npc.gain.name" },
+      "tags": ["resident", "quest-giver", "act2"],
+      "data": {
+        "town": "town:saltrest",
+        "body": "gain",
+        "homeOffset": 0,
+        "acrossFocus": true,
+        "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/salt-and-rope",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/salt-and-rope",
+                  "objective": "talk-to-gain",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.sea1.done" },
+            "actions": [
+              {
+                "do": "progress.add",
+                "quest": "quest:sea/salt-and-rope",
+                "objective": "take-the-boat"
+              },
+              { "do": "quest.complete", "quest": "quest:sea/salt-and-rope" }
+            ]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:land/the-bellwether",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/salt-and-rope",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/salt-and-rope",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.sea1.offer" },
+            "actions": [
+              { "do": "quest.start", "quest": "quest:sea/salt-and-rope" },
+              {
+                "do": "progress.add",
+                "quest": "quest:sea/salt-and-rope",
+                "objective": "talk-to-gain"
+              }
+            ]
+          },
+          { "line": { "key": "npc.gain.sea1.after" } }
+        ]
+      }
+    },
+    {
       "id": "quest:sea/salt-and-rope",
       "schema": 1,
       "name": { "key": "quest.sea.saltAndRope.name" },
@@ -34,6 +109,7 @@
       "data": {
         "category": "main",
         "arc": "sea",
+        "giver": "npc:gain/saltrest",
         "location": "town:saltrest",
         "prerequisites": ["quest:land/the-bellwether"],
         "objectives": [

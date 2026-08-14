@@ -323,6 +323,15 @@ export const en = {
   "npc.gain.q3.busy":
     "The road, not the shortcut. Six of them down, and Mera at the other end of it.",
 
+  // SALTREST — his second placement (game-story.md §2, issue #152). Same name
+  // key, different rows: he sailed ahead of you, which is his joke until Act 4.
+  "npc.gain.sea1.offer":
+    "Took your time. I have been here two tides, and I spent them well — that boat at the quay is bought, crewed by nobody, and yours. The channels past this island run too deep and too cold to swim, so learn the water the way the Reach learns you: slowly, and from a deck.",
+  "npc.gain.sea1.done":
+    "Then she is yours — ropes, salt stink and all. Coil's people were asking after the same drowned market you will be, so do not dawdle. And before you ask: no, I do not know how I keep getting ahead of you. Worry about it later.",
+  "npc.gain.sea1.after":
+    "Salt in the rope, friend. The Reach will teach you the rest — I have taught you the cheap half already.",
+
   // Redbriar's miller. She closes The Mill Road (issue #149) — the quest Gain
   // offers and she ends, which is what `turnIn` on the asset says. Her own
   // quest, The Red Thread, is issue #150 and adds its rows beside these.
