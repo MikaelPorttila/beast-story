@@ -70,6 +70,9 @@ export interface RoadField {
   surfaceAt(x: number, z: number, ground: number): number;
   /** The DRAWN surface, which reaches past each terminal plane as carve does not. */
   drawnSurfaceAt(x: number, z: number, ground: number): number;
+  /** Lowest drawn surface over the cell-disc at (x, z), NaN when uncovered — the
+   *  mesher's cap, so a covered column's drawn top follows the road's shape. */
+  drawnCapNear(x: number, z: number, r: number): number;
   /** Lowest drawn corridor surface within `r` — for a mesh coarser than a path. */
   lowestDrawnSurfaceNear(x: number, z: number, r: number, ground: number, rim?: RimHit): number;
   /** How walked the ground is, 0..1. A `columnInfo` query, never a collision one. */
@@ -124,6 +127,9 @@ export const STONE_WARM: RGB = rgb(0xc09a67);
 
 export interface ColumnScratch {
   h: number;
+  /** The DRAWN top: `h`, except under a road where it follows the ribbon just
+   *  below its surface — fractional. Drawing only; collision keeps `h`. */
+  hDraw: number;
   hc: number;
   topR: number;
   topG: number;
@@ -144,6 +150,7 @@ export interface ColumnScratch {
 export function makeScratch(): ColumnScratch {
   return {
     h: 0,
+    hDraw: 0,
     hc: 0,
     topR: 0,
     topG: 0,
@@ -521,6 +528,21 @@ export class Terrain {
     // RIBBON sagging (fixed in `sectionAt` and distant-terrain.ts).
     out.h = h;
     out.hc = hc;
+    // The DRAWN top under a road hugs the ribbon from just below — both ways:
+    // a quantized corner cannot poke through it, and the whole-unit drop under
+    // the rim cannot open a slit. Bounded against a data error folding the
+    // ground; drawing only, `h` stays the integer everything else resolves on.
+    out.hDraw = h;
+    if (this.roads !== null) {
+      const cap = this.roads.drawnCapNear(x, z, 0.75);
+      if (cap === cap) {
+        const want = cap - 0.05;
+        out.hDraw = want > h + 1.25 ? h + 1.25 : want < h - 1.25 ? h - 1.25 : want;
+        if (out.hDraw < 1) {
+          out.hDraw = 1;
+        }
+      }
+    }
     // wear > 0.6 is where props.ts stops thinning the sward and refuses it, and
     // it must sit inside the settlement: bare to the palisade, tussocks outside.
     out.biome =
