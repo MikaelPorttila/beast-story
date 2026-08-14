@@ -488,10 +488,26 @@ export class RoadNetwork implements RoadField, RoadClearance {
     // blending to 12.999999 for 13. `dCell` reaches inward half a cell diagonal
     // because a column is a CELL whose inner corner sees a lower drawn surface.
     const dCell = d > prof.carveInset ? d - prof.carveInset : 0;
-    this.carveTarget =
+    let target =
       RoadNetwork.surfaceOf(prof, this.nDeck, dCell) +
       0.001 -
       prof.sink * (1 - smoothstep(prof.deckHalf, prof.deckEdge - prof.shoulderIn, dCell));
+    // A cell the RIBBON CANNOT FULLY COVER — outer corner past the rim — may
+    // not end up below the rim's landing. Through the corner inset, the
+    // ramp/sink band reaches such cells and dug a one-column trench along the
+    // verge, the black slits reported twice (trails worst: their whole shoulder
+    // fits inside one cell); a NATURAL pit there is the same hole, and the
+    // clamp FILLS it too — `heightCont`'s lerp raises toward the target. The
+    // cell's inner corner may now stand up to `round(deck) - deck` proud of the
+    // ramp it meets, under half a unit always, reading as ground lapping the
+    // gravel; collision is untouched (`surfaceAt` stays the deck).
+    if (d > prof.deckEdge - prof.carveInset) {
+      const rim = Math.round(this.nDeck) + 0.001;
+      if (target < rim) {
+        target = rim;
+      }
+    }
+    this.carveTarget = target;
     return 1 - smoothstep(prof.carveCore, prof.carveBlend, d);
   }
 

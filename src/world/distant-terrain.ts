@@ -169,6 +169,12 @@ uniform float bsHorizonFadeEnd;`,
  * invisible bridge deck.
  */
 export function installRingFade(material: THREE.Material, band: RingBand): void {
+  // IDEMPOTENT: a den's three orbiting sparks share one material, and the
+  // group traverse that installs fades reaches it once per spark — a second
+  // install would stack the shader edits into varying redefinitions.
+  if (band.materials.has(material)) {
+    return;
+  }
   material.transparent = false;
   material.blending = THREE.CustomBlending;
   material.blendEquation = THREE.AddEquation;
