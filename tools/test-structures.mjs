@@ -519,6 +519,9 @@ const BUDGET = {
   // 36 -> 37 WHEN GAIN MOVED IN (#152) — a character is solid by the same
   // primitive a crate is, the Mera precedent from Redbriar.
   saltrest: { total: 37, roofs: 3 },
+  // KELPHOLD (issue #154): the second island, an ordinary hamlet on wetter
+  // ground — three fewer fence bays than Saltrest kept, same three roofs.
+  kelphold: { total: 32, roofs: 3 },
   // The hamlet counts were 38 -> 40 and 25 -> 27 boxes when the paddock arc
   // became a fence CHAIN (world/fences.ts, issue #105) instead of seven fixed
   // panels: a chain's collider is one box per bay — the top plank, which spans

@@ -234,6 +234,15 @@ function buildCrook(): VoxelModel {
   return v;
 }
 
+/** An oar, blade down: shaft, throat, and the flat a boatwright is always planing. */
+function buildOar(): VoxelModel {
+  const v = new VoxelModel();
+  v.box(-1, -6, -1, 0, 6, 0, BELT);
+  v.box(-1, -9, -1, 0, -6, 1, IRON_L);
+  v.set(-1, 6, 0, LEATHER);
+  return v;
+}
+
 /** A grain sack, tied at the neck and slumped the way a full one does. */
 function buildSack(): VoxelModel {
   const v = new VoxelModel();
@@ -493,6 +502,28 @@ export const COIL_BODY = bodyFor({
  * she is shifting a weight from the floor to a hopper, not sweeping a horizon.
  * Her eyes are on the sack until somebody walks up, which `gaze` says.
  */
+/**
+ * BRACK TULLEY — Saltrest's boatwright, met keeping Kelphold's drowned market
+ * (issue #154). Tar-dark oilskin over salt-bleached legs, an oar he is never
+ * without, and a shipwright's slow, deliberate reach: he is fairing a plank in
+ * his head even when he is talking to you. The `boatwright` body — a working
+ * villager, not a bespoke rig, exactly as the cast note in npc.ts asks.
+ */
+export const BOATWRIGHT_BODY = bodyFor({
+  cloth: 0x3d3a35,
+  clothD: 0x2b2925,
+  legs: 0x8d8471,
+  hair: 0x3a3632,
+  hairD: 0x2a2724,
+  prop: buildOar,
+  propZ: 0.15,
+  propX: 0.09,
+  period: 5.0,
+  reach: 0.6,
+  scan: 0.2,
+  gaze: 0.12,
+});
+
 export const MERA_BODY = bodyFor({
   cloth: 0xd8cdb4,
   clothD: 0xb3a68a,

@@ -189,6 +189,200 @@
       }
     },
     {
+      "id": "town:kelphold",
+      "schema": 1,
+      "name": { "key": "town.kelphold.name" },
+      "tags": ["settlement", "act2"],
+      "data": {
+        "sign": { "key": "town.kelphold.sign" },
+        "layout": "hamlet",
+        "island": true,
+        "radius": 15,
+        "color": "#4fae8f",
+        "waterside": true,
+        "order": 5,
+        "start": false
+      }
+    },
+    {
+      "id": "npc:brack",
+      "schema": 1,
+      "name": { "key": "npc.brack.name" },
+      "tags": ["resident", "quest-giver", "act2"],
+      "data": {
+        "town": "town:kelphold",
+        "body": "boatwright",
+        "homeOffset": 0,
+        "acrossFocus": true,
+        "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/the-drowned-market",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/the-drowned-market",
+                  "objective": "collect-salvage",
+                  "atLeast": 8
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/the-drowned-market",
+                  "objective": "recover-component",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.brack.q3.done" },
+            "actions": [
+              { "do": "quest.complete", "quest": "quest:sea/the-drowned-market" }
+            ]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/dark-water",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/the-drowned-market",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/the-drowned-market",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.brack.q3.offer" },
+            "actions": [
+              { "do": "quest.start", "quest": "quest:sea/the-drowned-market" }
+            ]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sea/the-drowned-market",
+              "status": "active"
+            },
+            "line": { "key": "npc.brack.q3.busy" }
+          },
+          { "line": { "key": "npc.brack.greeting" } }
+        ]
+      }
+    },
+    {
+      "id": "npc:coil/kelphold",
+      "schema": 1,
+      "name": { "key": "npc.coil.name" },
+      "tags": ["resident", "act2"],
+      "data": {
+        "town": "town:kelphold",
+        "body": "coil",
+        "homeOffset": 6,
+        "acrossFocus": false,
+        "_role": "The rival, already here (game-story.md §2). Her case — a leashed beast hurts nobody — lands once the player has seen the collared guardian; her Act 2 quest rows (What the Tide Kept, #156) and her Act 4 gate stack above these later.",
+        "talk": [
+          {
+            "when": { "test": "flag", "flag": "component-lens" },
+            "line": { "key": "npc.coil.sea3.after" }
+          },
+          { "line": { "key": "npc.coil.sea3.case" } }
+        ]
+      }
+    },
+    {
+      "id": "enemy:bridle-hound",
+      "schema": 1,
+      "name": { "key": "enemy.bridleHound.name" },
+      "tags": ["story", "act2"],
+      "data": {
+        "model": "beast-boulderpup",
+        "_model": "PLACEHOLDER (issue #232): a Boulderpup's body under bridle colours until the hound has a rig of its own. It stands leashed over the component — the beat is that the Bridle order got here FIRST — so like the thread-anchor it is scenery with hit points: no attack, no speed, no aggro.",
+        "flying": false,
+        "hp": 120,
+        "atk": 0,
+        "speed": 0,
+        "xp": 0,
+        "radius": 0.6,
+        "height": 0.9,
+        "aggro": 0,
+        "variants": [
+          {
+            "element": "shadow",
+            "main": "#6d6257",
+            "dark": "#4a423a",
+            "belly": "#a89a8a",
+            "accent": "#c4423c"
+          },
+          {
+            "element": "shadow",
+            "main": "#665c52",
+            "dark": "#453e37",
+            "belly": "#a09284",
+            "accent": "#c4423c"
+          },
+          {
+            "element": "shadow",
+            "main": "#75695d",
+            "dark": "#50473e",
+            "belly": "#b0a292",
+            "accent": "#c4423c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "quest:sea/the-drowned-market",
+      "schema": 1,
+      "name": { "key": "quest.sea.drownedMarket.name" },
+      "description": { "key": "quest.sea.drownedMarket.desc" },
+      "tags": ["story", "act2"],
+      "data": {
+        "category": "main",
+        "arc": "sea",
+        "giver": "npc:brack",
+        "location": "town:kelphold",
+        "prerequisites": ["quest:sea/dark-water"],
+        "_fork": "Requires dark-water ONLY. The Rookery (#155) hangs off the same quest and neither requires the other — two islands, either order; What the Tide Kept lists both. Nothing may serialise them (§4).",
+        "objectives": [
+          {
+            "key": "dive-the-market",
+            "text": { "key": "quest.sea.drownedMarket.obj.diveTheMarket" },
+            "trigger": { "kind": "town-arrival", "town": "town:kelphold" }
+          },
+          {
+            "key": "collect-salvage",
+            "text": { "key": "quest.sea.drownedMarket.obj.collectSalvage" },
+            "count": 8,
+            "trigger": { "kind": "item-picked", "item": "salvage" }
+          },
+          {
+            "key": "recover-component",
+            "text": { "key": "quest.sea.drownedMarket.obj.recoverComponent" },
+            "trigger": { "kind": "item-picked", "item": "component-lens" }
+          }
+        ],
+        "onComplete": [
+          { "do": "flag.set", "flag": "component-lens" },
+          { "do": "discover", "id": "town:kelphold" }
+        ],
+        "rewards": { "xp": 350, "shard": 100 }
+      }
+    },
+    {
       "id": "quest:sea/dark-water",
       "schema": 1,
       "name": { "key": "quest.sea.darkWater.name" },
