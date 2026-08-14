@@ -550,6 +550,10 @@ export class Enemy implements Damageable {
       this.updateGloopling(dt, ctx);
     } else if (this.behaviour === "snortle") {
       this.updateSnortle(dt, ctx);
+    } else if (this.behaviour === "thread-anchor") {
+      // AN OBJECT (issue #202): no gait, no chase, no bite. It stands where
+      // the story put it and takes what comes — killing it is the quest's
+      // verb. Deliberately BEFORE the fallback, which is a diving bird.
     } else {
       this.updatePeckit(dt, ctx);
     }
