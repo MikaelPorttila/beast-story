@@ -6042,6 +6042,8 @@ beginPlay();
       /** Which KIND of path, and how wide — see `test-road.mjs`'s sweep. */
       profile: r.profile,
       deckEdge: r.deckEdge,
+      /** 0 is a role, not an omission — the litter probe holds it to zero. */
+      litter: r.litter,
       length: +len.toFixed(1),
       samples: n,
       /** Largest upward change in the walking surface over 0.25 units. */

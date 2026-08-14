@@ -348,8 +348,16 @@ const out = await page.evaluate((groundSrc) => {
       if (middle !== 0) {
         bad.push(`${r.id}: ${middle} litter down the middle`);
       }
-      if (!(verge > 0)) {
-        bad.push(`${r.id}: nothing at the verge`);
+      // BOTH KINDS OF PROFILE, each held to its own promise: a littered one
+      // must shed at the verge, and a litter-free one (the waystone spur —
+      // eight units of approach may not gravel the road they leave) must shed
+      // NOTHING there either, or zero has quietly stopped meaning zero.
+      if (r.litter === 0 ? verge !== 0 : !(verge > 0)) {
+        bad.push(
+          r.litter === 0
+            ? `${r.id}: sheds ${verge} at the verge against a litter-free profile`
+            : `${r.id}: nothing at the verge`,
+        );
       }
       if (beyond !== 0) {
         bad.push(`${r.id}: ${beyond} litter past the skirt`);

@@ -240,6 +240,7 @@ const SOLO = new Set([
 const PARALLEL = [
   "zfight",
   "path-profile",
+  "road-anchor",
   "water-shore",
   "f16",
   "crosshair",
@@ -289,7 +290,7 @@ mkdirSync(logDir, { recursive: true });
 
 // These probes open no browser at all, so they need neither the shared browser
 // nor the dev server. Everything else does.
-const HEADLESS = new Set(["zfight", "path-profile", "water-shore", "f16"]);
+const HEADLESS = new Set(["zfight", "path-profile", "road-anchor", "water-shore", "f16"]);
 const needsBrowser = names.some((n) => !HEADLESS.has(n));
 const browser = needsBrowser ? await launchBrowser() : null;
 const env = { ...process.env, BS_PORT: String(PORT) };
