@@ -20,7 +20,7 @@ import { CarrierField } from "./carriers";
 import { ISLAND_KEEL, SkyIsland, readCarriedTown } from "./sky-island";
 import { CHUNK_SIZE, DEEP_WATER_TOP, Terrain, WATER_LEVEL, makeScratch } from "./terrain";
 import { buildTerrainMesh, buildTerrainMeshSteps } from "./chunk";
-import { DistantTerrain } from "./distant-terrain";
+import { DistantTerrain, makeHorizonFade } from "./distant-terrain";
 import { buildWaterMesh, createWaterMaterial, setWaterDetailDistance } from "./water";
 import {
   PropLib,
@@ -665,8 +665,15 @@ export function createWorld(
   }
   spawnPoint.y = terrain.getHeight(spawnPoint.x, spawnPoint.z);
 
+  // THE RENDER-DISTANCE AUTHORITY, created before anything that must respect
+  // it. DistantTerrain (built later, after the height field settles) is its
+  // only writer — a view-distance change moves ground, roads and structures
+  // together. `ringBand` is the streamed-detail ring everything BUILT dies on.
+  const horizonFade = makeHorizonFade(initialViewDistance);
+  const ringBand = horizonFade.ring;
+
   const spots = placeShops(terrain, spawnPoint, seed, townReg, plan?.network.roads ?? []);
-  const shops = new Shops(spots, spawnPoint);
+  const shops = new Shops(spots, spawnPoint, ringBand);
   scene.add(shops.group);
 
   // The debug spawner's stage. Its part library is not baked until something is
@@ -674,7 +681,9 @@ export function createWorld(
   const spawned = new SpawnedSolids(propLib, (x, z) => terrain.getHeight(x, z));
   scene.add(spawned.group);
 
-  const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain) : null;
+  const towns = plan
+    ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain, horizonFade)
+    : null;
 
   // THE STANDING STONES, and they are sited AFTER the settlement is built for the
   // reason the first cut of them got wrong: a site has to be tested against what
@@ -695,6 +704,7 @@ export function createWorld(
           // What the ROAD stood up along itself — signposts and lamps.
           furniture: towns?.furniture ?? [],
         }),
+        ringBand,
       )
     : null;
   if (waypoints && plan) {
@@ -884,6 +894,7 @@ export function createWorld(
     spawnPoint,
     initialViewDistance,
     viewRadius * CHUNK_SIZE,
+    horizonFade,
   );
   if (!flags.water) {
     distant.setWaterVisible(false);
@@ -1365,6 +1376,13 @@ export function createWorld(
         paths: (net?.roads ?? []).map((r) => {
           const a = r.pts[0];
           const b = r.pts[r.pts.length - 1];
+          // Every 8th sample (~24 units) plus the last: enough to AIM a camera at
+          // a stretch of road without a probe pinning a seed's coordinates.
+          const pts: Array<[number, number, number]> = [];
+          for (let i = 0; i < r.pts.length; i += 8) {
+            pts.push([+r.pts[i].x.toFixed(1), +r.pts[i].y.toFixed(1), +r.pts[i].z.toFixed(1)]);
+          }
+          pts.push([+b.x.toFixed(1), +b.y.toFixed(1), +b.z.toFixed(1)]);
           return {
             id: r.id,
             profile: r.profile.id,
@@ -1379,6 +1397,7 @@ export function createWorld(
             z0: +a.z.toFixed(2),
             x1: +b.x.toFixed(2),
             z1: +b.z.toFixed(2),
+            pts,
           };
         }),
         at:
@@ -1391,6 +1410,13 @@ export function createWorld(
                 litter: +net.litterAt(x, z).toFixed(4),
               },
       };
+    },
+    debugPathRibbons(on: boolean): boolean {
+      if (towns === null) {
+        return false;
+      }
+      towns.setPathsVisible(on);
+      return true;
     },
     addPath(spec) {
       const net = plan?.network ?? null;
@@ -1663,7 +1689,8 @@ export function createWorld(
         clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius, ISLAND_KEEL);
       }
       clouds?.update(focus, dt);
-      shops.update(time);
+      shops.update(time, focus);
+      waypoints?.update(focus);
       towns?.update(time, focus);
       npcs?.update(dt, time, focus);
 

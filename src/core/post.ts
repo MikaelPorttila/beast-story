@@ -655,6 +655,43 @@ class OpaqueGTAOPass extends GTAOPass {
    */
   divisor = 2;
 
+  constructor(scene: THREE.Scene, camera: THREE.Camera, width?: number, height?: number) {
+    super(scene, camera, width, height);
+    // THE G-BUFFER SEES ONLY THE NEAR WORLD. The override material knows
+    // nothing of the beauty pass's distance fades, so anything faded out kept
+    // stamping its depth into the AO buffer and darkening the fog behind it —
+    // the road ribbon as a road-shaped line from the air, the lamp posts as a
+    // row of ghost lanterns (both reported). Contact AO's 1.8-unit radius is
+    // sub-texel long before 200, so the cut costs nothing a capture can find,
+    // and it covers every present and future fader in one place.
+    const normalMaterial = (this as unknown as { normalMaterial: THREE.Material }).normalMaterial;
+    normalMaterial.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          "#include <common>",
+          `#include <common>
+varying float vBsCameraDistance;`,
+        )
+        .replace(
+          "#include <project_vertex>",
+          `#include <project_vertex>
+vBsCameraDistance = length(mvPosition.xyz);`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <clipping_planes_pars_fragment>",
+          `#include <clipping_planes_pars_fragment>
+varying float vBsCameraDistance;`,
+        )
+        .replace(
+          "#include <clipping_planes_fragment>",
+          `#include <clipping_planes_fragment>
+if (vBsCameraDistance > 200.0) discard;`,
+        );
+    };
+    normalMaterial.customProgramCacheKey = () => "bs-ao-gbuffer-ring-cut-v1";
+  }
+
   override setSize(width: number, height: number): void {
     const d = this.divisor;
     super.setSize(Math.max(1, Math.round(width / d)), Math.max(1, Math.round(height / d)));

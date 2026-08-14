@@ -604,9 +604,13 @@ export interface World {
       z0: number;
       x1: number;
       z1: number;
+      /** Decimated centreline as [x, y, z], ~24 units apart — lets a probe aim a camera at a stretch of road. */
+      pts: Array<[number, number, number]>;
     }>;
     at: { edge: number; builtEdge: number; wear: number; litter: number } | null;
   };
+  /** Debug: show or hide every drawn ribbon and apron. False when this zone has no path network. `test-road-fade` proves the horizon dissolve with it. */
+  debugPathRibbons(on: boolean): boolean;
   /** Debug: every ROOF as [cx, cz, axisYaw, hl, r, yAxis, ry, fit] — a cylinder along a ridge; `fit` is its worst standoff from the thatch. */
   debugRidges(out: number[]): void;
   /** What streamed foliage may not grow through, as volumes (issue #131). Exposed so a probe asks the same question the placer did. */

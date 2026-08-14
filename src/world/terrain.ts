@@ -385,8 +385,11 @@ export class Terrain {
     return best;
   }
 
-  /** Full biome/color info for one column (writes into `out`, no allocs). */
-  columnInfo(cx: number, cz: number, out: ColumnScratch): void {
+  /** Full biome/color info for one column (writes into `out`, no allocs).
+   *  `wearCap` scales the trodden-ground tint: the far clipmap ramps it to 0
+   *  past the detailed ring, because the corridor is the darkest albedo in the
+   *  world and stayed a legible road line through full haze from the air. */
+  columnInfo(cx: number, cz: number, out: ColumnScratch, wearCap = 1): void {
     const x = cx + 0.5;
     const z = cz + 0.5;
     const hc = this.heightCont(x, z);
@@ -462,7 +465,7 @@ export class Terrain {
 
     // Trodden ground. Mud vs packed earth blends three noise scales against the
     // TRACKS negatively — daily traffic packs ground too hard to hold water.
-    const wear = this.grounds.length > 0 ? this.trampleAt(x, z) : 0;
+    const wear = this.grounds.length > 0 ? this.trampleAt(x, z) * wearCap : 0;
     if (wear > 0) {
       const churn = this.churnW.sample(x, z);
       // 0.75, not 0.95: at 0.95 nine tracks radiating from a camp centre cleared
