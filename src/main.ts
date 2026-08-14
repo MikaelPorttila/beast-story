@@ -2531,6 +2531,16 @@ content.state.onChange((change) => {
     return;
   }
   const status = content.state.questStatus(change.name);
+  // A STAGE ANSWERS A QUEST CHANGE ON THE NEXT FRAME, not on its own clock
+  // (issue #229): the pen's despawn rode PRACTICE_POLL, so a probe — or a
+  // player — could see the animal for most of a second after the turn-in that
+  // released it. Zeroing every stage poll here turns that window into a frame.
+  practicePollIn = 0;
+  holdStagePollIn = 0;
+  bossStagePollIn = 0;
+  marketStagePollIn = 0;
+  rookeryStagePollIn = 0;
+  mawsStagePollIn = 0;
   if (status === "active") {
     content.run(asset.data.onStart);
     // "REACH X" IS A STATE, NOT AN EDGE, FOR A QUEST HANDED OUT INSIDE X: the

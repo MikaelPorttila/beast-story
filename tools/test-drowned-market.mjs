@@ -166,7 +166,10 @@ let spots;
 {
   // Claim every dressed drop by swimming its stall: tp INTO the water beside it
   // and let the magnet do what a diver's reach does.
-  for (let round = 0; round < 3; round++) {
+  // FIVE rounds, not three: a drop lives MAX_AGE 42 s and the stage re-dresses
+  // what expires (the owe accounting), so a slow dive — this probe on a slow
+  // host, or a player — needs the rounds the self-healing was built for.
+  for (let round = 0; round < 5; round++) {
     // By STALL, not by drop: the snapshot carries no y and a deep stall's drop
     // sits below the magnet's reach from the surface — so dive each stall the
     // way a player does, straight down its own column.
