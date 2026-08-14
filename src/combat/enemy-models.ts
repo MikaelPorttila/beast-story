@@ -276,9 +276,71 @@ function buildBellwether(root: THREE.Group, v: Variant): EnemyBody {
  * `enemies.ts` publishes the map to the content layer at module load, and
  * `test-zfight` walks it. A shape is in here or it is in neither.
  */
+/**
+ * THE THREAD ANCHOR — the knot `quest:land/the-red-thread` is wound onto, and
+ * the first enemy that is an OBJECT rather than an animal (issue #202): coils
+ * of red cord wound over an angular shard, half-sunk in the Hold's floor. ONE
+ * VoxelModel on purpose — a single mesh has no cross-model planes, so it
+ * cannot z-fight with itself — and `Enemy.update` gives the behaviour of the
+ * same name no gait at all.
+ */
+function buildThreadAnchor(root: THREE.Group, v: Variant): EnemyBody {
+  const m = new VoxelModel();
+  // The shard: a crooked stack, each course stepping one voxel, dark against
+  // the cord. Angular is the brief — nothing here is an ellipsoid.
+  m.box(-3, 0, -3, 3, 1, 2, v.accent);
+  m.box(-2, 2, -2, 2, 4, 1, shade(v.accent, 1.5));
+  m.box(-1, 5, -1, 1, 7, 1, v.accent);
+  m.box(0, 8, 0, 1, 10, 1, shade(v.accent, 1.9));
+  // The coils. A ring of cord one voxel thick, wound where the shard tapers;
+  // every third voxel is the dark strand, so the cord reads as twisted rather
+  // than as a painted stripe. The slight y-wobble is the winding's pitch.
+  const coil = (cy: number, r: number, wobble: number, phase: number): void => {
+    for (let a = 0; a < 40; a++) {
+      const th = (a / 40) * Math.PI * 2;
+      const x = Math.round(Math.cos(th) * r);
+      const z = Math.round(Math.sin(th) * r * 0.9);
+      const y = cy + Math.round(Math.sin(th * 2 + phase) * wobble);
+      m.set(x, y, z, a % 3 === 2 ? v.dark : v.main);
+    }
+  };
+  coil(2, 4.6, 1, 0.4);
+  coil(4, 4.1, 1, 2.1);
+  coil(6, 3.2, 0, 3.6);
+  coil(7, 2.9, 1, 1.2);
+  // The loose end: off the top coil, down the shard's lee, and away along the
+  // floor — the thread on its way to the pen. Frays in the pale belly tone.
+  const trail: Array<[number, number, number]> = [
+    [3, 7, 0],
+    [4, 6, 1],
+    [4, 5, 2],
+    [5, 3, 2],
+    [5, 1, 3],
+    [6, 0, 3],
+    [7, 0, 4],
+    [8, 0, 4],
+  ];
+  for (const [x, y, z] of trail) {
+    m.set(x, y, z, v.main);
+  }
+  // Frays a step lighter than the cord, never the pale belly tone: an isolated
+  // bright voxel on open ground reads as a floating white fleck from the road.
+  m.set(5, 0, 5, shade(v.main, 1.3));
+  m.set(9, 0, 3, shade(v.main, 1.3));
+  m.set(-4, 0, -1, shade(v.main, 1.3));
+  const mesh = m.build(0.1);
+  const body = new THREE.Group();
+  // HALF-SUNK: an object left in a cellar, not a thing standing on a floor.
+  mesh.position.y = -0.25;
+  body.add(mesh);
+  root.add(body);
+  return { parts: { body } };
+}
+
 export const ENEMY_MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
   ["gloopling", buildGloopling],
   ["snortle", buildSnortle],
   ["peckit", buildPeckit],
   ["bellwether", buildBellwether],
+  ["thread-anchor", buildThreadAnchor],
 ]);

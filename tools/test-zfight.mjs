@@ -977,12 +977,14 @@ const BUDGET = {
   "sky-lamplighter": 0,
   mera: 0,
   coil: 0,
-  // The four enemy shapes, guarded since issue #151 split them out of the file
+  // The enemy shapes, guarded since issue #151 split them out of the file
   // that holds their behaviour. Clean at the bind pose in all three variants.
   gloopling: 0,
   snortle: 0,
   peckit: 0,
   bellwether: 0,
+  // One VoxelModel by construction, so it cannot fight itself (issue #202).
+  "thread-anchor": 0,
   // The waystone's two models, clean since they landed.
   waystone: 0,
   // The settlement's glow pairs, and they are a different kind of entry: these
