@@ -228,10 +228,17 @@ structure — a chain of islands, one component each, a rival crew always one ti
 rendered dark and reads as _unswimmable_, which is what makes the water mount feel like
 a key rather than an upgrade.
 
-**Zone.** `brine`, "The Brine Reach". Entered from Embervale's coast; the return
-gateway lands on `spawnPoint`, as `hold`'s does.
+**Region.** "The Brine Reach" (`region:brine`) is **part of the open world** —
+decided in review of #227's zone-based first cut, superseding the zone design
+this section first shipped with. Seaward of Embervale's coastline the landform
+blends into an island sea (`SEA_DIR`/`SEA_START`/`SEA_FULL` in
+`world/terrain.ts`); there is no gateway and no second world instance. The first
+crossing is the FERRY — a scripted sail between Embervale's pier and Saltrest's
+quay, moored by `sea-revealed` — and the water mount later makes the whole sea
+free-roam. Deep water refusing the hero on foot is the act gate.
 
-**Towns.** Three settlements — the planner's limit — plus two landmark islands with no
+**Towns.** Three `island: true` settlements — sited by the island placer, which
+takes no road-hub slot — plus two landmark islands with no
 settlement on them.
 
 | Place          | Id                        | Sign        | Layout      | Role                                                                                                                          |

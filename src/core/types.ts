@@ -219,8 +219,8 @@ export interface TownInfo {
   /**
   /** DISPLAY name key; a quest prints this and stores `id`. */
   readonly nameKey: StringKey;
-  /** 'camp' is the walled start town; 'hamlet' is an open settlement. */
-  readonly kind: "camp" | "hamlet";
+  /** 'camp' is the walled start town; 'hamlet' an open settlement; 'harbour' a waterside one (issue #144). */
+  readonly kind: "camp" | "hamlet" | "harbour";
   readonly x: number;
   /** Levelled ground height at the centre. */
   readonly y: number;
@@ -834,6 +834,9 @@ export type GameEvent =
     }
   /** An orb left the hero's hand. Nothing acts on it: it exists so the throw FEELS like something (src/feedback). */
   | { type: "orbThrown"; orbId: string }
+  /** The hero was turned back from deep water ON FOOT. Per refusal slice, unthrottled —
+   * the auto-mount policy in main.ts answers it (issue #153) and everyone else ignores it. */
+  | { type: "deepRefused" }
   /** An orb landed and a bond WORKED. `beastId` is the SPECIES id; an event rather than a call, because combat must not learn what a `BeastActor` is. */
   /** `beastId` is the COMPANION granted; `species` the wild INSTANCE bonded (`wild-sproutle`,
    * `penned-sproutle`) — a quest counts the instance, the roster gains the companion (issue #178). */

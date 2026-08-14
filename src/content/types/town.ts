@@ -56,6 +56,11 @@ export interface TownData {
    * skips these, so they take no road slot; the carrier reads them itself.
    */
   readonly carried: boolean;
+  /**
+   * Sited on an island in the sea region (issue #144): takes no road-hub slot and
+   * no cart road — the ferry, and later the water mount, are how it is reached.
+   */
+  readonly island: boolean;
 }
 
 /**
@@ -107,6 +112,7 @@ function parse(body: unknown, ctx: ParseCtx): TownData | null {
     order: num(b.order, r.at("order"), { min: 0, max: 10000, what: "a placement order" }),
     start: opt(b.start, r.at("start"), bool) ?? false,
     carried: opt(b.carried, r.at("carried"), bool) ?? false,
+    island: opt(b.island, r.at("island"), bool) ?? false,
   };
 }
 
@@ -123,6 +129,16 @@ function validate(asset: ContentAsset<TownData>, ctx: ValidateCtx): void {
       message: `no "${kind}/${asset.data.layout}" is registered`,
       field: "data.layout",
       fix: `defineFactory("${kind}", "${asset.data.layout}", …), or use one that exists`,
+    });
+  }
+
+  if (asset.data.island && (asset.data.start || asset.data.carried)) {
+    ctx.report({
+      severity: "error",
+      code: "bad-field",
+      message: `"${asset.id}" is an island town and cannot also be ${asset.data.start ? "the start town" : "carried"}`,
+      field: "data.island",
+      fix: "the player starts on the road network; a carrier sites its own settlement",
     });
   }
 

@@ -35,6 +35,7 @@ import {
   LOCOMOTION_NAME_KEYS,
   MOUNT_KINDS,
   MOUNT_KIND_KEYS,
+  MOUNT_KIND_OF,
   type CrownContact,
   type NpcInfo,
   type SkillDef,
@@ -84,6 +85,7 @@ import { BundledProvider } from "./content/storage/bundled";
 import { contentIssues, reportContentIssue } from "./core/content-bridge";
 import { ColliderView } from "./core/collider-view";
 import { createWorld, type LandmarkProbe } from "./world/index";
+import { SEA_DIR } from "./world/terrain";
 import { NPC_TALK_RANGE } from "./world/npc";
 import { QuestMarkers, type QuestMarkerKind, type QuestMarkerSpot } from "./world/quest-markers";
 import { TRAIL_PROFILE } from "./world/path-profile";
@@ -97,7 +99,9 @@ import {
 } from "./world/town-parts";
 import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./world/nature";
 import { createDungeon, holdFloorSpot } from "./world/dungeon";
-import { ZoneManager, type ZoneDef } from "./world/zones";
+import { Ferry, type FerryStop } from "./world/ferry";
+import { SURFACE_Y } from "./world/water";
+import { type GateSpec, ZoneManager, type ZoneDef } from "./world/zones";
 import { Underwater } from "./world/underwater";
 import { TouchParticles } from "./world/touch-particles";
 import { Player } from "./player/index";
@@ -351,6 +355,10 @@ function exitToTitle(): void {
 
   player.reset();
   mount.dismount();
+  // A sail in flight dies with the session; the fade must not outlive it.
+  sail = null;
+  sailFade.style.display = "none";
+  sailFade.style.opacity = "0";
   // Mount unlocks are story state; `collectSave` above already wrote them down.
   seedMountUnlocks();
   combat.reset();
@@ -849,20 +857,21 @@ content.defineAction("mount.unlock", (params) => {
 // overworld" hook never fires on a fresh game, and quest 4's definitions must be resident in `hold`.
 const contentBoot = await bootstrapContent({
   engineFlags: [],
-  packages: ["story", "story-land"],
+  // `story-sea` at boot, not on its act's flag: Act 2 is part of the open world
+  // (issue #144), so its island settlements must exist when `planSettlements`
+  // runs — the geography is always there; `sea-revealed` opens the FERRY.
+  packages: ["story", "story-land", "story-sea"],
 });
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
 
-// AN ACT'S PACKAGE LOADS ON THE FLAG THAT OPENS THE ACT (issues #209, #144). Not at boot — the boot
-// list above is the starting act and the shared ground — and not on entering a zone, because the
-// quest that sends you to the coast must be on the journal while you still stand in Embervale, and
-// issue #150 proved a package must survive its player crossing zones. Loaded ONCE and never released
-// mid-session: progress lives in ContentState either way, and `exitToTitle` clears the FACTS, after
-// which nothing gates on the resident definitions (a prerequisite-gated quest sits on no shelf).
-const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [
-  { flag: "sea-revealed", pkg: "story-sea" },
-];
+// AN ACT'S PACKAGE LOADS ON THE FLAG THAT OPENS THE ACT (issue #209) — unless the act is part of
+// the open world, in which case its settlements must exist when the world is planned and the
+// package moves to the boot list above (issue #144: `story-sea` did exactly that). The mechanism
+// stays for a future act whose content CAN arrive late; today the list is empty. Loaded ONCE and
+// never released mid-session: progress lives in ContentState either way, and `exitToTitle` clears
+// the FACTS, after which nothing gates on the resident definitions.
+const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [];
 const actPackagesLoaded = new Set<string>();
 function syncActPackages(): void {
   for (const act of ACT_PACKAGES) {
@@ -1017,8 +1026,110 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
   return best;
 }
 
-// Chosen inside createWorld (so the terrain can be flattened and props kept off) and read back by `gate`; a handoff rather than two scans that could disagree.
+// Further out than the Hold's arch: the coast is somewhere you SET OUT for. Same
+// lower bound rule as GATE_RADII.
+const COAST_RADII = [260, 300, 220, 340, 380, 420] as const;
+
+/**
+ * Where Embervale's ferry pier stands: a shore column with open water at its back.
+ * `findGateSpot`'s rules inverted — that one pays 6 a wet column between spawn and
+ * site because a trail cannot bridge; this one REQUIRES the water, seaward of the
+ * pier, so the way to it still walks dry and the pier reads as a door onto the sea.
+ * Coastline-facing sites win, because that is the sea the ferry actually sails.
+ */
+function findPierSpot(w: LandmarkProbe): { x: number; z: number } {
+  const base = w.spawnPoint;
+  let best: { x: number; z: number } | null = null;
+  let bestScore = Infinity;
+  for (const radius of COAST_RADII) {
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2 + 0.37;
+      const x = Math.round(base.x + Math.cos(a) * radius) + 0.5;
+      const z = Math.round(base.z + Math.sin(a) * radius) + 0.5;
+      const h = w.getHeight(x, z);
+      // The pad itself is dry beach: low enough to be a shore, never a clifftop.
+      if (h < w.waterLevel + 1 || h > w.waterLevel + 3) {
+        continue;
+      }
+      let worst = 0;
+      for (const [dx, dz] of GATE_PROBES) {
+        worst = Math.max(worst, Math.abs(w.getHeight(x + dx, z + dz) - h));
+      }
+      // Open water SEAWARD of the pier — sampled away from spawn, 6..30 out, three bearings.
+      const away = Math.atan2(z - base.z, x - base.x);
+      let wet = 0;
+      let samples = 0;
+      for (const spread of [-0.4, 0, 0.4]) {
+        for (let d = 6; d <= 30; d += 4) {
+          samples++;
+          if (w.getHeight(x + Math.cos(away + spread) * d, z + Math.sin(away + spread) * d) < w.waterLevel) {
+            wet++;
+          }
+        }
+      }
+      if (wet < samples * 0.6) {
+        continue;
+      }
+      let crowd = 0;
+      for (const s of w.shopPositions) {
+        const d = Math.hypot(s.x - x, s.z - z);
+        if (d < 12) {
+          crowd += 12 - d;
+        }
+      }
+      for (const town of w.towns.all) {
+        const keep = town.radius + 10;
+        const d = Math.hypot(town.x - x, town.z - z);
+        if (d < keep) {
+          crowd += (keep - d) * 3;
+        }
+      }
+      // The WALK to it must still be dry — the same no-bridge rule as the Hold's arch.
+      let landWet = 0;
+      {
+        const dx = x - base.x;
+        const dz = z - base.z;
+        const steps = Math.max(1, Math.round(Math.hypot(dx, dz) / 2));
+        for (let i = 1; i < steps; i++) {
+          const frac = i / steps;
+          if (w.getHeight(base.x + dx * frac, base.z + dz * frac) < w.waterLevel + 0.5) {
+            landWet++;
+          }
+        }
+      }
+      // Alignment with the coastline half-plane: the Reach lies down SEA_DIR.
+      const seaward = Math.max(0, (x - base.x) * SEA_DIR.x + (z - base.z) * SEA_DIR.z);
+      const score = worst * 3 + crowd + landWet * 6 - (wet / samples) * 4 - seaward * 0.02;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x, z };
+      }
+    }
+    if (best && bestScore < 2) {
+      break;
+    }
+  }
+  if (best) {
+    return best;
+  }
+  // No open water in range: any shore column keeps the pier standing somewhere.
+  for (const radius of COAST_RADII) {
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2 + 0.37;
+      const x = Math.round(base.x + Math.cos(a) * radius) + 0.5;
+      const z = Math.round(base.z + Math.sin(a) * radius) + 0.5;
+      const h = w.getHeight(x, z);
+      if (h >= w.waterLevel + 1 && h <= w.waterLevel + 4) {
+        return { x, z };
+      }
+    }
+  }
+  return { x: base.x + 300.5, z: base.z + 0.5 };
+}
+
+// Chosen inside createWorld (so the terrain can be flattened and props kept off) and read back by `gates` and the ferry; a handoff rather than two scans that could disagree.
 let gateSite: { x: number; z: number } | null = null;
+let pierSite: { x: number; z: number } | null = null;
 
 // The zone id is the identity; only `name` is display, and a GETTER because the language can change after these are built.
 const OVERWORLD: ZoneDef = {
@@ -1032,12 +1143,16 @@ const OVERWORLD: ZoneDef = {
       1337,
       (probe) => {
         gateSite = findGateSpot(probe);
-        // The one landmark asking for a keep-out: an animal spawning beside a player held at the threshold by a preload is an ambush the game arranged.
-        return [{ ...gateSite, id: "landmark:gateway", noSpawnRadius: 12 }];
+        pierSite = findPierSpot(probe);
+        // Both landmarks ask for a keep-out: an animal spawning beside a player held at the threshold by a preload is an ambush the game arranged.
+        return [
+          { ...gateSite, id: "landmark:gateway", noSpawnRadius: 12 },
+          { ...pierSite, id: "landmark:pier", noSpawnRadius: 12 },
+        ];
       },
       Number(storedGfx("terrainDistance")),
     ),
-  gate: () => ({ to: "hold", x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }),
+  gates: () => [{ to: "hold", x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }],
 };
 
 const HOLD: ZoneDef = {
@@ -1047,7 +1162,7 @@ const HOLD: ZoneDef = {
   },
   create: (scene) => createDungeon(scene, 0x5ea1ed),
   // You arrive ON the return gateway, which is why it starts disarmed (see EXIT_R).
-  gate: (w) => ({ to: "overworld", x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xffc46b }),
+  gates: (w) => [{ to: "overworld", x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xffc46b }],
   // A dungeon is a side trip; the overworld is where you live (issue #211).
   keepReturn: true,
 };
@@ -1087,9 +1202,8 @@ const zones = new ZoneManager({
     // the hero already standing in the zone; `discover` is the zone's own id and not a town's.
     content.state.discover(`zone:${def.id}`);
     advanceObjectives({ kind: "zone-arrival", id: def.id });
-    // Markers are per-zone; `gate` is the ZoneDef's own answer, not a second search.
-    const g = def.gate(w);
-    syncCompassMarkers(w, g.x, g.z, g.hex);
+    // Markers are per-zone; `gates` is the ZoneDef's own answer, not a second search.
+    syncCompassMarkers(w, def.gates(w));
     // `setCompassMarkers` REPLACES the list, so the quest chips are re-added after it — and they are
     // recomputed rather than copied, because the waypoint for "reach the Hold" is a different door
     // from either side of it.
@@ -1108,6 +1222,117 @@ const zones = new ZoneManager({
 await loading?.stage("actors");
 
 let world: World = zones.world;
+
+// THE FERRY (issue #144): Act 2 is part of the open world, and this is its first
+// crossing — Embervale's pier to Saltrest's quay, both piers of THIS world.
+// `sea-revealed` moors the boats; nothing here switches a zone or an instance.
+const ferry: Ferry | null = (() => {
+  const saltrest = world.towns.get("saltrest");
+  // Assigned inside `createWorld`'s landmarks callback, which flow analysis cannot see.
+  const p = pierSite as { x: number; z: number } | null;
+  if (!p || !saltrest) {
+    return null;
+  }
+  // The pier's boat floats on the spawn-away side — the side the open water is on
+  // (findPierSpot required it); Saltrest's floats off its quay, along gateAngle.
+  const away = Math.atan2(p.z - world.spawnPoint.z, p.x - world.spawnPoint.x);
+  return new Ferry(
+    engine.scene,
+    [
+      {
+        id: "pier",
+        x: p.x,
+        z: p.z,
+        y: world.getHeight(p.x, p.z),
+        boatX: p.x + Math.cos(away) * 8,
+        boatZ: p.z + Math.sin(away) * 8,
+      },
+      {
+        id: "saltrest",
+        x: saltrest.gateX,
+        z: saltrest.gateZ,
+        y: world.getHeight(saltrest.gateX, saltrest.gateZ),
+        boatX: saltrest.gateX + Math.sin(saltrest.gateAngle) * 8,
+        boatZ: saltrest.gateZ + Math.cos(saltrest.gateAngle) * 8,
+      },
+    ],
+    SURFACE_Y,
+    () => content.state.flag("sea-revealed"),
+  );
+})();
+
+/** Where a sail is headed, from press to fade-in; null when nobody is sailing. */
+let sail: { to: FerryStop; phase: "out" | "wait" | "in"; t: number } | null = null;
+
+// The sail's blackout: a full-screen layer sized from --bs-vw/--bs-vh, opacity
+// driven per frame so it follows the sim clock rather than a CSS timeline.
+const sailFade = document.createElement("div");
+sailFade.className = "bs-sail";
+sailFade.style.cssText =
+  "position:fixed;left:0;top:0;width:var(--bs-vw,100vw);height:var(--bs-vh,100vh);" +
+  "background:#04070c;opacity:0;display:none;z-index:30;pointer-events:none;" +
+  "align-items:center;justify-content:center;color:#cfe8e2;" +
+  "font:600 max(16px,2.2vh) system-ui,sans-serif;letter-spacing:0.08em;";
+const sailCaption = document.createElement("div");
+sailFade.appendChild(sailCaption);
+document.body.appendChild(sailFade);
+
+/** What the sail caption and pier hint call a destination. Looked up per call — live language. */
+function ferryStopName(stop: FerryStop): string {
+  return stop.id === "saltrest" ? t("town.saltrest.name") : t("zone.overworld.name");
+}
+
+const SAIL_OUT_S = 0.5;
+const SAIL_IN_S = 0.7;
+/** The far quay must stream before the fade lifts; this is the give-up, not the norm. */
+const SAIL_WAIT_MAX_S = 15;
+
+function startSail(to: FerryStop): void {
+  sail = { to, phase: "out", t: 0 };
+  sailCaption.textContent = t("hint.sailing", { place: ferryStopName(to) });
+  sailFade.style.opacity = "0";
+  sailFade.style.display = "flex";
+}
+
+function tickSail(dt: number): void {
+  if (sail === null) {
+    return;
+  }
+  sail.t += dt;
+  if (sail.phase === "out") {
+    sailFade.style.opacity = String(Math.min(1, sail.t / SAIL_OUT_S));
+    if (sail.t >= SAIL_OUT_S) {
+      // Blacked out: move the pair. A boat carries no mount, and the quay is ground.
+      if (mount.isMounted) {
+        mount.dismount();
+      }
+      player.position.set(sail.to.x, sail.to.y + 0.4, sail.to.z);
+      player.velocity.set(0, 0, 0);
+      sail.phase = "wait";
+      sail.t = 0;
+    }
+  } else if (sail.phase === "wait") {
+    if ((!world.streaming && sail.t > 0.3) || sail.t > SAIL_WAIT_MAX_S) {
+      sail.phase = "in";
+      sail.t = 0;
+    }
+  } else {
+    sailFade.style.opacity = String(Math.max(0, 1 - sail.t / SAIL_IN_S));
+    if (sail.t >= SAIL_IN_S) {
+      sailFade.style.display = "none";
+      const to = sail.to;
+      sail = null;
+      ferry?.arrived(to);
+      // FIRST LANDFALL IS THE ACT'S DOOR: one discovery, one banner toast. The
+      // town-arrival objective fires from syncTownArrival on its own.
+      if (to.id === "saltrest" && !content.state.discovered("region:brine")) {
+        content.state.discover("region:brine");
+        bus.emit({ type: "toast", text: t("toast.enteredZone", { zone: t("region.brine.name") }) });
+      }
+    }
+  }
+}
+
 // Zone-agnostic — the world is only a per-frame "is there water under the lens" answer — so it survives a switch without being in `bound`.
 const underwater = new Underwater(engine.scene, engine.camera, engine.renderer.domElement);
 const player = new Player(engine, world, input, bus);
@@ -1175,7 +1400,7 @@ player.aimAssist = (origin, dir) => {
 // assignments and no DOM work (issue #68) — every town, since `TownInfo` does not say which move.
 const _townChips: Array<{ chip: CompassMarker; town: TownInfo }> = [];
 
-function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: number): void {
+function syncCompassMarkers(w: World, gates: GateSpec[]): void {
   _townChips.length = 0;
   hud.setCompassMarkers([
     // Dens in the shard-shop amber the hint pill and price tags already use.
@@ -1191,14 +1416,18 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
       _townChips.push({ chip, town: town });
       return chip;
     }),
-    // The gateway takes the colour of its own arch.
-    { id: "gate", x: gateX, z: gateZ, color: gateHex, label: "GATE" },
+    // Each gateway takes the colour of its own arch, labelled by where it OPENS —
+    // a player reads the rim for "the way to the sea", not for "a gate".
+    ...gates.map((g) => ({
+      id: `gate:${g.to}`,
+      x: g.x,
+      z: g.z,
+      color: g.hex,
+      label: g.to.slice(0, 4).toUpperCase(),
+    })),
   ]);
 }
-{
-  const g = OVERWORLD.gate(world);
-  syncCompassMarkers(world, g.x, g.z, g.hex);
-}
+syncCompassMarkers(world, OVERWORLD.gates(world));
 
 // Empty on a new game — riding is three story unlocks (game-story.md §5). `mounts=` is applied here and nowhere else.
 const mountUnlocks = new MountUnlocks();
@@ -2080,9 +2309,9 @@ function questWaypoint(asset: ContentAsset<QuestData>): { x: number; z: number }
       }
     }
     // ANOTHER ZONE IS A DOOR, not a place: the only thing this world can point
-    // at is the way out of it, which is exactly where the player must walk.
+    // at is the way out of it — the arch for THAT zone, where there is one.
     if (trigger.zone !== undefined && trigger.zone !== zones.id) {
-      const g = zones.gateway;
+      const g = zones.gatewayTo(trigger.zone);
       return { x: g.x, z: g.z };
     }
   }
@@ -2188,10 +2417,41 @@ function advanceObjectives(fact: QuestFact): void {
   }
 }
 
+/**
+ * TOUCHING DARK WATER MOUNTS THE WATER BEAST (issue #153) — an engine mechanic,
+ * not a quest step: gated on the story flag and the unlock, so it keeps working
+ * after Dark Water is turned in and in every later act. The beast surfaces to
+ * carry him: a benched water companion is brought out as the lead first, which
+ * is the same slot-visibility rule Tab uses.
+ */
+function tryAutoMountWater(): void {
+  if (!playing || mount.isMounted || sail !== null) {
+    return;
+  }
+  if (!mountUnlocks.has("water") || !content.state.flag("mount-water")) {
+    return;
+  }
+  const water = ownedBeasts().filter(
+    (b) => MOUNT_KIND_OF[b.species.locomotion] === "water" && !b.isDead,
+  );
+  if (water.length === 0) {
+    return;
+  }
+  const out = water.find((b) => b === primary() || b === support()) ?? water[0];
+  if (out !== primary() && out !== support()) {
+    primaryIdx = roster.indexOf(out);
+    refreshVisibility();
+  }
+  mount.mount(out);
+}
+
 bus.on((e) => {
   // A THROW, not a bond: the practice objective is about the motion, so a broken orb counts.
   if (e.type === "orbThrown") {
     advanceObjectives({ kind: "orb-thrown" });
+  }
+  if (e.type === "deepRefused") {
+    tryAutoMountWater();
   }
   // THE INSTANCE, NOT THE COMPANION (issue #178): the fact carries the wild species that was bonded
   // (`wild-sproutle`, `penned-sproutle`), so "bond a WILD one" is a claim about the animal and not
@@ -2260,6 +2520,13 @@ content.state.onChange((change) => {
   const status = content.state.questStatus(change.name);
   if (status === "active") {
     content.run(asset.data.onStart);
+    // "REACH X" IS A STATE, NOT AN EDGE, FOR A QUEST HANDED OUT INSIDE X: the
+    // sea act's opener is given on the quay it asks you to reach (issue #152),
+    // and `syncTownArrival` only fires on crossing the rim. Replayed once per
+    // activation, with the arrival test's own numbers; later arrivals stay edges.
+    if (inTown !== null) {
+      advanceObjectives({ kind: "town-arrival", id: `town:${inTown}` });
+    }
   }
   if (status === "completed") {
     content.run(asset.data.onComplete);
@@ -4899,7 +5166,9 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // hero mid-air while the enemies below this branch went on swinging. `input.suspended` is the whole
     // claim: every gameplay read answers "nothing pressed", so a slice runs with the sticks at rest and
     // gravity, friction and a swing in flight resolve. Set for THIS BLOCK ONLY — the modal's keys follow.
-    input.suspended = modal;
+    // A SAIL SUSPENDS INPUT LIKE A MODAL: the hero is on a boat the game is
+    // steering, so gameplay reads answer "nothing pressed" until the fade lifts.
+    input.suspended = modal || sail !== null;
     perf.section("input");
     // Mounting runs BEFORE the player: while ridden it writes his position, velocity and saddle pose for the slice. Safe every slice; the F edge is latched inside.
     mount.update(dt, flags.beasts ? primary() : null);
@@ -5011,10 +5280,16 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       } else if (nearShop) {
         tryOpenShop();
       } else {
-        // LAST, and it refuses the press itself when the hero is not in an armed arch — a gateway is
-        // the only one of the three that stands in open country, so it must never take a press meant
-        // for a person or a den.
-        zones.requestCrossing();
+        // LAST, and each refuses the press itself when the hero is not standing on
+        // its own pad — the pier and the arch stand in open country, so they must
+        // never take a press meant for a person or a den. The pier is tested first:
+        // both refuse by position, and the two never share ground.
+        const atPier = sail === null ? (ferry?.atPier() ?? null) : null;
+        if (atPier) {
+          startSail(atPier.to);
+        } else {
+          zones.requestCrossing();
+        }
       }
     }
     // TWO KEYS, AND THE SPLIT IS THE POINT (issue #83 follow-up): Escape CANCELS, F10 opens the menu. The
@@ -5116,11 +5391,23 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
 
   // Streams the zone, runs the gateway rules, builds the preload. It can swap `world` out from under this slice; everything above has finished with it.
   zones.update(player.position, dt, first);
+  ferry?.update(player.position, dt);
+  tickSail(dt);
   perf.section("world");
 
   // `t()` with no placeholders is one lookup and no allocation, so hinting per slice is free — never an
   // interpolated `t(key, vars)` here. A gateway countdown outranks both.
-  const hint = portalHint ?? (nearNpc ? npcHint(nearNpc) : nearShop ? skillDenHint : null);
+  // The pier's offer takes the pill when nothing nearer claims it, mirroring the press order above.
+  const pierOffer = sail === null ? (ferry?.atPier() ?? null) : null;
+  const hint =
+    portalHint ??
+    (nearNpc
+      ? npcHint(nearNpc)
+      : nearShop
+        ? skillDenHint
+        : pierOffer
+          ? t("hint.ferry", { place: ferryStopName(pierOffer.to), key: hud.interactPrompt })
+          : null);
   if (hint) {
     hud.showHint(hint);
   } else {
@@ -6794,6 +7081,14 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
 
 (window as unknown as { __dbgDraws: () => number }).__dbgDraws = () =>
   engine.renderer.info.render.calls;
+
+// THE FERRY, for tools/test-brine.mjs: where the piers are, whether the boats are
+// moored, and whether a sail is in flight. `sailing` is the phase, null at rest.
+(window as unknown as { __dbgFerry: () => unknown }).__dbgFerry = () => ({
+  present: ferry !== null,
+  sailing: sail?.phase ?? null,
+  ...(ferry ? (ferry.debug() as object) : {}),
+});
 
 (window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({
   ...(zones.debug() as Record<string, unknown>),

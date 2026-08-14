@@ -1,14 +1,159 @@
 {
   "id": "story-sea",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "requires": ["story"],
   "meta": {
     "title": "Act 2 — Sea: The Brine Reach",
-    "note": "The five main quests of Act 2 (game-story.md §4, issue #144). Today it holds only the act's ENTRY — the receiving half of the seam #143's closer states from its side — so that finishing the Bellwether puts the next step on the journal's shelf the moment Coil says 'the coast'. The rest of the act arrives with its zone (#152 through #156).",
-    "loading": "Loaded when `sea-revealed` is SET, not at boot and not on entering a zone — see ACT_PACKAGES in main.ts. The act's opening flag is its door for content exactly as it is for dialogue and shops (§6): a zone is the wrong key, because the quest that sends you to the coast must be readable while you are still standing in Embervale, and issue #150 already proved a package must survive its player crossing zones. Issue #209 records the decision.",
-    "the-stub": "`quest:sea/salt-and-rope` ships here without its giver, its location or its objective triggers, because `npc:gain/saltrest`, `town:saltrest` and zone `brine` do not exist yet and a reference to nothing is a diagnostic. #152 adds all three and wires them; the ORDERING is already final — `prerequisites` names the Bellwether, and that is the half the Act 1 epic's definition of done asserts."
+    "note": "The five main quests of Act 2 (game-story.md §4, issue #144). Act 2 is PART OF THE OPEN WORLD — decided in review of the zone-based first cut of #227: seaward of Embervale's coastline the landform blends into an island sea (terrain.ts SEA_DIR/SEA_START/SEA_FULL), island towns stand past it, and the deep water that refuses you on foot is the act gate. There is no `brine` zone and never will be.",
+    "loading": "Boot-loaded (see bootstrapContent in main.ts): the islands physically exist from frame 1 because the world is one world, so their settlements must exist when planSettlements runs. What `sea-revealed` opens is the FERRY — the means of crossing — not the geography. The flag-gated loading recorded in issue #209 was a zone-era decision and went with the zone.",
+    "the-stub": "Nothing is stubbed any more (#152): `npc:gain/saltrest` stands in the harbour with the act's opening talk rows, and the quest names its giver and its triggers. He is the SECOND PLACEMENT of the Encampment's Gain (game-story.md §2): one `body` factory, one display-name key, and the joke that he is always already there when you arrive."
   },
   "assets": [
+    {
+      "id": "town:saltrest",
+      "schema": 1,
+      "name": { "key": "town.saltrest.name" },
+      "tags": ["settlement", "act2"],
+      "data": {
+        "sign": { "key": "town.saltrest.sign" },
+        "layout": "harbour",
+        "island": true,
+        "radius": 16,
+        "color": "#3fd0b6",
+        "waterside": true,
+        "order": 4,
+        "start": false
+      }
+    },
+    {
+      "id": "npc:gain/saltrest",
+      "schema": 1,
+      "name": { "key": "npc.gain.name" },
+      "tags": ["resident", "quest-giver", "act2"],
+      "data": {
+        "town": "town:saltrest",
+        "body": "gain",
+        "homeOffset": 0,
+        "acrossFocus": true,
+        "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/salt-and-rope",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/salt-and-rope",
+                  "objective": "talk-to-gain",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.sea1.done" },
+            "actions": [
+              {
+                "do": "progress.add",
+                "quest": "quest:sea/salt-and-rope",
+                "objective": "take-the-boat"
+              },
+              { "do": "quest.complete", "quest": "quest:sea/salt-and-rope" }
+            ]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:land/the-bellwether",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/salt-and-rope",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/salt-and-rope",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.sea1.offer" },
+            "actions": [
+              { "do": "quest.start", "quest": "quest:sea/salt-and-rope" },
+              {
+                "do": "progress.add",
+                "quest": "quest:sea/salt-and-rope",
+                "objective": "talk-to-gain"
+              }
+            ]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/dark-water",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sea/dark-water",
+                  "objective": "tame-aquaxol",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.sea2.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:sea/dark-water" }]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/salt-and-rope",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/dark-water",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sea/dark-water",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.sea2.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:sea/dark-water" }]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sea/dark-water",
+              "status": "active"
+            },
+            "line": { "key": "npc.gain.sea2.busy" }
+          },
+          { "line": { "key": "npc.gain.sea1.after" } }
+        ]
+      }
+    },
     {
       "id": "quest:sea/salt-and-rope",
       "schema": 1,
@@ -18,11 +163,14 @@
       "data": {
         "category": "main",
         "arc": "sea",
+        "giver": "npc:gain/saltrest",
+        "location": "town:saltrest",
         "prerequisites": ["quest:land/the-bellwether"],
         "objectives": [
           {
             "key": "reach-saltrest",
-            "text": { "key": "quest.sea.saltAndRope.obj.reachSaltrest" }
+            "text": { "key": "quest.sea.saltAndRope.obj.reachSaltrest" },
+            "trigger": { "kind": "town-arrival", "town": "town:saltrest" }
           },
           {
             "key": "talk-to-gain",
@@ -38,6 +186,40 @@
           { "do": "discover", "id": "town:saltrest" }
         ],
         "rewards": { "xp": 250, "shard": 60 }
+      }
+    },
+    {
+      "id": "quest:sea/dark-water",
+      "schema": 1,
+      "name": { "key": "quest.sea.darkWater.name" },
+      "description": { "key": "quest.sea.darkWater.desc" },
+      "tags": ["story", "act2"],
+      "data": {
+        "category": "main",
+        "arc": "sea",
+        "giver": "npc:gain/saltrest",
+        "location": "town:saltrest",
+        "prerequisites": ["quest:sea/salt-and-rope"],
+        "objectives": [
+          {
+            "key": "find-the-aquaxol",
+            "text": { "key": "quest.sea.darkWater.obj.findTheAquaxol" },
+            "trigger": { "kind": "orb-thrown", "species": ["wild-aquaxol"] },
+            "_find": "The engine's orb fact carries no species, so any throw advances this — the same looseness bond-practice ships with. The species filter is what RINGS the aquaxol in the world marks, which is the objective's real job: point the hunt."
+          },
+          {
+            "key": "tame-aquaxol",
+            "text": { "key": "quest.sea.darkWater.obj.tameAquaxol" },
+            "trigger": { "kind": "tamed", "species": ["wild-aquaxol"] }
+          }
+        ],
+        "onComplete": [
+          { "do": "mount.unlock", "kind": "water" },
+          { "do": "flag.set", "flag": "mount-water" },
+          { "do": "flag.set", "flag": "dark-water-open" }
+        ],
+        "_mount-water": "Action and flag both, per §6: the action does the unlocking, the flag is the testable fact quest:seam/guardian-sea gates on in Act 4. Campaign-lifetime — never cleared.",
+        "rewards": { "xp": 300, "shard": 80 }
       }
     }
   ]

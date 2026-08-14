@@ -20,13 +20,23 @@ import { inRise, type World, type WorldBound } from "../core/types";
 import { t } from "../i18n";
 import { Gateway } from "./portal";
 
+/** One way out of a zone: where the arch stands and which zone it opens on. */
+export interface GateSpec {
+  to: string;
+  x: number;
+  z: number;
+  hex: number;
+}
+
 export interface ZoneDef {
   id: string;
   name: string;
   /** Build this zone's World. ZoneManager is the only legal caller. */
   create(scene: THREE.Scene): World;
-  /** Called once with the finished world, so the gate can sit on new ground. */
-  gate(world: World): { to: string; x: number; z: number; hex: number };
+  /** Called once with the finished world, so the gates can sit on new ground.
+   * A zone may have several ways out (issue #144: the overworld keeps the Hold's
+   * arch and gains the coast crossing); each is its own arch with its own rules. */
+  gates(world: World): GateSpec[];
   /**
    * A SIDE TRIP: while the player is in THIS zone, the zone its gateway leads
    * back to is rebuilt right after arrival and never distance-released, so the
@@ -64,16 +74,20 @@ const WARM_STEPS = 11;
 /** Sweep lights live 0.02 s = two 60 Hz slices, so step k needs a stride of 3. */
 const WARM_STRIDE = 3;
 
+/** Per-arch state: the press rules are about ONE pad, not the zone. */
+interface GateState {
+  gateway: Gateway;
+  to: string;
+  /** Asked for, and waiting on the far side to be built. Cleared by leaving the pad. */
+  requested: boolean;
+  /** False until the hero has left EXIT_R of THIS pad at least once. */
+  armed: boolean;
+}
+
 interface ZoneState {
   def: ZoneDef;
   world: World;
-  gateway: Gateway;
-  to: string;
-  /** Seconds inside ENTER_R. Reset only by leaving EXIT_R. */
-  /** Asked for, and waiting on the far side to be built. Cleared by leaving the pad. */
-  requested: boolean;
-  /** False until the hero has left EXIT_R at least once. */
-  armed: boolean;
+  gates: GateState[];
   warm: number;
   warmWait: number;
 }
@@ -106,12 +120,18 @@ export class ZoneManager {
   private defs = new Map<string, ZoneDef>();
   private activeId: string;
   private pendingId: string | null = null;
+  /** The gate whose band pulled the preload in; the release ring is measured from it. */
+  private pendingGate: GateState | null = null;
   private opts: ZoneManagerOpts;
   private since = 0;
-  /** Probe readings: horizontal distance to the gateway, signed rise, verdict. */
+  /** Probe readings: horizontal distance to the NEAREST gateway, signed rise, verdict. */
   private gateDist = 0;
   private gateRise = 0;
   private gateInside = false;
+  /** The gate the hero is standing in this frame, if any — the one a press means. */
+  private engaged: GateState | null = null;
+  /** The nearest gate this frame; what the hint and the probe readings describe. */
+  private nearGate: GateState | null = null;
   /** The zone we just left, handed back a few chunks a frame. */
   private retiring: World | null = null;
 
@@ -123,7 +143,9 @@ export class ZoneManager {
     this.activeId = opts.start;
     this.states.set(opts.start, this.build(opts.start));
     // Born here, so armed from the outset — unlike an arrival through a portal.
-    this.states.get(opts.start)!.armed = true;
+    for (const g of this.states.get(opts.start)!.gates) {
+      g.armed = true;
+    }
   }
 
   get world(): World {
@@ -138,11 +160,14 @@ export class ZoneManager {
   get zoneIds(): string[] {
     return [...this.defs.keys()];
   }
-  /** The gateway OUT of the active zone: where it is, and which zone it leads to. */
-  get gateway(): { x: number; z: number; to: string } {
+  /**
+   * The way OUT of the active zone toward `to`: the direct gate, or — pointing at a
+   * zone this one has no arch for — the first gate, which is still the way you leave.
+   */
+  gatewayTo(to: string): { x: number; z: number; to: string } {
     const state = this.states.get(this.activeId)!;
-    const g = state.def.gate(state.world);
-    return { x: g.x, z: g.z, to: g.to };
+    const g = state.gates.find((gate) => gate.to === to) ?? state.gates[0];
+    return { x: g.gateway.position.x, z: g.gateway.position.z, to: g.to };
   }
 
   private build(id: string): ZoneState {
@@ -151,13 +176,21 @@ export class ZoneManager {
       throw new Error(`unknown zone "${id}"`);
     }
     const world = def.create(this.opts.scene);
-    const g = def.gate(world);
-    const gateway = new Gateway(this.opts.scene, g.x, world.getHeight(g.x, g.z), g.z, g.hex);
-    return { def, world, gateway, to: g.to, requested: false, armed: false, warm: 0, warmWait: 0 };
+    const gates = def.gates(world).map(
+      (g): GateState => ({
+        gateway: new Gateway(this.opts.scene, g.x, world.getHeight(g.x, g.z), g.z, g.hex),
+        to: g.to,
+        requested: false,
+        armed: false,
+      }),
+    );
+    return { def, world, gates, warm: 0, warmWait: 0 };
   }
 
   private destroy(s: ZoneState): void {
-    s.gateway.dispose();
+    for (const g of s.gates) {
+      g.gateway.dispose();
+    }
     s.world.dispose();
   }
 
@@ -171,39 +204,77 @@ export class ZoneManager {
     }
 
     active.world.update(focus, dt, newFrame);
-    active.gateway.update(dt);
+    for (const g of active.gates) {
+      g.gateway.update(dt);
+    }
 
-    const gx = focus.x - active.gateway.position.x;
-    const gz = focus.z - active.gateway.position.z;
-    const gy = focus.y - active.gateway.position.y;
-    const d2 = gx * gx + gz * gz;
-    this.gateDist = Math.sqrt(d2);
-    this.gateRise = gy;
-    // A CYLINDER: leaving upward must arm it as walking away does.
-    const inside = d2 < ENTER_R2 && inRise(0, gy, GATE_RISE);
-    const outside = d2 > EXIT_R2 || !inRise(0, gy, GATE_EXIT_RISE);
-    this.gateInside = inside;
+    // Measure every gate; the press rules are per pad, the readings are the nearest's.
+    let near: GateState | null = null;
+    let nearD2 = Infinity;
+    let nearRise = 0;
+    let engaged: GateState | null = null;
+    for (const g of active.gates) {
+      const gx = focus.x - g.gateway.position.x;
+      const gz = focus.z - g.gateway.position.z;
+      const gy = focus.y - g.gateway.position.y;
+      const d2 = gx * gx + gz * gz;
+      // A CYLINDER: leaving upward must arm it as walking away does.
+      const inside = d2 < ENTER_R2 && inRise(0, gy, GATE_RISE);
+      const outside = d2 > EXIT_R2 || !inRise(0, gy, GATE_EXIT_RISE);
+      // WALKING OUT ARMS IT AND TAKES BACK THE ASK: a request is about the arch you
+      // are standing in, so leaving cancels it rather than firing behind you.
+      if (outside) {
+        g.armed = true;
+        g.requested = false;
+      }
+      if (inside && engaged === null) {
+        engaged = g;
+      }
+      if (d2 < nearD2) {
+        nearD2 = d2;
+        nearRise = gy;
+        near = g;
+      }
+    }
+    this.gateDist = Math.sqrt(nearD2);
+    this.gateRise = nearRise;
+    this.gateInside = engaged !== null;
+    this.engaged = engaged;
+    this.nearGate = near;
 
     // Preload band, gated on `armed` or arrival rebuilds the zone just left.
     // A SPHERE, not the pad's cylinder: a hero 60 overhead is 60 away.
     // In a `keepReturn` zone the band is the WHOLE zone: the return world is
     // built as soon as the one just left has finished handing its chunks back,
     // so the wait happens under gameplay instead of under the arch.
-    const d3 = d2 + gy * gy;
-    const wantNear = active.armed && d3 < PRELOAD_R2;
     const wantResident = active.def.keepReturn === true && this.retiring === null;
-    if ((wantNear || wantResident) && this.pendingId === null && active.to !== this.activeId) {
-      this.pendingId = active.to;
-      const p = this.build(active.to);
+    const d3 = nearD2 + nearRise * nearRise;
+    const puller = wantResident
+      ? (active.gates[0] ?? null)
+      : near !== null && near.armed && d3 < PRELOAD_R2
+        ? near
+        : null;
+    if (puller !== null && this.pendingId === null && puller.to !== this.activeId) {
+      this.pendingId = puller.to;
+      this.pendingGate = puller;
+      const p = this.build(puller.to);
       // Hidden: lights are not culled, and two zones lit recompiles this one.
       p.world.setVisible(false);
-      p.gateway.group.visible = false;
-      this.states.set(active.to, p);
-    } else if (d3 > RELEASE_R2 && this.pendingId !== null && active.def.keepReturn !== true) {
-      const p = this.states.get(this.pendingId)!;
-      this.states.delete(this.pendingId);
-      this.pendingId = null;
-      this.destroy(p);
+      this.setGatesVisible(p, false);
+      this.states.set(puller.to, p);
+    } else if (this.pendingId !== null && active.def.keepReturn !== true) {
+      // Released from the gate that PULLED it — walking to another arch is walking away.
+      const pg = this.pendingGate!.gateway.position;
+      const px = focus.x - pg.x;
+      const pz = focus.z - pg.z;
+      const py = focus.y - pg.y;
+      if (px * px + pz * pz + py * py > RELEASE_R2) {
+        const p = this.states.get(this.pendingId)!;
+        this.states.delete(this.pendingId);
+        this.pendingId = null;
+        this.pendingGate = null;
+        this.destroy(p);
+      }
     }
 
     let ready = false;
@@ -216,14 +287,14 @@ export class ZoneManager {
         } else {
           // Hide this zone so the destination compiles against its own lights.
           active.world.setVisible(false);
-          active.gateway.group.visible = false;
+          this.setGatesVisible(active, false);
           p.world.setVisible(true);
-          p.gateway.group.visible = true;
+          this.setGatesVisible(p, true);
           this.opts.warm(p.world.spawnPoint, p.warm);
           p.world.setVisible(false);
-          p.gateway.group.visible = false;
+          this.setGatesVisible(p, false);
           active.world.setVisible(true);
-          active.gateway.group.visible = true;
+          this.setGatesVisible(active, true);
           p.warm++;
           p.warmWait = WARM_STRIDE - 1;
         }
@@ -231,18 +302,13 @@ export class ZoneManager {
       ready = !p.world.streaming && p.warm >= WARM_STEPS;
     }
 
-    // WALKING OUT ARMS IT AND TAKES BACK THE ASK: a request is about the arch you
-    // are standing in, so leaving cancels it rather than firing behind you.
-    if (outside) {
-      active.armed = true;
-      active.requested = false;
-    }
-
     if (this.opts.onHint) {
-      const zone = this.defs.get(active.to)?.name ?? active.to;
+      // The hint describes the pad the hero is close to; past EXIT_R there is none.
+      const g = near !== null && nearD2 < EXIT_R2 && inRise(0, nearRise, GATE_EXIT_RISE) ? near : null;
+      const zone = g ? (this.defs.get(g.to)?.name ?? g.to) : "";
       this.opts.onHint(
-        !outside && active.armed
-          ? active.requested
+        g !== null && g.armed
+          ? g.requested
             ? t("hint.zoneEntering", { zone })
             : t("hint.zoneUse", { zone, key: this.opts.interactKey?.() ?? "E" })
           : null,
@@ -251,8 +317,15 @@ export class ZoneManager {
 
     // The press is remembered until the far side is ready, so a player who asked
     // once while it was still building is not asked to press again.
-    if (active.requested && ready) {
-      this.commit(active.to);
+    const asked = active.gates.find((g) => g.requested);
+    if (asked && ready && this.pendingId === asked.to) {
+      this.commit(asked.to);
+    }
+  }
+
+  private setGatesVisible(s: ZoneState, visible: boolean): void {
+    for (const g of s.gates) {
+      g.gateway.group.visible = visible;
     }
   }
 
@@ -262,24 +335,33 @@ export class ZoneManager {
     const next = this.states.get(to)!;
     this.activeId = to;
     this.pendingId = null;
+    this.pendingGate = null;
+    // Stale pointers into the zone just left; a press before the next update means nothing.
+    this.engaged = null;
+    this.nearGate = null;
     this.since = 0;
     this.transitions++;
 
     next.world.setVisible(true);
-    next.gateway.group.visible = true;
+    this.setGatesVisible(next, true);
 
     for (const b of this.opts.bind) {
       b.setWorld(next.world);
     }
     this.opts.onArrive(next.world, next.def, prev.def);
 
-    // You arrive standing on the far gateway; disarmed until you walk out.
-    next.armed = false;
-    next.requested = false;
+    // You may arrive standing on a gateway; every pad is disarmed until walked out
+    // of, and the ones you are NOT standing on arm on the first update.
+    for (const g of next.gates) {
+      g.armed = false;
+      g.requested = false;
+    }
 
     // Retired, not destroyed: arch now, chunks a few per frame from update().
     this.states.delete(prev.def.id);
-    prev.gateway.dispose();
+    for (const g of prev.gates) {
+      g.gateway.dispose();
+    }
     prev.world.setVisible(false);
     this.retiring?.dispose();
     this.retiring = prev.world;
@@ -295,11 +377,11 @@ export class ZoneManager {
    * readers and two of them must not both answer it.
    */
   requestCrossing(): boolean {
-    const active = this.states.get(this.activeId)!;
-    if (!this.gateInside || !active.armed || active.requested) {
+    const g = this.engaged;
+    if (g === null || !g.armed || g.requested) {
       return false;
     }
-    active.requested = true;
+    g.requested = true;
     return true;
   }
 
@@ -337,6 +419,8 @@ export class ZoneManager {
   debug(): unknown {
     const a = this.states.get(this.activeId)!;
     const p = this.pendingId ? this.states.get(this.pendingId)! : null;
+    // `gate` stays the probe's one-arch view — the NEAREST — beside the full list.
+    const n = this.nearGate ?? a.gates[0];
     return {
       id: this.activeId,
       name: a.def.name,
@@ -346,17 +430,25 @@ export class ZoneManager {
       streaming: a.world.streaming,
       resident: [...this.states.keys()],
       gate: {
-        to: a.to,
-        x: +a.gateway.position.x.toFixed(2),
-        y: +a.gateway.position.y.toFixed(2),
-        z: +a.gateway.position.z.toFixed(2),
+        to: n.to,
+        x: +n.gateway.position.x.toFixed(2),
+        y: +n.gateway.position.y.toFixed(2),
+        z: +n.gateway.position.z.toFixed(2),
         dist: +this.gateDist.toFixed(2),
         rise: +this.gateRise.toFixed(2),
-        requested: a.requested,
-        armed: a.armed,
+        requested: n.requested,
+        armed: n.armed,
         // `dist` inside ENTER_R with `inside` false is issue #78's height gate.
         inside: this.gateInside,
       },
+      gates: a.gates.map((g) => ({
+        to: g.to,
+        x: +g.gateway.position.x.toFixed(2),
+        y: +g.gateway.position.y.toFixed(2),
+        z: +g.gateway.position.z.toFixed(2),
+        requested: g.requested,
+        armed: g.armed,
+      })),
       pending: p && {
         id: p.def.id,
         chunksLoaded: p.world.chunksLoaded,

@@ -13,7 +13,7 @@ import { content, defineFactory, resolveText, TOWN_LAYOUT_KIND, type TownData } 
 import type { ContentText } from "../content/types";
 import { displayKey, reportContentIssue } from "../core/content-bridge";
 import type { Terrain } from "./terrain";
-import { WATER_LEVEL, type GroundPatch } from "./terrain";
+import { SEA_DIR, SEA_FULL, WATER_LEVEL, type GroundPatch } from "./terrain";
 import {
   RoadNetwork,
   roadAt,
@@ -105,6 +105,9 @@ export interface TownSite {
   order: number;
   /** The town the player starts on the road out of. */
   start: boolean;
+  /** Sited on an island in the sea region (issue #144): takes no hub slot, gets no
+   *  cart road — the ferry and, later, the water mount are how it is reached. */
+  island: boolean;
 }
 
 /** A `town-layout` factory: paint a settlement and say where its social focus ended
@@ -125,7 +128,7 @@ export type TownLayout = (
   pen?: { x: number; z: number; r: number };
 } | null;
 
-const LAYOUTS: ReadonlySet<string> = new Set<TownInfo["kind"]>(["camp", "hamlet"]);
+const LAYOUTS: ReadonlySet<string> = new Set<TownInfo["kind"]>(["camp", "hamlet", "harbour"]);
 
 /** How far a layout's built perimeter reaches. See `TownSite.outerRadius`. */
 function outerRadiusOf(kind: TownInfo["kind"], radius: number): number {
@@ -184,6 +187,7 @@ function readSites(zone: string): readonly TownSite[] {
       waterside: data.waterside,
       order: data.order,
       start: data.start,
+      island: data.island,
     });
   }
   // `sort` is stable in ES2019+, so towns that tie on `order` keep load order.
@@ -314,6 +318,25 @@ const WEAR: Record<TownInfo["kind"], WearSpec> = {
       [-1.8, 0.55, 2.2, 0.88],
     ],
   },
+  harbour: {
+    // A working waterfront wears harder than a hamlet and stays damp; its one wide
+    // track runs to the QUAY (the gate faces the water for an island town). The
+    // rest matches the hamlet while the placeholder layout builds hamlet pieces
+    // (issue #228 re-cuts these with the real quays and deck bridges).
+    base: 0.6,
+    fade: 0.8,
+    edge: 1.28,
+    damp: 0.55,
+    tracks: [
+      [0, 1.2, 4.2, 1.0], // the quay track
+      [HALF_PI, 0.36, 3.2, 1.0],
+      [Math.PI * 0.55, 0.6, 2.4, 0.95],
+      [Math.PI * 1.0, 0.6, 2.4, 0.95],
+      [Math.PI * 1.45, 0.6, 2.4, 0.95],
+      [-0.9, 0.55, 2.2, 0.88],
+      [-1.8, 0.55, 2.2, 0.88],
+    ],
+  },
 };
 
 /** The `GroundPatch` a town wears — its YARD. The tracks are `wearTracks`. */
@@ -411,6 +434,67 @@ function findSite(
     }
   }
   return { x: bestX, z: bestZ };
+}
+
+/** How far apart two island settlements must stand — each is its own destination. */
+const ISLE_SPACING = 320;
+/** First anchor past the coastline, and the stride between successive islands' anchors. */
+const ISLE_FIRST = 320;
+const ISLE_STRIDE = 380;
+/** A siteCost above this is open sea or a drowned skerry, not a site. */
+const ISLE_COST_LIMIT = 140;
+
+/**
+ * Where an island town stands (issue #144): dry footing with the sea in its outer
+ * ring, on the far side of the coastline half-plane, clear of islands already
+ * claimed. Anchored progressively further down the SEA_DIR lobe per index, so the
+ * act's settlements read as a voyage rather than a cluster. Null when no island
+ * near the anchor can hold the footprint — the caller reports it and goes on.
+ */
+function findIslandSite(
+  terrain: Terrain,
+  index: number,
+  outer: number,
+  rng: () => number,
+  claimed: readonly { x: number; z: number }[],
+): { x: number; z: number } | null {
+  const along = SEA_FULL + ISLE_FIRST + index * ISLE_STRIDE;
+  const ax = SEA_DIR.x * along;
+  const az = SEA_DIR.z * along;
+  let bestX = 0;
+  let bestZ = 0;
+  let best = Infinity;
+  for (let ri = 0; ri <= 8; ri++) {
+    const dist = (ri / 8) * 300;
+    const steps = ri === 0 ? 1 : 14;
+    for (let k = 0; k < steps; k++) {
+      const ang = (k / steps) * Math.PI * 2 + (rng() - 0.5) * 0.08;
+      const x = Math.round(ax + Math.sin(ang) * dist) + 0.5;
+      const z = Math.round(az + Math.cos(ang) * dist) + 0.5;
+      // Truly at sea: the whole footprint past the blend, or the "island" is the mainland.
+      if (x * SEA_DIR.x + z * SEA_DIR.z < SEA_FULL + outer) {
+        continue;
+      }
+      let crowded = false;
+      for (const c of claimed) {
+        if (Math.hypot(c.x - x, c.z - z) < ISLE_SPACING) {
+          crowded = true;
+          break;
+        }
+      }
+      if (crowded) {
+        continue;
+      }
+      // `waterside` scoring wants a dry centre and a shore in the ring — an island.
+      const c = siteCost(terrain, x, z, outer, true);
+      if (c < best) {
+        best = c;
+        bestX = x;
+        bestZ = z;
+      }
+    }
+  }
+  return best > ISLE_COST_LIMIT ? null : { x: bestX, z: bestZ };
 }
 
 /** Where a road crosses out of a town's footprint — i.e. where its gate goes. */
@@ -560,7 +644,10 @@ export function planSettlements(
   /** Which zone's towns to site — this planner reads only its own (issue #144). */
   zone = "overworld",
 ): SettlementPlan | null {
-  const parts = hub(readSites(zone));
+  const all = readSites(zone);
+  // ISLAND TOWNS TAKE NO HUB SLOT: no cart road can reach them, so they are not
+  // the fourth settlement the hub refuses — they are sited after it, at sea.
+  const parts = hub(all.filter((s) => !s.island));
   if (!parts) {
     return null;
   }
@@ -762,6 +849,68 @@ export function planSettlements(
       gateZ: gates[i].z,
       gateAngle: gates[i].angle,
     });
+  }
+
+  // -- 4b. Island towns (issue #144): the sea region's settlements, in `order`.
+  // Sited down the SEA_DIR lobe so the act reads as a voyage; the quay side is
+  // the bearing with the lowest ground past the perimeter, and the "gate" — what
+  // town-arrival, the compass chip and the ferry all point at — stands on it.
+  {
+    const isles = all.filter((s) => s.island);
+    const claimed: Array<{ x: number; z: number }> = [];
+    for (let i = 0; i < isles.length; i++) {
+      const isle = isles[i];
+      const site = findIslandSite(terrain, i, isle.outerRadius, rng, claimed);
+      if (!site) {
+        reportContentIssue({
+          severity: "warn",
+          code: "unsupported",
+          message: `"town:${isle.id}" found no island to stand on near its anchor`,
+          assetId: `town:${isle.id}`,
+          assetType: "town",
+          fix: "widen the search in findIslandSite, or reseed",
+        });
+        continue;
+      }
+      claimed.push(site);
+      const y = levelAt(site.x, site.z);
+      terrain.flattens.push({
+        x: site.x,
+        z: site.z,
+        h: y + 0.55,
+        core: isle.outerRadius + 2,
+        blend: isle.outerRadius + 15,
+      });
+      let quayAngle = 0;
+      let quayH = Infinity;
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const h = terrain.heightCont(
+          site.x + Math.sin(a) * (isle.outerRadius + 9),
+          site.z + Math.cos(a) * (isle.outerRadius + 9),
+        );
+        if (h < quayH) {
+          quayH = h;
+          quayAngle = a;
+        }
+      }
+      towns.push({
+        id: isle.id,
+        nameKey: isle.nameKey,
+        kind: isle.kind,
+        x: site.x,
+        y,
+        z: site.z,
+        radius: isle.radius,
+        outerRadius: isle.outerRadius,
+        carried: false,
+        noSpawnRadius: isle.noSpawnRadius,
+        color: isle.color,
+        gateX: site.x + Math.sin(quayAngle) * isle.radius,
+        gateZ: site.z + Math.cos(quayAngle) * isle.radius,
+        gateAngle: quayAngle,
+      });
+    }
   }
 
   // -- 5. The worn ground. AFTER the gates (gate-relative) and before `build()`.
@@ -1626,6 +1775,9 @@ function buildHamlet(
  *  `bootstrapContent()`, which also PUBLISHES the names to the content type. */
 defineFactory(TOWN_LAYOUT_KIND, "camp", buildEncampment satisfies TownLayout);
 defineFactory(TOWN_LAYOUT_KIND, "hamlet", buildHamlet satisfies TownLayout);
+// PLACEHOLDER (issue #228): harbour towns ship as open settlements while the real
+// kit — quays, deck bridges, moored ships — is its own build.
+defineFactory(TOWN_LAYOUT_KIND, "harbour", buildHamlet satisfies TownLayout);
 
 /**
  * What lines a road: lamps at intervals, fence on some stretches, and a fingerpost
