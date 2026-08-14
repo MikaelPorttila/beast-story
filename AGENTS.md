@@ -161,7 +161,7 @@ self-contained build, not for shipping.
 2. `bun tools/probe.mjs all`, plus the guard for the area you touched.
 3. Branch, commit, push, open the PR.
 4. **Report the PR with its Vercel preview URL in the chat, always suffixed
-   `?vol=0`** so an opened preview is muted. Poll
+   `?vol=0&nostore=1`** so an opened preview is muted and ignores stored state. Poll
    `gh pr view <n> --json comments` until the deployment comment lands (about a
    minute). If it does not arrive, say so and give the PR link alone.
 

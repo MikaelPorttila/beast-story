@@ -1,5 +1,6 @@
 import { t } from "../i18n";
 import { injectStyles } from "./styles";
+import { seedPadButtons } from "../core/gamepad";
 import { CLOSE_ICON } from "./icons";
 
 /**
@@ -179,6 +180,7 @@ export class MapPanel {
     this.focus = -1;
     this.steering = false;
     this.frame();
+    seedPadButtons(this.padDown);
     this.pollPad();
     requestAnimationFrame(() => el.classList.add("open"));
     this.hooks.onOpen?.();

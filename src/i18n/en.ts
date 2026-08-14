@@ -916,10 +916,10 @@ export const en = {
   "keys.map": "Map",
   /**
    * THE MENU KEY, which is F10 and no longer Escape. The two rows are separate
-   * because the keys are: this one opens and closes the in-game menu, and the
+   * because the keys are: this one opens and closes the action wheel, and the
    * one below dismisses whatever is on top of it.
    */
-  "keys.menu": "In-game menu",
+  "keys.menu": "Open action wheel",
   /**
    * Listed by what it does in priority order — it backs out of a conversation
    * and dismisses whatever is open. Written as a list rather than as one word
@@ -1321,8 +1321,8 @@ export const en = {
   "spawn.placed": "placed",
   "spawn.noStructures": "this zone builds nothing — see World.debugSpawn",
 
-  // ---- in-game menu --------------------------------------------------------
-  // src/ui/pause.ts, on Escape / Start / the touch overlay's menu button.
+  // ---- action wheel --------------------------------------------------------
+  // src/ui/pause.ts, on F10 / Start / the touch overlay's menu button.
   // Settings is the SAME list the title screen shows.
   /**
    * NOT "Paused", which is what this said and what it is not. The HERO is
@@ -1331,9 +1331,14 @@ export const en = {
    * the clock runs. Labelling that "Paused" tells a player they can walk away
    * from the screen, which is the one thing it does not mean.
    */
-  "pause.title": "Menu",
+  "pause.title": "Action wheel",
   "pause.continue": "Continue",
+  "pause.inventory": "Inventory",
+  "pause.journal": "Journal",
+  "pause.map": "Map",
+  "pause.controls": "Controls",
   "pause.settings": "Settings",
+  "pause.hint": "Arrow keys + E · point and click · hold left stick + A · Esc or B to close",
   /**
    * Back to the title screen, not out of the browser. "Exit" alone reads as
    * quitting the application on desktop, and there is nothing to quit to.

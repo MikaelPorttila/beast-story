@@ -1,6 +1,7 @@
 import { t } from "../i18n";
 import { MOUNT_KIND_KEYS, type BeastSpecies, type ItemKind, type MountKind } from "../core/types";
 import { injectStyles } from "./styles";
+import { seedPadButtons } from "../core/gamepad";
 import { CLOSE_ICON, LOCOMOTION_ICONS, RMB_ICON } from "./icons";
 import { InventoryStage } from "./inventory-stage";
 import { entryIconHtml, Tooltip, type TipContent } from "./tooltip";
@@ -257,6 +258,7 @@ export class InventoryPanel {
     window.addEventListener("keydown", this.onKeyDown, true);
     window.addEventListener("resize", this.onResize);
     this.render();
+    seedPadButtons(this.padDown);
     this.pollPad();
     this.stage.start();
     requestAnimationFrame(() => el.classList.add("open"));

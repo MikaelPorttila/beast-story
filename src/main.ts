@@ -324,10 +324,10 @@ function beginPlay(): void {
   frame();
 }
 
-// The in-game menu: F10, the HUD button, pad Start, touch MENU. open() builds the DOM.
+// The action wheel: F10, the HUD button, pad Start, touch MENU. open() builds the DOM.
 const pauseMenu = new PauseMenu({
   ...settingsHooks,
-  // This menu is CLICKED, not read: the cursor has to be able to reach Exit.
+  // This wheel is CLICKED, not read: the cursor has to be able to reach every sector.
   onOpen: () => input.releaseLock(),
   // After a key only when Escape is ours: otherwise leaving fullscreen drops the lock 8 ms later, which reads as a fresh Escape.
   onClose: (by) => {
@@ -338,7 +338,26 @@ const pauseMenu = new PauseMenu({
       input.requestLock();
     }
   },
-  onExit: () => exitToTitle(),
+  onAction: (action) => {
+    switch (action) {
+      case "inventory":
+        inventory.open();
+        break;
+      case "journal":
+        journal.open();
+        break;
+      case "map":
+        map.open();
+        break;
+      case "controls":
+        input.releaseLock();
+        hud.toggleControls();
+        break;
+      case "exit":
+        exitToTitle();
+        break;
+    }
+  },
 });
 
 // End the session and put the title screen back, in the same page. Everything that is a PLAY SESSION
@@ -6001,15 +6020,15 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       (input.pressed("Escape") || input.pressed("F10") || input.pressed("KeyE"))
     ) {
       // Cancel closes the TOPMOST modal, which is why this is an if/else: one press must dismiss one thing.
-      // The in-game menu goes FIRST and answers for itself — inside its settings step Escape means "back" —
-      // so `onEscape` reports whether it spent the press, and `KeyE` is the pad's X, which confirms a row.
+      // The action wheel goes FIRST and answers for itself — inside Settings Escape means "back" —
+      // so `onEscape` reports whether it spent the press. A pad must keep aiming while A/X confirms.
       // F10 is a cancel in here, which is what makes it a toggle.
       const cancel = input.pressed("Escape") || input.pressed("F10");
       if (pauseMenu.isOpen) {
         if (cancel) {
           pauseMenu.onEscape();
         } else {
-          pauseMenu.activate();
+          pauseMenu.activate(input.lastSource === "gamepad");
         }
       } else if (inventory.isOpen) {
         // Same shape as the menu: cancel asks the panel to spend the press, X (KeyE on the pad) confirms the

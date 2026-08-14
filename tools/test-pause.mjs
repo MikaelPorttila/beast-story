@@ -1,5 +1,5 @@
-// The in-game menu: F10 / Start / the touch overlay's MENU, and what the three
-// options behind it do.
+// The action wheel: F10 / Start / the touch overlay's MENU, its panel handoffs,
+// pointer aim and controller aim / confirm / dismiss paths.
 //
 // Usage: bun tools/test-pause.mjs        (dev server must be up)
 //        ...or as sections inside `bun tools/suite.mjs` — same code either way.
@@ -193,7 +193,9 @@ export const sections = [
       a.riseBeforePanel = round((await ctx.ev(() => window.__dbgPlayerPos().y)) - ground.y);
 
       await page.keyboard.press("F10");
-      await ctx.adv(0.3);
+      // One slice spends F10. Sampling 0.3 s later can legitimately find this
+      // short jump on the ground, which proves nothing about an open modal.
+      await ctx.adv(0.05);
       a.menuUp = await has(page, ".bs-pause");
       a.riseWithMenuUp = round((await pos(page)).y - ground.y);
 
@@ -280,10 +282,24 @@ export const sections = [
       // not be carrying the menu as well.
       ctx.check(m.afterEscape === false, "Escape still opens the in-game menu");
       ctx.check(
-        JSON.stringify(m.rows) === JSON.stringify(["continue", "settings", "exit"]),
-        "the three options the issue asks for, in order",
+        JSON.stringify(m.rows) ===
+          JSON.stringify([
+            "continue",
+            "inventory",
+            "journal",
+            "map",
+            "controls",
+            "settings",
+            "exit",
+          ]),
+        "the wheel exposes every panel and action, in data order",
       );
       ctx.check(m.focusOnOpen === "continue", "something is focused on open, for a pad");
+      ctx.check(
+        await has(page, '.bs-wheel-sector[data-act="continue"]'),
+        "Continue is not a wheel sector",
+      );
+      ctx.check(!(await has(page, ".bs-wheel-title")), "the wheel still renders a center title");
       // 0 exactly: a suspended stick is not a slow one, so no slice moves him at
       // all — see `Input.suspended`.
       ctx.check(m.travelWithMenuUp === 0, "the hero walks on his own keys while the menu is up");
@@ -599,6 +615,65 @@ export const sections = [
       ctx.check(escapeFromSettings.focus === "settings", "and leaves the cursor where it went in");
       ctx.check(closedByContinue, "Continue closes the menu");
       ctx.check(travelAfterContinue > 4, "Continue gives the game back");
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  {
+    id: "wheelActions",
+    run: async (ctx) => {
+      // The settings, Continue and Exit paths have deeper sections of their own.
+      // These are the four HANDOFFS: the wheel must go before the destination
+      // arrives, and the host's one Escape branch must dismiss that destination.
+      const { page } = ctx;
+      const destinations = {};
+      for (const [action, selector] of [
+        ["inventory", ".bs-inv"],
+        ["journal", ".bs-journal"],
+        ["controls", ".bs-keyswrap.open"],
+      ]) {
+        await page.keyboard.press("F10");
+        await ctx.adv(0.3);
+        await ctx.ev((a) => document.querySelector(`.bs-pause [data-act="${a}"]`)?.click(), action);
+        await ctx.frame();
+        const opened = (await has(page, selector)) && !(await has(page, ".bs-pause"));
+        await page.keyboard.press("Escape");
+        await ctx.adv(0.3);
+        destinations[action] = { opened, dismissed: !(await has(page, selector)) };
+      }
+
+      // A REAL POINTER MOVE, not :hover patched onto the button: the wheel owns
+      // the angle and lights the sector before the click confirms it.
+      await page.keyboard.press("F10");
+      await ctx.adv(0.3);
+      const point = await ctx.ev(() => {
+        const el = document.querySelector('.bs-pause [data-act="map"]');
+        const r = el?.getBoundingClientRect();
+        return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+      });
+      if (point) {
+        await page.mouse.move(point.x, point.y);
+      }
+      const selected = await ctx.ev(
+        () => document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ?? null,
+      );
+      if (point) {
+        await page.mouse.click(point.x, point.y);
+      }
+      await ctx.frame();
+      const mapOpened = (await has(page, ".bs-map")) && !(await has(page, ".bs-pause"));
+      await page.keyboard.press("Escape");
+      await ctx.adv(0.3);
+      const mapDismissed = !(await has(page, ".bs-map"));
+
+      ctx.res.wheelActions = { destinations, pointer: { selected, mapOpened, mapDismissed } };
+      for (const [action, result] of Object.entries(destinations)) {
+        ctx.check(result.opened, `${action} did not open from the wheel`);
+        ctx.check(result.dismissed, `${action} did not dismiss through Escape`);
+      }
+      ctx.check(selected === "map", `the pointer aimed ${selected}, expected map`);
+      ctx.check(mapOpened, "click did not confirm the pointer-aimed Map sector");
+      ctx.check(mapDismissed, "Escape did not dismiss Map after the wheel handoff");
     },
   },
 
@@ -950,6 +1025,67 @@ export const sections = [
         await advance(page, 0.4);
         g.reopenedByThirdPress = await has(page, ".bs-pause");
 
+        // LEFT STICK aims a sector continuously. A does nothing after release,
+        // then confirms only while the direction is held.
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0.9;
+          window.__fakePad.axes[1] = 0.2;
+        });
+        await page.waitForFunction(
+          () =>
+            document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ===
+            "journal",
+          { timeout: 5000 },
+        );
+        g.stickSelection = await page.evaluate(
+          () =>
+            document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ?? null,
+        );
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0;
+          window.__fakePad.axes[1] = 0;
+        });
+        await page.waitForFunction(
+          () =>
+            !document.querySelector(".bs-wheel-sector.selected") &&
+            !document.activeElement?.closest(".bs-wheel-sector"),
+          { timeout: 5000 },
+        );
+        g.selectionAfterRelease = await page.evaluate(() => ({
+          selected:
+            document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ?? null,
+          focused:
+            document.activeElement?.closest(".bs-wheel-sector")?.getAttribute("data-act") ?? null,
+        }));
+        await setPadButton(page, PAD_BUTTON.A, true);
+        await advance(page, 0.2);
+        await setPadButton(page, PAD_BUTTON.A, false);
+        await advance(page, 0.2);
+        g.releasedStickBlocked =
+          (await has(page, ".bs-pause")) && !(await has(page, ".bs-journal"));
+
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0.9;
+          window.__fakePad.axes[1] = 0.2;
+        });
+        await advance(page, 0.2);
+        await setPadButton(page, PAD_BUTTON.A, true);
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        await setPadButton(page, PAD_BUTTON.A, false);
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0;
+          window.__fakePad.axes[1] = 0;
+        });
+        g.confirmedWithA = (await has(page, ".bs-journal")) && !(await has(page, ".bs-pause"));
+        await setPadButton(page, PAD_BUTTON.B, true);
+        await advance(page, 0.1);
+        await setPadButton(page, PAD_BUTTON.B, false);
+        await advance(page, 0.2);
+        g.dismissedWithB = !(await has(page, ".bs-journal"));
+
         ctx.res.gamepad = g;
         ctx.check(g.openWhileHeld, "Start opens the menu");
         // The one that fails on the double edge: the menu has to still be there when the
@@ -957,6 +1093,14 @@ export const sections = [
         ctx.check(g.openAfterRelease, "and one press of Start is ONE edge");
         ctx.check(g.closedBySecondPress, "a second press closes it");
         ctx.check(g.reopenedByThirdPress, "and a third reopens it");
+        ctx.check(g.stickSelection === "journal", "left stick did not aim the Journal sector");
+        ctx.check(
+          g.selectionAfterRelease.selected === null && g.selectionAfterRelease.focused === null,
+          "the aimed sector stayed selected after the left stick was released",
+        );
+        ctx.check(g.releasedStickBlocked, "A confirmed after the left stick was released");
+        ctx.check(g.confirmedWithA, "A did not confirm while the left stick direction was held");
+        ctx.check(g.dismissedWithB, "B did not dismiss the opened panel");
       } finally {
         await bctx.close();
       }
@@ -982,6 +1126,10 @@ export const sections = [
       try {
         const page = await newPage(bctx, { width: 1100, height: 700 });
         logPageErrors(page);
+        await installFakePad(
+          page,
+          "Xbox 360 Controller (STANDARD GAMEPAD Vendor: 045e Product: 028e)",
+        );
         const settle = async (maxS = 30) => {
           for (let i = 0; i < maxS * 2; i++) {
             if (await page.evaluate(() => !!window.__dbgZone && !window.__dbgZone().streaming)) {
@@ -1006,6 +1154,7 @@ export const sections = [
           () => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance,
           { timeout: 60000 },
         );
+        await page.evaluate(() => window.__connectPad());
         await settle();
         const exit = {};
         exit.playingFirst = !(await has(page, ".bs-menu"));
@@ -1027,11 +1176,28 @@ export const sections = [
         const spawn = await page.evaluate(() => window.__dbgStart().start);
         exit.movedAwayFromSpawn = round(Math.hypot(away.x - spawn.x, away.z - spawn.z));
 
-        await page.keyboard.press("F10");
-        await advance(page, 0.4);
+        await setPadButton(page, PAD_BUTTON.START, true);
+        await advance(page, 0.2);
+        await setPadButton(page, PAD_BUTTON.START, false);
+        await advance(page, 0.2);
         await page.waitForSelector(".bs-pause", { timeout: 5000 });
-        await page.evaluate(() => document.querySelector('.bs-pause [data-act="exit"]')?.click());
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = -0.8;
+          window.__fakePad.axes[1] = -0.6;
+        });
+        await page.waitForFunction(
+          () =>
+            document.querySelector(".bs-wheel-sector.selected")?.getAttribute("data-act") ===
+            "exit",
+          { timeout: 5000 },
+        );
+        await setPadButton(page, PAD_BUTTON.A, true);
+        await advance(page, 0.2);
         await page.waitForSelector(".bs-menu", { timeout: 10000 });
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
         exit.titleScreenBack = await has(page, ".bs-menu");
         exit.pauseGone = !(await has(page, ".bs-pause"));
         // Straight to the options, not the splash: a player who chose to leave has
@@ -1039,6 +1205,11 @@ export const sections = [
         exit.step = await page.evaluate(
           () => document.querySelector(".bs-menu")?.getAttribute("data-step") ?? null,
         );
+        await setPadButton(page, PAD_BUTTON.A, false);
+        await page.evaluate(() => {
+          window.__fakePad.axes[0] = 0;
+          window.__fakePad.axes[1] = 0;
+        });
 
         // THE POINTER HAS TO BE BACK, and this is the one assertion here that a
         // synthetic click cannot make for you. `close()` hands the pointer to the

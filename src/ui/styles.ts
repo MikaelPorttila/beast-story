@@ -883,18 +883,14 @@ const CSS = `
 }
 
 
-/* ---- in-game menu (Escape / Start / the touch overlay's MENU) ------------ */
-/* src/ui/pause.ts. Borrows the TITLE SCREEN's controls (.bs-menu-btn, .bs-opts)
-   because it does the title screen's job, and only .bs-scrim / .bs-glass from the
-   HUD. z-index 40 is load-bearing: over the HUD (20) and touch overlay (30) so
-   nothing behind is tappable, UNDER the title screen (50) so Exit's poster covers
-   it. The pane is width-capped — stretched, an ON pill ends up a third of a metre
-   from its label. */
+/* ---- action wheel (F10 / Start / the touch overlay's MENU) --------------- */
+/* z-index 40 is load-bearing: over the HUD (20) and touch overlay (30), under
+   the title screen (50) so Exit's poster covers it. */
 .bs-pause{position:fixed;inset:0;z-index:40;display:grid;place-items:center;
   pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   color:#fff;user-select:none;-webkit-user-select:none}
-.bs-pause .bs-scrim{position:absolute;inset:0;background:transparent;opacity:0;
+.bs-pause .bs-scrim{position:absolute;inset:0;background:rgba(4,7,10,.62);opacity:0;
   transition:opacity .22s ease}
 .bs-pause.open .bs-scrim{opacity:1}
 .bs-pause .pane{position:relative;width:min(420px,90vw);max-height:88vh;overflow-y:auto;
@@ -907,10 +903,41 @@ const CSS = `
   transition:opacity .24s ease,transform .28s cubic-bezier(.34,1.45,.64,1);
   scrollbar-width:thin;scrollbar-color:rgba(255,214,140,.3) transparent}
 .bs-pause.open .pane{opacity:1;transform:translateY(0) scale(1)}
+.bs-pause[data-step="wheel"] .pane{width:min(720px,98vw);max-height:96vh;overflow:visible;
+  padding:0;background:none;border:0;box-shadow:none}
+.bs-wheel{position:relative;width:min(88vw,78vh,560px);aspect-ratio:1;margin:auto}
+.bs-wheel::before{content:"";position:absolute;inset:9%;border-radius:50%;
+  background:
+    radial-gradient(circle,transparent 0 25%,rgba(8,16,22,.88) 25.5% 62%,transparent 62.5%),
+    repeating-conic-gradient(from -25.714deg,rgba(255,210,125,.08) 0 50.4deg,
+      rgba(255,221,155,.38) 50.4deg 51.428deg);
+  border:1px solid rgba(255,221,155,.34);box-shadow:0 20px 70px rgba(0,0,0,.55)}
+.bs-wheel-sectors{position:absolute;inset:0}
+.bs-wheel-sector{position:absolute;z-index:2;transform:translate(-50%,-50%);
+  width:clamp(108px,18vmin,138px);min-height:clamp(64px,10vmin,78px);padding:9px 8px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  border:1px solid rgba(255,221,155,.3);border-radius:18px;background:rgba(24,18,12,.92);
+  box-shadow:0 8px 24px rgba(0,0,0,.42),inset 0 1px rgba(255,236,194,.1);
+  color:#f8e8c7;font:700 max(16px,1.7vmin)/1.05 inherit;cursor:pointer;
+  transition:transform .12s ease,background .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bs-wheel-sector .ic{width:clamp(25px,4vmin,34px);height:clamp(25px,4vmin,34px);display:grid;place-items:center}
+.bs-wheel-sector svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round}
+.bs-wheel-sector.selected,.bs-wheel-sector:focus-visible{outline:none;transform:translate(-50%,-50%) scale(1.09);
+  color:#fff4d4;background:linear-gradient(180deg,#775025,#3d2815);border-color:#ffd98f;
+  box-shadow:0 0 0 3px rgba(255,207,120,.22),0 12px 34px rgba(0,0,0,.55)}
+.bs-wheel-hint{margin:4px auto 0;max-width:680px;text-align:center;color:#eadabc;
+  font:600 max(16px,1.8vmin)/1.35 inherit;text-shadow:0 2px 8px #000}
 /* Greyed as a whole row, so it does not read as three broken buttons. */
 .bs-opts .row.lang.off{opacity:.45}
+@media (max-width:560px),(max-height:520px){
+  .bs-wheel{width:min(92vw,72vh,460px)}
+  .bs-wheel-sector{width:104px;min-height:62px;padding:7px 5px;border-radius:15px}
+  .bs-wheel-sector .ic{width:25px;height:25px}
+  .bs-wheel-hint{max-width:92vw}
+}
 @media (prefers-reduced-motion:reduce){
-  .bs-pause .bs-scrim,.bs-pause .pane{transition:none}
+  .bs-pause .bs-scrim,.bs-pause .pane,.bs-wheel-sector{transition:none}
 }
 
 /* ---- start menu ---------------------------------------------------------- */
