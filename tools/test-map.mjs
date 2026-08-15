@@ -23,12 +23,38 @@ await whenPlaying(page);
 await wait(400);
 
 const dbgMap = () => page.evaluate(() => window.__dbgMap());
+/** The fog's own colour, near enough: an RGBA pixel that is night-blue paper. */
+const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
+
+// ---------- 0. the closed map paints ahead, so it opens ready ---------------
+{
+  // A slice a frame under a small budget: give it a few seconds to catch up, then it must be caught up.
+  let warm = null;
+  for (let i = 0; i < 40; i++) {
+    warm = (await dbgMap()).tiles;
+    if (warm && warm.warm.queued > 0 && warm.warm.head === warm.warm.queued) {
+      break;
+    }
+    await wait(150);
+  }
+  out.warm = warm;
+  check(warm !== null && warm.cached > 0, "the closed map painted no tiles ahead");
+  check(
+    warm !== null && warm.warm.head === warm.warm.queued,
+    `the warm queue is ${warm?.warm.head}/${warm?.warm.queued} after six seconds`,
+  );
+}
 
 // ---------- 1. M opens it, and what it shows is what the world has ----------
 {
   await page.keyboard.press("KeyM");
   await wait(350);
   const m = await dbgMap();
+  out.openTiles = m.tiles;
+  check(
+    m.tiles.painted - out.warm.painted <= 4,
+    `opening painted ${m.tiles.painted - out.warm.painted} more tiles: the warm-up missed the open level`,
+  );
   const stones = await page.evaluate(() => window.__dbgWaypoints().all);
   const towns = await page.evaluate(() => window.__dbgTowns().towns);
   out.open = { open: m.open, stones: m.stones, lit: m.lit, towns: m.towns, quests: m.quests };
@@ -42,6 +68,71 @@ const dbgMap = () => page.evaluate(() => window.__dbgMap());
     `the map lights ${m.lit} stones, the character has lit ${stones.filter((s) => s.lit).length}`,
   );
   check(m.towns === towns.length, `the map carries ${m.towns} towns, the world ${towns.length}`);
+  // It opens ON the hero, zoomed in, with the icon atlas decoded.
+  const pos = await page.evaluate(() => window.__dbgPlayerPos());
+  out.open.view = m.view;
+  check(
+    Math.abs(m.view.cx - pos.x) < 1 && Math.abs(m.view.cz - pos.z) < 1,
+    `the map opened on (${m.view.cx}, ${m.view.cz}), the hero is at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`,
+  );
+  // Zoomed IN on him: the short side of the view spans a few hundred world units, not the zone.
+  const short = await page.evaluate(() => {
+    const c = document.querySelector(".bs-map .mc");
+    return Math.min(c.clientWidth, c.clientHeight);
+  });
+  out.open.spanAcross = +(short / m.view.scale).toFixed(0);
+  check(
+    short / m.view.scale < 420,
+    `the map opened showing ${(short / m.view.scale).toFixed(0)} units across`,
+  );
+  check(m.icons === true, "the marker atlas has not decoded");
+  // Fog of war: only the camp he stands in is known, and the far ground is covered.
+  check(
+    m.known.length === 1 && m.known[0] === "encampment",
+    `towns known on a fresh character: ${JSON.stringify(m.known)}`,
+  );
+  check(m.explored > 0, "standing in the world explored nothing");
+  await page.evaluate(() => {
+    for (let i = 0; i < 20; i++) {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "-" }));
+    }
+  });
+  // Tiles paint a slice a frame; give the seen ones the few frames they need before reading pixels.
+  await wait(500);
+  const fog = await page.evaluate(() => {
+    const c = document.querySelector(".bs-map .mc");
+    const w = c.clientWidth;
+    const h = c.clientHeight;
+    return {
+      far: window.__dbgMapPixel(w * 0.05, h * 0.05),
+      here: window.__dbgMapPixel(w / 2, h / 2),
+    };
+  });
+  out.fog = fog;
+  check(dark(fog.far), `the far corner is not fogged: ${JSON.stringify(fog.far)}`);
+  check(!dark(fog.here), `the ground under the hero is fogged: ${JSON.stringify(fog.here)}`);
+  // The zoom-out floor covers the view: the map may not be smaller than the canvas.
+  const floor = await dbgMap();
+  // Painting is BUDGETED: after a full zoom-out and a zoom back in, the tiles painted so far
+  // cost at most a slice per frame, and only tiles the fog has lifted were painted at all.
+  await page.evaluate(() => {
+    for (let i = 0; i < 20; i++) {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "+" }));
+    }
+  });
+  await wait(600);
+  const t = (await dbgMap()).tiles;
+  out.tiles = t;
+  check(t.frames > 10, `the map drew ${t.frames} frames in 600 ms`);
+  check(
+    t.paintMs / t.frames < 4,
+    `tile painting cost ${(t.paintMs / t.frames).toFixed(2)} ms a frame, over the 3 ms slice`,
+  );
+  check(t.painted > 0 && t.painted < 60, `${t.painted} tiles painted for one explored disc`);
+  check(
+    Math.abs(floor.view.scale - floor.view.minScale) < 1e-6,
+    `zooming out stopped at ${floor.view.scale}, floor ${floor.view.minScale}`,
+  );
 }
 
 // ---------- 2. the one player marker, and its compass chip ------------------
@@ -67,6 +158,26 @@ const dbgMap = () => page.evaluate(() => window.__dbgMap());
   await page.keyboard.press("KeyP");
   await wait(150);
   const lifted = await dbgMap();
+  // The mouse: a LEFT click on bare ground plants nothing (a stray click while
+  // panning must not move the flag); the MIDDLE button plants.
+  const rect0 = await page.evaluate(() => {
+    const r = document.querySelector(".bs-map .mc").getBoundingClientRect();
+    return { left: r.left, top: r.top, w: r.width, h: r.height };
+  });
+  const gx = rect0.left + rect0.w * 0.4;
+  const gy = rect0.top + rect0.h * 0.6;
+  await page.mouse.click(gx, gy);
+  await wait(150);
+  const afterLeft = (await dbgMap()).planted;
+  await page.mouse.click(gx, gy, { button: "middle" });
+  await wait(150);
+  const afterMiddle = (await dbgMap()).planted;
+  out.marker.mouse = { afterLeft, afterMiddle };
+  check(afterLeft === null, "a left click on bare ground planted the flag");
+  check(afterMiddle !== null, "a middle click on bare ground planted nothing");
+  await page.mouse.click(gx, gy, { button: "middle" });
+  await wait(150);
+  check((await dbgMap()).planted === null, "a second middle click on the flag did not lift it");
   const chipAfter = await page.evaluate(
     () => window.__dbgCompass().markers.find((k) => k.id === "player-marker") ?? null,
   );
@@ -96,8 +207,23 @@ const dbgMap = () => page.evaluate(() => window.__dbgMap());
   check(stone.lit === true, "standing at the stone did not light it");
 
   // Walk away so the travel below is a real displacement.
+  const cachedBefore = (await dbgMap()).tiles.cached;
   await page.evaluate((s) => window.__dbgTp(s.x + 120, s.z + 80), stone);
   await wait(200);
+  // New ground seen means new tiles to paint ahead — the warm-up follows the walk, not only the boot.
+  let warmed = null;
+  for (let i = 0; i < 40; i++) {
+    warmed = (await dbgMap()).tiles;
+    if (warmed.cached > cachedBefore && warmed.warm.head === warmed.warm.queued) {
+      break;
+    }
+    await wait(150);
+  }
+  out.warmAfterWalk = { cachedBefore, cached: warmed.cached, ...warmed.warm };
+  check(
+    warmed.cached > cachedBefore && warmed.warm.head === warmed.warm.queued,
+    `after walking, ${warmed.cached} tiles are cached (was ${cachedBefore}), queue ${warmed.warm.head}/${warmed.warm.queued}`,
+  );
 
   await page.keyboard.press("KeyM");
   await wait(350);

@@ -205,7 +205,7 @@ export const en = {
   "map.hint.pan": "Pan",
   "map.hint.wheelKeys": "Wheel / + − / Shoulders",
   "map.hint.zoom": "Zoom",
-  "map.hint.clickKeys": "Click / P / Y",
+  "map.hint.clickKeys": "Middle-click / P / Y",
   "map.hint.marker": "Place or lift your marker",
   "map.hint.stoneKeys": "Tab / D-pad, then Enter / A",
   "map.hint.travel": "Travel to a lit waystone",

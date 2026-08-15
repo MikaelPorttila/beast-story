@@ -63,6 +63,8 @@ export interface SaveDocument {
   dayPhase: number;
   /** The map's one player-placed flag (issue #245). Absent means none is planted. */
   marker?: { zone: string; x: number; z: number };
+  /** Explored cells per zone (world/exploration.ts) — what the map's fog lifts. Absent means nothing seen. */
+  explored?: Record<string, number[]>;
   /** Fields a NEWER build wrote, carried untouched so this build's autosave cannot drop them. */
   extra?: Record<string, unknown>;
 }
@@ -147,6 +149,29 @@ function str(value: unknown, fallback: string): string {
   return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
+/** Only whole cell keys survive; a zone with none is left out. Zone EXISTENCE is the loader's call. */
+function parseExplored(raw: Record<string, unknown>): Record<string, number[]> {
+  const out: Record<string, number[]> = {};
+  for (const [zone, cells] of Object.entries(raw)) {
+    if (!Array.isArray(cells)) {
+      continue;
+    }
+    const keys = cells.filter((k): k is number => Number.isInteger(k) && k >= 0);
+    if (keys.length > 0) {
+      out[zone] = keys;
+    }
+  }
+  return out;
+}
+
+function cloneExplored(src: Record<string, number[]>): Record<string, number[]> {
+  const out: Record<string, number[]> = {};
+  for (const [zone, cells] of Object.entries(src)) {
+    out[zone] = [...cells];
+  }
+  return out;
+}
+
 function strOrNull(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
@@ -176,6 +201,7 @@ const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "dayPhase",
   "mounts",
   "marker",
+  "explored",
 ]);
 
 /** Runs ONCE on the way in, so the rest of the file sees today's shape. Newer passes through. */
@@ -314,6 +340,7 @@ function parseDoc(value: unknown): SaveDocument | null {
           },
         }
       : {}),
+    ...(isRecord(raw.explored) ? { explored: parseExplored(raw.explored) } : {}),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
   // An unusable coordinate becomes NaN and is NOT repaired here — that needs the world.
@@ -339,6 +366,7 @@ function serialize(doc: SaveDocument): Record<string, unknown> {
     content: doc.content,
     dayPhase: doc.dayPhase,
     ...(doc.marker ? { marker: { ...doc.marker } } : {}),
+    ...(doc.explored ? { explored: cloneExplored(doc.explored) } : {}),
   };
   for (const key of Object.keys(doc.extra ?? {})) {
     if (!KNOWN_FIELDS.has(key)) {
