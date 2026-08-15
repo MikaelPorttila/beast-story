@@ -732,8 +732,8 @@ await page.close();
 
 // ---------- 9. F3 IS THE DEVELOPER'S KEY, BEHIND `debug=1` -----------------
 //
-// Both halves. On a player's page the sheet does not list F3 and the press opens
-// nothing; on a `debug=1` page it is listed and it opens the panel. The row stays
+// Both halves. On a player's page the sheet does not list F3, the press opens
+// nothing and `§` opens no console; on a `debug=1` page all three work. The row stays
 // in the table either way — section 1's static scan is about what the CODE
 // reads, and the code still reads F3 (behind the flag).
 {
@@ -758,8 +758,15 @@ await page.close();
       const el = document.querySelector(".bs-perf");
       return !!el && getComputedStyle(el).display !== "none";
     });
+    // The `§` console is behind the same flag: on a player's page it is not built at all.
+    await p.keyboard.press("Backquote");
+    await wait(300);
+    const consoleOpen = await p.evaluate(() => {
+      const el = document.querySelector(".bs-console-input");
+      return !!el && el.offsetParent !== null;
+    });
     await p.close();
-    return { listsF3, panelOpen };
+    return { listsF3, panelOpen, consoleOpen };
   };
   results.debugGate = { player: await probe(""), developer: await probe("&debug=1") };
 }
@@ -894,12 +901,14 @@ check(
 );
 
 check(
-  results.debugGate?.player?.listsF3 === false && results.debugGate?.player?.panelOpen === false,
-  `a player's page: F3 listed=${results.debugGate?.player?.listsF3}, panel opened=${results.debugGate?.player?.panelOpen} — want neither`,
+  JSON.stringify(results.debugGate?.player) ===
+    JSON.stringify({ listsF3: false, panelOpen: false, consoleOpen: false }),
+  `a player's page: ${JSON.stringify(results.debugGate?.player)} — want no F3 row, no panel, no console`,
 );
 check(
-  results.debugGate?.developer?.listsF3 === true && results.debugGate?.developer?.panelOpen === true,
-  `a debug=1 page: F3 listed=${results.debugGate?.developer?.listsF3}, panel opened=${results.debugGate?.developer?.panelOpen} — want both`,
+  JSON.stringify(results.debugGate?.developer) ===
+    JSON.stringify({ listsF3: true, panelOpen: true, consoleOpen: true }),
+  `a debug=1 page: ${JSON.stringify(results.debugGate?.developer)} — want the F3 row, the panel and the console`,
 );
 
 if (fail.length) {

@@ -24,7 +24,7 @@
 import { launchBrowser, newPage, wait } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
-const URL = `${HOST}/?menu=0&vol=0`;
+const URL = `${HOST}/?menu=0&vol=0&debug=1`;
 
 const browser = await launchBrowser();
 const results = {};

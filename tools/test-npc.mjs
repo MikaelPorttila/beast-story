@@ -31,7 +31,7 @@ import { BASE as HOST } from "./target.mjs";
 // none of them (src/core/flags.ts). The sky section below stages a climb on a
 // galebird, so it asks for the unlock at boot rather than spending console
 // keystrokes on it; tools/test-mounts.mjs is the one probe that leaves it off.
-const URL = `${HOST}/?menu=0&fs=0&mounts=all`;
+const URL = `${HOST}/?menu=0&fs=0&mounts=all&debug=1`;
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 page.on("pageerror", (e) => console.error("[pageerror]", e.message));

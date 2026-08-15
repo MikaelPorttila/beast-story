@@ -5093,7 +5093,8 @@ if (params.get("perf") === "1") {
 }
 let lastPrograms = 0;
 
-const devConsole = photoMode ? null : new DevConsole();
+// A developer's instrument like F3: not built at all outside `debug=1`, and photo mode has no one to type into it.
+const devConsole = photoMode || !flags.debug ? null : new DevConsole();
 const colliderView = new ColliderView(engine.scene, world);
 bound.push(colliderView);
 // `colliders=1` starts them visible for a staged capture; photo mode has no console to type into.
