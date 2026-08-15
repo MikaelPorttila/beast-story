@@ -2538,6 +2538,8 @@ const map = new MapPanel({
 const markedNpcs = new Map<string, QuestMarkerKind>();
 const markedEnemies = new Set<string>();
 const markedBeasts = new Set<string>();
+/** An active `enemy-killed` objective with no `enemies` filter counts ANY kill, so every enemy wears the ring. */
+let markAllEnemies = false;
 
 /** Every objective met — the quest is ready to hand in, but is not handed in. */
 function questIsDone(asset: ContentAsset<QuestData>): boolean {
@@ -2550,6 +2552,7 @@ function refreshQuestMarks(): void {
   markedNpcs.clear();
   markedEnemies.clear();
   markedBeasts.clear();
+  markAllEnemies = false;
   for (const asset of content.query.available<QuestData>("quest")) {
     const tab = questTab(asset);
     if (tab !== "available" && tab !== "active") {
@@ -2579,6 +2582,9 @@ function refreshQuestMarks(): void {
       }
       if (content.state.progress(asset.id, objective.key) >= (objective.count ?? 1)) {
         continue;
+      }
+      if (trigger.kind === "enemy-killed" && !trigger.enemies) {
+        markAllEnemies = true;
       }
       for (const id of trigger.enemies ?? []) {
         markedEnemies.add(id.slice("enemy:".length));
@@ -2636,13 +2642,13 @@ function syncQuestMarks(dt: number): void {
       }
     }
   }
-  if (markedEnemies.size > 0 || markedBeasts.size > 0) {
+  if (markAllEnemies || markedEnemies.size > 0 || markedBeasts.size > 0) {
     for (const e of combat.enemies) {
       if (!e.targetable) {
         continue;
       }
       const bond = markedBeasts.size > 0 ? combat.bondSpeciesOf(e) : null;
-      if (!markedEnemies.has(e.species) && !(bond && markedBeasts.has(bond))) {
+      if (!markAllEnemies && !markedEnemies.has(e.species) && !(bond && markedBeasts.has(bond))) {
         continue;
       }
       markSpot(e.position.x, e.position.y + e.height + ENEMY_MARK_RISE, e.position.z, "target");
@@ -6790,6 +6796,7 @@ beginPlay();
       .toSorted((a, b) => (a.id < b.id ? -1 : 1)),
     enemies: [...markedEnemies].toSorted(),
     beasts: [...markedBeasts].toSorted(),
+    allEnemies: markAllEnemies,
   },
   drawn: questMarkSpots.slice(0, questMarkCount).map((s) => ({
     kind: s.kind,

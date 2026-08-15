@@ -10,7 +10,7 @@
     "placeholder-model": "`enemy:thread-anchor` wears its own builder — a knot of red cord wound over an angular shard, half-sunk, with a matching no-gait behaviour branch in combat/enemies.ts (issue #202). The variants stay one red at three exposures: it is one object somebody left in a cellar, not a wild population.",
     "the-act-seam": "`quest:land/the-bellwether` closes the act, and it says so in two vocabularies on purpose. `quest:sea/salt-and-rope` will name it in `prerequisites`; everything else — dialogue, shops, the coast gateway — tests the flag `sea-revealed`. Nothing gates on `act-1-complete`: that one is a record, not a key. Both are set here and neither is ever cleared.",
     "the-arena-outlives-the-boss": "The drove ground the Bellwether is fought on is not a prop of this quest. Act 4 stages `enemy:guardian/land` on the same ground (game-story.md §4), so the fight is a SPAWN on open country outside Stonewatch and nothing about the terrain, the town or the roads knows a boss is standing there. Kill it and the ground is what it was.",
-    "what-corrupted-means": "`quest:land/the-mill-road` culls the three enemies that have no `capture` block — Gloopling, Snortle and Peckit. A `wild-…` enemy is a beast you are meant to BOND, so a cull that counted one would be the game asking for the opposite of what it just taught. Named as a list rather than derived, because the trigger filter takes ids and because an enemy added later should have to opt IN to being something the story asks you to put down.",
+    "what-put-down-counts": "`quest:land/the-mill-road` counts ANY beast put down on the road — its `enemy-killed` trigger carries no `enemies` list, which is the trigger vocabulary for \"any\" (every filter is any when absent). A wild Sproutle counts the same as a Gloopling: the road is not safe and the quest is about walking it, not about which animals deserve it. An objective without the filter marks every enemy the world has up, because every one of them is what it is counting.",
     "towns-stay-in-core": "Act 1 adds no towns. `town:encampment`, `town:redbriar` and `town:stonewatch` ship in core and are referenced from here — the road planner routes one trunk and two spurs, so those three are the ground settlements the world has (game-story.md §1 rule 4)."
   },
   "assets": [
@@ -177,10 +177,7 @@
             "key": "cull-corrupted",
             "text": { "key": "quest.land.theMillRoad.obj.cullCorrupted" },
             "count": 6,
-            "trigger": {
-              "kind": "enemy-killed",
-              "enemies": ["enemy:gloopling", "enemy:snortle", "enemy:peckit"]
-            }
+            "trigger": { "kind": "enemy-killed" }
           }
         ],
         "onComplete": [

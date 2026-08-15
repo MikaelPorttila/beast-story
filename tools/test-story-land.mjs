@@ -63,8 +63,8 @@
 //
 //   9.  THE WALK IS ON FOOT AND THE MOUNT IS ITS REWARD. Nothing is unlocked
 //       while the quest is active; `ground` is unlocked the moment it closes.
-//   10. THE CULL COUNTS THE CORRUPTED AND ONLY THEM — six Glooplings tick it,
-//       a wild Sproutle does not.
+//   10. THE CULL COUNTS ANY BEAST PUT DOWN — five Glooplings and a wild
+//       Sproutle tick it to six, and every enemy up wears the ring meanwhile.
 //   11. ARRIVAL IS A PLACE, NOT A DOOR: standing in Redbriar advances the
 //       travel objective and discovers the town.
 //   12. THE QUEST ENDS WHERE IT SENT YOU. Gain offers it, Mera closes it, and
@@ -93,7 +93,7 @@ const ANCHOR = "thread-anchor";
 const QUEST5 = "quest:land/the-bellwether";
 /** The animal the rest of the valley is following. */
 const BOSS = "bellwether";
-/** The three enemies with no `capture` block — see `what-corrupted-means` in the package. */
+/** One of the beasts the road throws at you; the trigger has no filter (`what-put-down-counts`). */
 const CORRUPTED = "gloopling";
 
 const browser = await launchBrowser();
@@ -542,8 +542,9 @@ async function goToWild(species) {
 
   // 10. THE CULL. Spawned rather than hunted: the population is what `trySpawn`
   // last topped up to, and this measures the TRIGGER, not the spawner's odds.
+  // Every enemy the world has up wears the target ring while it counts.
   const kills = [];
-  for (let i = 0; i < CULL_COUNT; i++) {
+  for (let i = 0; i < CULL_COUNT - 1; i++) {
     await dbg((sp) => window.__dbgSpawn("enemies", sp), CORRUPTED);
     await adv(0.2);
     kills.push(await dbg((sp) => window.__dbgKillEnemy(sp), CORRUPTED));
@@ -551,28 +552,31 @@ async function goToWild(species) {
     await adv(0.3);
   }
   s = await state();
-  results.millRoad.cull = { kills: kills.map((k) => k.ok), culled: s.culled };
+  const marksDuring = await dbg(() => window.__dbgQuestMarks().marked);
+  results.millRoad.cull = { kills: kills.map((k) => k.ok), culled: s.culled, marks: marksDuring };
   check(
     kills.every((k) => k.ok),
     `a corrupted beast could not be put down: ${JSON.stringify(results.millRoad.cull.kills)}`,
   );
-  check(s.culled === CULL_COUNT, `cull-corrupted is ${s.culled} after ${CULL_COUNT} kills`);
+  check(s.culled === CULL_COUNT - 1, `cull-corrupted is ${s.culled} after ${CULL_COUNT - 1} kills`);
+  check(marksDuring.allEnemies === true, "an unfiltered cull does not mark every enemy");
 
-  // 10b. AND ONLY THE CORRUPTED. A wild Sproutle is a beast you are meant to
-  // bond, so a cull that counted one would be the quest asking for the opposite
-  // of what quest 2 just taught. The counter is already AT its cap, so this is
-  // measured on the way up instead — six is six after a seventh, wilder, death.
+  // 10b. AND ANY BEAST COUNTS. The trigger names no enemies, so a wild Sproutle
+  // — the animal quest 2 taught you to bond — is a kill like any other, and the
+  // sixth one closes the objective and takes the ring off everything.
   await dbg(() => window.__dbgSpawn("enemies", "wild-sproutle"));
   await adv(0.2);
   const wildKill = await dbg(() => window.__dbgKillEnemy("wild-sproutle"));
   await adv(0.3);
   s = await state();
-  results.millRoad.wildKill = { kill: wildKill.ok, culled: s.culled };
-  check(wildKill.ok, "no wild Sproutle could be spawned to prove the filter");
+  const marksAfter = await dbg(() => window.__dbgQuestMarks().marked);
+  results.millRoad.wildKill = { kill: wildKill.ok, culled: s.culled, marks: marksAfter };
+  check(wildKill.ok, "no wild Sproutle could be spawned to prove the trigger takes any beast");
   check(
     s.culled === CULL_COUNT,
-    `killing a wild Sproutle moved cull-corrupted to ${s.culled} — the filter is not filtering`,
+    `killing a wild Sproutle left cull-corrupted at ${s.culled} — the unfiltered trigger did not count it`,
   );
+  check(marksAfter.allEnemies === false, "the ring stays on every enemy after the cull is full");
 
   // 11. ARRIVAL. Teleported rather than walked: the road to Redbriar is minutes
   // of driving and what is under test is the arrival, not the pathing.

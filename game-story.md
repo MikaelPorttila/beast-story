@@ -121,7 +121,7 @@ already produce the trigger; ⚙ means [§7](#7-what-the-engine-still-needs) has
 | **travel**  | Cross to a place that is far, or gated on a mount    | `discover` on arrival ⚙         |
 | **tame**    | Bond a named species in the wild                     | taming trigger ⚙                |
 | **collect** | Bring back N of a thing (drops, salvage, components) | `progress.add` on pickup ⚙      |
-| **cull**    | Put down N corrupted beasts of a species             | `progress.add` on enemy death ⚙ |
+| **cull**    | Put down N beasts — of a species, or any at all      | `progress.add` on enemy death ⚙ |
 | **dungeon** | Enter a zone, reach its floor, come back out         | zone arrival ⚙ + `discover`     |
 | **boss**    | One named enemy, one arena, usually mount-gated      | enemy death ⚙                   |
 
@@ -189,7 +189,7 @@ Rewards 60 xp, 25 shard.
 
 **3 · The Mill Road.** Mera has sent word that her oxen have turned and the drove road
 is not safe. Objectives: `reach-redbriar` (travel — deliberately on foot and
-deliberately long), `cull-corrupted` ×6 along the way. `onComplete`:
+deliberately long), `cull-corrupted` ×6 along the way — any beast put down counts. `onComplete`:
 `mount.unlock ground` ⚙, `flag.set mount-ground`, `discover town:redbriar`.
 **The ground mount is the reward for
 walking**, which is the only arrangement in which the player feels it. Rewards 120 xp,
