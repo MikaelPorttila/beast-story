@@ -78,8 +78,12 @@ export interface MapHooks {
 
 /** Texels on a tile's side. Level L covers the zone's long side in 2^L tiles. Small: one tile is ~8 ms of sampling, a frame's worth. */
 const TILE = 128;
-/** Milliseconds a frame may spend painting tiles; the game runs on under the panel. */
-const TILE_BUDGET_MS = 6;
+/** Milliseconds a frame may spend sampling tiles: a slice, never a whole tile, so pan and zoom never wait on one. */
+const TILE_BUDGET_MS = 3;
+/** Rows sampled between budget checks; ~0.3 ms at the deepest level. */
+const ROW_SLICE = 8;
+/** World units per "seen" block; a tile whose rect touches no seen block is fog and is never painted. */
+const SEEN_BLOCK = 64;
 /** Tiles kept per zone before the oldest above level 0 go — ~25 MB at most. */
 const TILE_CACHE_MAX = 400;
 /** Pixels of screen the map may zoom a world unit up to. */
@@ -113,6 +117,21 @@ interface ZoneMap {
   fog: HTMLCanvasElement;
   /** How many explored cells the fog canvas already has holes for. */
   fogPainted: number;
+  /** `bx,bz` of every SEEN_BLOCK an explored cell touches — the painter's "is any of this tile visible" test. */
+  seen: Set<string>;
+}
+
+/** A tile half-sampled: rows [0, row) of `heights` are filled, the rest are this frame's or the next's. */
+interface TileJob {
+  level: number;
+  i: number;
+  j: number;
+  upt: number;
+  x0: number;
+  z0: number;
+  ap: number;
+  n: number;
+  row: number;
 }
 
 /** One interactive thing on the map this frame, in world coordinates. */
@@ -154,10 +173,12 @@ export class MapPanel {
   private terrain: MapTerrain | null = null;
   /** Tiles the last frame wanted and did not have, nearest the view centre first. */
   private pending: Array<{ level: number; i: number; j: number; d: number }> = [];
+  private job: TileJob | null = null;
   private fogBrush: HTMLCanvasElement | null = null;
   /** Session totals, for a probe: how much of the game frame the map has spent painting tiles. */
   private painted = 0;
   private paintMs = 0;
+  private frames = 0;
 
   /** View: world point at the canvas centre, and screen px per world unit. */
   private cx = 0;
@@ -224,6 +245,7 @@ export class MapPanel {
     window.addEventListener("keydown", this.onKeyDown, true);
     window.addEventListener("keyup", this.onKeyUp, true);
     this.canvas.addEventListener("pointerdown", this.onPointerDown);
+    this.canvas.addEventListener("mousedown", this.onMouseDown);
     this.canvas.addEventListener("pointermove", this.onPointerMove);
     this.canvas.addEventListener("pointerup", this.onPointerUp);
     this.canvas.addEventListener("pointercancel", this.onPointerUp);
@@ -261,6 +283,7 @@ export class MapPanel {
     this.canvas = null;
     this.ctx = null;
     this.pending = [];
+    this.job = null;
     this.pointers.clear();
     this.dragging = false;
     this.hooks.onClose?.(by);
@@ -333,6 +356,7 @@ export class MapPanel {
             fogPainted: this.zone.fogPainted,
             painted: this.painted,
             paintMs: +this.paintMs.toFixed(1),
+            frames: this.frames,
           }
         : null,
       screen: this.isOpen
@@ -375,33 +399,65 @@ export class MapPanel {
       tiles: new Map(),
       fog,
       fogPainted: -1,
+      seen: new Set(),
     };
-    // Level 0 is the whole zone in one tile, painted now: every deeper tile has an ancestor to stand in for it.
-    made.tiles.set(tileKey(0, 0, 0), this.paintTile(ter, made, 0, 0, 0));
     this.cache.set(ter.zoneId, made);
     return made;
   }
 
-  private paintTile(
-    ter: MapTerrain,
-    zm: ZoneMap,
-    level: number,
-    i: number,
-    j: number,
-  ): HTMLCanvasElement {
-    const t0 = performance.now();
+  /** Does the fog lift anywhere over this tile? Blocks are coarse, so this is a handful of lookups. */
+  private tileSeen(zm: ZoneMap, level: number, i: number, j: number): boolean {
+    const tw = zm.span / (1 << level);
     const b = zm.bounds;
+    // A brush reaches past its cell; a tile beside seen ground shows a soft edge of it.
+    const pad = EXPLORE_CELL * 2;
+    const bx0 = Math.floor((b.minX + i * tw - pad) / SEEN_BLOCK);
+    const bx1 = Math.floor((b.minX + (i + 1) * tw + pad) / SEEN_BLOCK);
+    const bz0 = Math.floor((b.minZ + j * tw - pad) / SEEN_BLOCK);
+    const bz1 = Math.floor((b.minZ + (j + 1) * tw + pad) / SEEN_BLOCK);
+    for (let bz = bz0; bz <= bz1; bz++) {
+      for (let bx = bx0; bx <= bx1; bx++) {
+        if (zm.seen.has(`${bx},${bz}`)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private startTile(zm: ZoneMap, level: number, i: number, j: number): TileJob {
     const upt = zm.span / (TILE << level);
-    const x0 = b.minX + i * TILE * upt;
-    const z0 = b.minZ + j * TILE * upt;
     const ap = Math.min(APRON_MAX, Math.max(1, Math.round(SHADE_REACH / upt)));
-    const n = TILE + 2 * ap;
-    for (let jj = 0; jj < n; jj++) {
+    return {
+      level,
+      i,
+      j,
+      upt,
+      x0: zm.bounds.minX + i * TILE * upt,
+      z0: zm.bounds.minZ + j * TILE * upt,
+      ap,
+      n: TILE + 2 * ap,
+      row: 0,
+    };
+  }
+
+  /** Sample the next slice of rows. True when the whole tile is in `heights`. */
+  private sampleRows(ter: MapTerrain, job: TileJob): boolean {
+    const { n, ap, upt, x0, z0 } = job;
+    const end = Math.min(n, job.row + ROW_SLICE);
+    for (let jj = job.row; jj < end; jj++) {
       const z = z0 + (jj - ap + 0.5) * upt;
       for (let ii = 0; ii < n; ii++) {
         heights[jj * n + ii] = ter.heightAt(x0 + (ii - ap + 0.5) * upt, z);
       }
     }
+    job.row = end;
+    return end >= n;
+  }
+
+  /** Colour, shade and roads over a fully sampled `heights` — a millisecond, so it runs in one go. */
+  private finishTile(ter: MapTerrain, job: TileJob): HTMLCanvasElement {
+    const { upt, x0, z0, ap, n } = job;
     const canvas = document.createElement("canvas");
     canvas.width = TILE;
     canvas.height = TILE;
@@ -479,28 +535,49 @@ export class MapPanel {
     ctx.stroke();
     ctx.restore();
     this.painted++;
-    this.paintMs += performance.now() - t0;
     return canvas;
   }
 
-  /** Spend the frame's budget on the tiles the last draw wanted, nearest the centre first. */
+  /** Spend the frame's budget on the tiles the last draw wanted, nearest the centre first, a slice at a time. */
   private paintPending(): void {
     const ter = this.terrain;
     const zm = this.zone;
-    if (!ter || !zm || this.pending.length === 0) {
+    if (!ter || !zm) {
       return;
+    }
+    // A job whose tile the view no longer wants is dropped: a zoom mid-tile must not finish the old level first.
+    const job = this.job;
+    if (job && !this.pending.some((p) => p.level === job.level && p.i === job.i && p.j === job.j)) {
+      this.job = null;
     }
     this.pending.sort((a, b) => a.d - b.d);
     const t0 = performance.now();
-    for (const p of this.pending) {
-      const key = tileKey(p.level, p.i, p.j);
-      if (!zm.tiles.has(key)) {
-        zm.tiles.set(key, this.paintTile(ter, zm, p.level, p.i, p.j));
+    let next = 0;
+    while (performance.now() - t0 < TILE_BUDGET_MS) {
+      if (!this.job) {
+        while (
+          next < this.pending.length &&
+          zm.tiles.has(
+            tileKey(this.pending[next].level, this.pending[next].i, this.pending[next].j),
+          )
+        ) {
+          next++;
+        }
+        const p = this.pending[next++];
+        if (!p) {
+          break;
+        }
+        this.job = this.startTile(zm, p.level, p.i, p.j);
       }
-      if (performance.now() - t0 > TILE_BUDGET_MS) {
-        break;
+      if (this.sampleRows(ter, this.job)) {
+        zm.tiles.set(
+          tileKey(this.job.level, this.job.i, this.job.j),
+          this.finishTile(ter, this.job),
+        );
+        this.job = null;
       }
     }
+    this.paintMs += performance.now() - t0;
     this.pending = [];
     // Oldest first, insertion order; the level-0 tile is the fallback for everything and stays.
     for (const key of zm.tiles.keys()) {
@@ -527,6 +604,7 @@ export class MapPanel {
       ctx.fillStyle = FOG_COLOUR;
       ctx.fillRect(0, 0, zm.fog.width, zm.fog.height);
       zm.fogPainted = 0;
+      zm.seen.clear();
     }
     const brush = this.fogBrush ?? (this.fogBrush = makeFogBrush());
     const r = brush.width / 2;
@@ -538,6 +616,9 @@ export class MapPanel {
         continue;
       }
       const [cx, cz] = cellOf(key);
+      zm.seen.add(
+        `${Math.floor((cx * EXPLORE_CELL) / SEEN_BLOCK)},${Math.floor((cz * EXPLORE_CELL) / SEEN_BLOCK)}`,
+      );
       const fx = ((cx + 0.5) * EXPLORE_CELL - b.minX) / FOG_TEXEL;
       const fz = ((cz + 0.5) * EXPLORE_CELL - b.minZ) / FOG_TEXEL;
       ctx.drawImage(brush, fx - r, fz - r);
@@ -612,6 +693,7 @@ export class MapPanel {
       return;
     }
     this.raf = requestAnimationFrame(this.frame);
+    this.frames++;
 
     // Keyboard pan runs on the frame so a held arrow glides instead of stepping.
     let kx = 0;
@@ -654,8 +736,8 @@ export class MapPanel {
     const zm = this.zone;
     const ter = this.terrain;
     if (zm && ter) {
-      this.drawTiles(ctx, zm, dpr, w, h);
       this.paintFog(zm, ter.explored());
+      this.drawTiles(ctx, zm, dpr, w, h);
       const b = zm.bounds;
       const tl = this.toScreen(b.minX, b.minZ);
       ctx.drawImage(
@@ -754,7 +836,8 @@ export class MapPanel {
     const b = zm.bounds;
     const level = Math.min(
       zm.maxLevel,
-      Math.max(0, Math.ceil(Math.log2((zm.span * this.scale * dpr) / TILE))),
+      // floor, not ceil: a texel spans one to two device pixels, and a zoom crosses half as many levels.
+      Math.max(0, Math.floor(Math.log2((zm.span * this.scale * dpr) / TILE))),
     );
     const tw = zm.span / (1 << level);
     const cols = Math.ceil((b.maxX - b.minX) / tw);
@@ -778,6 +861,10 @@ export class MapPanel {
         const tile = zm.tiles.get(tileKey(level, i, j));
         if (tile) {
           ctx.drawImage(tile, sx, sy, sw, sh);
+          continue;
+        }
+        // Fog is fog: a tile the hero has seen none of is never sampled, and needs no stand-in either.
+        if (!this.tileSeen(zm, level, i, j)) {
           continue;
         }
         const dx = (i + 0.5) * tw + b.minX - this.cx;
@@ -946,13 +1033,23 @@ export class MapPanel {
     if (wasDrag || this.confirmEl) {
       return;
     }
-    // A clean click: a lit stone asks to travel, the marker lifts, bare ground takes the flag.
-    const hot = this.hotAt(ev.offsetX, ev.offsetY);
-    if (hot) {
-      this.actOn(hot);
-    } else {
+    // A clean click. The MIDDLE button (or a finger, which has no middle) is the flag: it plants,
+    // moves or lifts. The left button only travels — a stray click while panning must not move the flag.
+    if (ev.button === 1 || ev.pointerType === "touch") {
       const p = this.toWorld(ev.offsetX, ev.offsetY);
       this.placeAt(p.x, p.z);
+      return;
+    }
+    const hot = this.hotAt(ev.offsetX, ev.offsetY);
+    if (hot?.kind === "stone") {
+      this.actOn(hot);
+    }
+  };
+
+  /** The middle button's browser default is autoscroll; the map owns that button. */
+  private onMouseDown = (ev: MouseEvent): void => {
+    if (ev.button === 1) {
+      ev.preventDefault();
     }
   };
 

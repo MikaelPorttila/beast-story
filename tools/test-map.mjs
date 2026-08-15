@@ -59,30 +59,43 @@ const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
     `towns known on a fresh character: ${JSON.stringify(m.known)}`,
   );
   check(m.explored > 0, "standing in the world explored nothing");
-  const fog = await page.evaluate(() => {
-    // Zoom all the way out, then read a pixel far from the hero and one under him.
+  await page.evaluate(() => {
     for (let i = 0; i < 20; i++) {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "-" }));
     }
-    return new Promise((resolve) =>
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          const c = document.querySelector(".bs-map .mc");
-          const w = c.clientWidth;
-          const h = c.clientHeight;
-          resolve({
-            far: window.__dbgMapPixel(w * 0.05, h * 0.05),
-            here: window.__dbgMapPixel(w / 2, h / 2),
-          });
-        }),
-      ),
-    );
+  });
+  // Tiles paint a slice a frame; give the seen ones the few frames they need before reading pixels.
+  await wait(500);
+  const fog = await page.evaluate(() => {
+    const c = document.querySelector(".bs-map .mc");
+    const w = c.clientWidth;
+    const h = c.clientHeight;
+    return {
+      far: window.__dbgMapPixel(w * 0.05, h * 0.05),
+      here: window.__dbgMapPixel(w / 2, h / 2),
+    };
   });
   out.fog = fog;
   check(dark(fog.far), `the far corner is not fogged: ${JSON.stringify(fog.far)}`);
   check(!dark(fog.here), `the ground under the hero is fogged: ${JSON.stringify(fog.here)}`);
   // The zoom-out floor covers the view: the map may not be smaller than the canvas.
   const floor = await dbgMap();
+  // Painting is BUDGETED: after a full zoom-out and a zoom back in, the tiles painted so far
+  // cost at most a slice per frame, and only tiles the fog has lifted were painted at all.
+  await page.evaluate(() => {
+    for (let i = 0; i < 20; i++) {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "+" }));
+    }
+  });
+  await wait(600);
+  const t = (await dbgMap()).tiles;
+  out.tiles = t;
+  check(t.frames > 10, `the map drew ${t.frames} frames in 600 ms`);
+  check(
+    t.paintMs / t.frames < 4,
+    `tile painting cost ${(t.paintMs / t.frames).toFixed(2)} ms a frame, over the 3 ms slice`,
+  );
+  check(t.painted > 0 && t.painted < 60, `${t.painted} tiles painted for one explored disc`);
   check(
     Math.abs(floor.view.scale - floor.view.minScale) < 1e-6,
     `zooming out stopped at ${floor.view.scale}, floor ${floor.view.minScale}`,
@@ -112,6 +125,26 @@ const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
   await page.keyboard.press("KeyP");
   await wait(150);
   const lifted = await dbgMap();
+  // The mouse: a LEFT click on bare ground plants nothing (a stray click while
+  // panning must not move the flag); the MIDDLE button plants.
+  const rect0 = await page.evaluate(() => {
+    const r = document.querySelector(".bs-map .mc").getBoundingClientRect();
+    return { left: r.left, top: r.top, w: r.width, h: r.height };
+  });
+  const gx = rect0.left + rect0.w * 0.4;
+  const gy = rect0.top + rect0.h * 0.6;
+  await page.mouse.click(gx, gy);
+  await wait(150);
+  const afterLeft = (await dbgMap()).planted;
+  await page.mouse.click(gx, gy, { button: "middle" });
+  await wait(150);
+  const afterMiddle = (await dbgMap()).planted;
+  out.marker.mouse = { afterLeft, afterMiddle };
+  check(afterLeft === null, "a left click on bare ground planted the flag");
+  check(afterMiddle !== null, "a middle click on bare ground planted nothing");
+  await page.mouse.click(gx, gy, { button: "middle" });
+  await wait(150);
+  check((await dbgMap()).planted === null, "a second middle click on the flag did not lift it");
   const chipAfter = await page.evaluate(
     () => window.__dbgCompass().markers.find((k) => k.id === "player-marker") ?? null,
   );
