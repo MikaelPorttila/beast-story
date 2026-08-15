@@ -293,6 +293,12 @@ export const en = {
   "quest.sea.whatTheTideKept.obj.reachMawsRest": "Ride the dark water out to Maw's Rest",
   "quest.sea.whatTheTideKept.obj.defeatBrineholder": "Defeat the Brineholder",
   "quest.sea.whatTheTideKept.obj.assembleTheDevice": "Bring the components to Coil and assemble the device",
+  // ---- Act 3, Sky (issue #145). Only the entry ships today — see story-sky.json.
+  "quest.sky.theLongAscent.name": "The Long Ascent",
+  "quest.sky.theLongAscent.desc":
+    "The instrument points up, steadily and stupidly. Corwin Vane says he can get you there and that you will not like it. Coil says she is coming whether you like it or not.",
+  "quest.sky.theLongAscent.obj.boardTheBalloon": "Board Corwin Vane's balloon",
+  "quest.sky.theLongAscent.obj.reachSkyhaven": "Reach Skyhaven on the Cirran Shelf",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -483,6 +489,14 @@ export const en = {
     "Down, dry, and the vane out of the salt. Now the part you carried me for: there are CITIES up there. Well-run, well-lit, and very sure nobody would ever drop in. When your instrument starts pointing up — and it will — I can get you there. You will not like it.",
   "npc.skyPilot.sea4.after":
     "I have flown over the whole Reach and I still could not tell you where the sea ends. Up is simpler. Up has lamps.",
+  // Home on the mooring deck — the receiving half of the Act 2 -> Act 3 seam
+  // (issue #157). Gain is already up here, of course; ask him how yourself.
+  "npc.skyPilot.sky1.offer":
+    "Told you that you would not like it. Well — you are up, and she held, and that is the whole of the trick. Welcome to the Shelf. Mind the rim, mind the rotas, and mind Gain: he was on the deck with a hot cup when we moored, and I did not carry him.",
+  "npc.skyPilot.sky1.done":
+    "Skyhaven, then. Drainage, lamp oil and a shortage of both — a real town, whatever it looks like from below. Whatever your instrument is pointing at now, it is pointing at somebody's front door up here. I would ask nicely first.",
+  "npc.skyPilot.sky1.after":
+    "She drifts where the warm air takes her, and up here the warm air is somebody's job. Ask the lamplighter whose.",
   "npc.skyGardener.name": "Mother Pell",
   "npc.skyGardener.greeting":
     "Soil this thin, and every root has to hold on twice — once for itself, once for the rest of us.",

@@ -15,7 +15,10 @@
 //   3. THE BOSS RISES AND FALLS: the stage marks the arrival (a landmark is not
 //      a town), stands the Brineholder up, and its death marks the defeat.
 //   4. THE SEAM CLOSES: Coil's turn-in assembles the device — device-built,
-//      sky-revealed, act-2-complete all set, 200 paid.
+//      sky-revealed, act-2-complete all set, 200 paid. And its RECEIVING half
+//      (issue #157): sky-revealed loads story-sky, The Long Ascent is the main
+//      quest on the shelf, and Corwin Vane on Skyhaven's deck offers and closes
+//      it — act-3-open set, the town discovered, 100 paid.
 //   5. THE ARENA OUTLIVES ITS BOSS (Act 4's anchor): with the act closed the
 //      ring is re-enterable and nothing respawns in it.
 //
@@ -76,7 +79,9 @@ async function talkTo(id) {
   if (!who) {
     return null;
   }
-  await dbg((n) => window.__dbgTp(n.x + 2, n.z), who);
+  // A resident of a CARRIED town stands well above the ground under him, so
+  // the teleport carries his height — the deck is where he is, not the terrain.
+  await dbg((n) => window.__dbgTp(n.x + 2, n.z, n.y - n.ground > 3 ? n.y + 0.3 : undefined), who);
   await wait(300);
   for (let i = 0; i < 20; i++) {
     await page.keyboard.press("KeyE");
@@ -182,6 +187,85 @@ let ring;
   check(ended.skyRevealed === true, "sky-revealed was not set — Act 3 has no key");
   check(ended.act2 === true, "act-2-complete was not set");
   check(paid === 200, `the reward paid ${paid} shards, not the promised 200`);
+
+  // AND THE RECEIVING HALF (issue #157): `sky-revealed` is what loads
+  // `story-sky` — the sky is not boot-resident, Skyhaven already is — and the
+  // prerequisite just handed in puts The Long Ascent on the shelf as the ONE
+  // main quest offered with the act closed. Polled: the load is async.
+  let seam = null;
+  for (let i = 0; i < 40 && seam?.tab !== "available"; i++) {
+    await wait(250);
+    seam = await dbg(() => {
+      const c = window.__dbgContent();
+      const main = window
+        .__dbgJournal()
+        .model.filter(
+          (e) => e.category === "main" && (e.tab === "active" || e.tab === "available"),
+        );
+      return {
+        packages: c.packages.map((p) => p.id),
+        diagnostics: c.diagnostics,
+        tab: main.find((e) => e.id === "quest:sky/the-long-ascent")?.tab ?? null,
+        shelf: main.map((e) => e.id),
+      };
+    });
+  }
+  results.seam = seam;
+  check(seam.packages.includes("story-sky"), "sky-revealed did not load story-sky");
+  check(seam.tab === "available", `the-long-ascent is on the "${seam.tab}" shelf, not "available"`);
+  check(
+    seam.diagnostics.length === 0,
+    `the act's entry raised findings: ${JSON.stringify(seam.diagnostics)}`,
+  );
+  // Nothing of Act 2 is left offered or active — the staging above left Act 1's
+  // own opener on the shelf, which is that act's business, not this seam's.
+  const seaLeft = seam.shelf.filter((id) => id.startsWith("quest:sea/"));
+  check(
+    seaLeft.length === 0,
+    `the act closed with its own quests still on the shelf: ${JSON.stringify(seaLeft)}`,
+  );
+}
+
+// ---------- 4b. the pilot, home: the receiving half plays --------------------
+// Vane's rows are gated on knows-the-sky, which the Rookery set above; the
+// probe lands on Skyhaven's deck (the town rides a carrier, so `y` is his) and
+// talks him through offer and turn-in.
+{
+  const vane = (await dbg(() => window.__dbgNpcs())).all.find((n) => n.id === "sky-pilot");
+  check(!!vane, "npc:sky-pilot is not in the world");
+  const before = await dbg(() => window.__dbgZone().shards);
+  const offer = await talkTo("sky-pilot");
+  await page.keyboard.press("Escape");
+  await adv(0.5);
+  const sky = () =>
+    dbg(async () => {
+      const { content } = await import("/src/content/index.ts");
+      const q = "quest:sky/the-long-ascent";
+      return {
+        status: content.state.questStatus(q),
+        board: content.state.progress(q, "board-the-balloon"),
+        reach: content.state.progress(q, "reach-skyhaven"),
+        act3: content.state.flag("act-3-open"),
+        discovered: content.state.discovered("town:skyhaven"),
+      };
+    });
+  const started = await sky();
+  results.ascent = { offer, ...started };
+  check(offer !== null, "Vane has no Long Ascent offer on the deck");
+  check(started.status === "active", `the offer left the ascent "${started.status}"`);
+  check(started.board >= 1, "boarding was not marked by the offer");
+  check(started.reach >= 1, "standing in Skyhaven did not mark reach-skyhaven on activation");
+
+  const done = await talkTo("sky-pilot");
+  await page.keyboard.press("Escape");
+  await wait(250);
+  const closed = await sky();
+  const paid = (await dbg(() => window.__dbgZone().shards)) - before;
+  results.ascentDone = { line: done, ...closed, paid };
+  check(closed.status === "completed", `the turn-in left the ascent "${closed.status}"`);
+  check(closed.act3 === true, "act-3-open was not set");
+  check(closed.discovered === true, "town:skyhaven was not discovered");
+  check(paid === 100, `the ascent paid ${paid} shards, not the promised 100`);
 }
 
 // ---------- 5. the arena outlives its boss -----------------------------------

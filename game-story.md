@@ -465,14 +465,14 @@ Objectives: `open-the-seam`, `defeat-rhune`, `decide` ×1. `onComplete`:
 One package per act, plus a small always-resident one. Load order is the `requires`
 chain; nothing here loads at boot except `core`.
 
-| Package      | File                   | Requires | Loaded when                                                                                         |
-| ------------ | ---------------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `core`       | `data/core.json`       | —        | Imported. Ships in the main chunk.                                                                  |
-| `story`      | `data/story.json`      | `core`   | At boot, after `core`. The hub every act's package requires. Small — see the two corrections below. |
-| `story-land` | `data/story-land.json` | `story`  | At boot, after `story` — see the correction below                                                   |
-| `story-sea`  | `data/story-sea.json`  | `story`  | On entering `brine`                                                                                 |
-| `story-sky`  | `data/story-sky.json`  | `story`  | On entering `cirrus`                                                                                |
-| `story-seam` | `data/story-seam.json` | `story`  | On entering `seam`                                                                                  |
+| Package      | File                   | Requires | Loaded when                                                                                                 |
+| ------------ | ---------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
+| `core`       | `data/core.json`       | —        | Imported. Ships in the main chunk.                                                                          |
+| `story`      | `data/story.json`      | `core`   | At boot, after `core`. The hub every act's package requires. Small — see the two corrections below.         |
+| `story-land` | `data/story-land.json` | `story`  | At boot, after `story` — see the correction below                                                           |
+| `story-sea`  | `data/story-sea.json`  | `story`  | At boot — Act 2 is part of the open world (issue #144), so its islands must exist when the world is planned |
+| `story-sky`  | `data/story-sky.json`  | `story`  | On `sky-revealed` — the flag Act 2's closer sets (issue #157). Skyhaven itself ships in `core`              |
+| `story-seam` | `data/story-seam.json` | `story`  | On entering `seam`                                                                                          |
 
 **Act 1's towns stay in `core`** — they are the shipped world and moving them would
 make the starting world depend on a package. `story-land` adds only quests and the two

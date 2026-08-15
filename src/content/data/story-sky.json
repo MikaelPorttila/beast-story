@@ -1,0 +1,44 @@
+{
+  "id": "story-sky",
+  "version": "0.1.0",
+  "requires": ["story"],
+  "meta": {
+    "title": "Act 3 — Sky: The Cirran Shelf",
+    "note": "The five main quests of Act 3 (game-story.md §4, issue #145). Only the entry ships today: the RECEIVING HALF of the Act 2 -> Act 3 seam (issue #157), the same shape #214 gave the sea act — the ordering is final, the geography is not.",
+    "loading": "Loaded on `sky-revealed` (ACT_PACKAGES in main.ts), the flag Act 2's closer sets — not at boot, because nothing of the sky needs to exist when the world is planned: Skyhaven and its residents ship in `core` and stay there. Loaded once and never released mid-session; progress lives in ContentState.",
+    "the-stub": "The quest names its giver and its town by reference and Corwin Vane's rows in core.json (Gain's precedent, see story.json) offer and close it. What is NOT here is the balloon: the transition between two balloon models is engine work under #157, and boarding it is what should mark `board-the-balloon` on the way up. Until then Vane's offer row marks it in the same breath — you rode up with him — and `reach-skyhaven` is the arrival replay every town-arrival objective gets on activation."
+  },
+  "assets": [
+    {
+      "id": "quest:sky/the-long-ascent",
+      "schema": 1,
+      "name": { "key": "quest.sky.theLongAscent.name" },
+      "description": { "key": "quest.sky.theLongAscent.desc" },
+      "tags": ["story", "act3"],
+      "data": {
+        "category": "main",
+        "arc": "sky",
+        "giver": "npc:sky-pilot",
+        "location": "town:skyhaven",
+        "prerequisites": ["quest:sea/what-the-tide-kept"],
+        "_seam": "THE ACT 2 -> ACT 3 SEAM, receiving half. The prerequisite alone is the door for THIS quest; everything else in the sky tests sky-revealed. Vane's rows are gated on knows-the-sky besides — he is the pilot only because the Rookery pulled him off Gullspire.",
+        "objectives": [
+          {
+            "key": "board-the-balloon",
+            "text": { "key": "quest.sky.theLongAscent.obj.boardTheBalloon" }
+          },
+          {
+            "key": "reach-skyhaven",
+            "text": { "key": "quest.sky.theLongAscent.obj.reachSkyhaven" },
+            "trigger": { "kind": "town-arrival", "town": "town:skyhaven" }
+          }
+        ],
+        "onComplete": [
+          { "do": "discover", "id": "town:skyhaven" },
+          { "do": "flag.set", "flag": "act-3-open" }
+        ],
+        "rewards": { "xp": 400, "shard": 100 }
+      }
+    }
+  ]
+}
