@@ -56,7 +56,8 @@ const readState = (page) =>
     return {
       pos: { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) },
       bag: Object.fromEntries(doc.bag),
-      beasts: Object.fromEntries(doc.beasts.map((b) => [b.speciesId, b.level])),
+      // By BODY, not species (issue #110): two Emberfoxes are two rows at two levels.
+      beasts: Object.fromEntries(doc.beasts.map((b) => [b.id ?? b.speciesId, b.level])),
       party: doc.party,
       currency: doc.currency,
       name: doc.name,
@@ -90,6 +91,9 @@ const readState = (page) =>
   await page.evaluate(() => {
     window.__dbgGive("sunberry", 7);
     window.__dbgGrantBeast("emberfox");
+    // A SECOND EMBERFOX, levelled past the first (issue #110): each body is its own row in the document.
+    window.__dbgGrantBeast("emberfox", true);
+    window.__dbgBeastXp("emberfox#2", 60);
     window.__dbgUnlockMount("water", true);
     window.__dbgMarker(123, -45);
     window.__dbgTp(140, -60);
@@ -135,6 +139,16 @@ const readState = (page) =>
   check(
     back.beasts.emberfox === saved.beasts.emberfox,
     `the emberfox came back at level ${back.beasts.emberfox}, saved at ${saved.beasts.emberfox}`,
+  );
+  // Both halves: the second body was ahead of the first before the save, and is still, and still ahead by
+  // its own level — a load that keyed by species would fold the two into one row.
+  check(
+    saved.beasts["emberfox#2"] > saved.beasts.emberfox,
+    `the second emberfox saved at level ${saved.beasts["emberfox#2"]}, the first at ${saved.beasts.emberfox} — want it ahead`,
+  );
+  check(
+    back.beasts["emberfox#2"] === saved.beasts["emberfox#2"],
+    `the second emberfox came back at level ${back.beasts["emberfox#2"]}, saved at ${saved.beasts["emberfox#2"]}`,
   );
   check(
     back.party.primary === saved.party.primary,
@@ -187,13 +201,18 @@ const readState = (page) =>
 // 2. A save whose content has been removed: the unknown item is dropped and
 //    everything beside it survives. The document is rewritten in the database
 //    directly, which is the only way to produce a save this build cannot
-//    fully resolve without deleting an item from the build.
+//    fully resolve without deleting an item from the build. The same rewrite
+//    names a beast BODY this page has never built (`emberfox#7`, issue #110),
+//    which is every save opened on a later day: the load builds it under that id.
 // ---------------------------------------------------------------------------
 {
   const { ctx, page } = await boot();
   await page.evaluate(() => {
     window.__dbgGive("sunberry", 3);
     window.__dbgGive("glowpebble", 2);
+    window.__dbgGrantBeast("emberfox");
+    window.__dbgGrantBeast("emberfox", true);
+    window.__dbgBeastXp("emberfox#2", 60);
   });
   const id = await page.evaluate(() => window.__dbgSaves.save("Ghost"));
 
@@ -216,6 +235,9 @@ const readState = (page) =>
               ["no-such-item", 9],
               ["glowpebble", 2],
             ];
+            row.doc.beasts = row.doc.beasts.map((b) =>
+              b.id === "emberfox#2" ? { ...b, id: "emberfox#7" } : b,
+            );
             store.put(row);
           });
           tx.addEventListener("complete", () => {
@@ -232,7 +254,7 @@ const readState = (page) =>
   const loaded = await page.evaluate((n) => window.__dbgSaves.load(n), id);
   check(loaded === true, "the doctored save would not load at all");
   const state = await readState(page);
-  out.unknownItem = { bag: state.bag };
+  out.unknownItem = { bag: state.bag, beasts: state.beasts };
   check(
     state.bag["no-such-item"] === undefined,
     "an item this build does not ship survived the load",
@@ -240,6 +262,10 @@ const readState = (page) =>
   check(
     state.bag.sunberry === 3 && state.bag.glowpebble === 2,
     `the items beside it did not survive: ${JSON.stringify(state.bag)}`,
+  );
+  check(
+    state.beasts["emberfox#7"] === 2 && state.beasts.emberfox === 1 && !("emberfox#2" in state.beasts),
+    `a body never built came back as ${JSON.stringify(state.beasts)}, want emberfox 1 and emberfox#7 2`,
   );
 
   await ctx.close();

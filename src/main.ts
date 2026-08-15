@@ -584,6 +584,7 @@ function collectSave(): SaveDocument {
     equippedWeapon,
     readiedOrb,
     beasts: ownedBeasts().map((b) => ({
+      id: b.id,
       speciesId: b.species.id,
       level: b.level,
       xp: b.xp,
@@ -592,8 +593,8 @@ function collectSave(): SaveDocument {
       knownSkillIds: [...b.knownSkillIds],
     })),
     party: {
-      primary: primary()?.species.id ?? null,
-      support: support()?.species.id ?? null,
+      primary: primary()?.id ?? null,
+      support: support()?.id ?? null,
     },
     appearance: {
       hairStyle: player.hairStyle,
@@ -648,17 +649,14 @@ function applySave(doc: SaveDocument): void {
     owned.clear();
     primaryIdx = -1;
     supportIdx = -1;
+    // A species this build no longer ships is skipped. A document from before issue #110 names no body,
+    // and its one beast of a species IS the boot body, whose id is the species id.
     for (const s of doc.beasts) {
-      const idx = roster.findIndex((b) => b.species.id === s.speciesId);
-      if (idx < 0) {
-        continue;
-      } // a species this build no longer ships
-      roster[idx].restore(s);
-      owned.add(s.speciesId);
+      grantBeast(s.speciesId, s.id ?? s.speciesId)?.restore(s);
     }
-    // By SPECIES ID, so adding a species cannot repoint an old save at another companion.
+    // By BODY ID, so adding a species cannot repoint an old save at another companion.
     const slotOf = (id: string | null): number =>
-      id !== null && owned.has(id) ? roster.findIndex((b) => b.species.id === id) : -1;
+      id !== null && owned.has(id) ? roster.findIndex((b) => b.id === id) : -1;
     primaryIdx = slotOf(doc.party.primary);
     supportIdx = slotOf(doc.party.support);
     // Repairs: a character with no resolvable beast at all is granted the starter.
@@ -1587,12 +1585,39 @@ function support(): BeastActor | null {
 
 /** Has the player bonded this one? The one question `owned` is asked. */
 function isOwned(b: BeastActor): boolean {
-  return owned.has(b.species.id);
+  return owned.has(b.id);
 }
 
 // The bonded beasts in roster order — also Tab's order and the panel's.
 function ownedBeasts(): BeastActor[] {
   return roster.filter(isOwned);
+}
+
+/** Any body of the species bonded — what a quest or the practice pen asks; a bag row asks `isOwned`. */
+function ownsSpecies(speciesId: string): boolean {
+  return roster.some((b) => b.species.id === speciesId && isOwned(b));
+}
+
+/**
+ * A second (third…) body of a species (issue #110): built on demand, then KEPT as an unowned spare across
+ * a reset — the same reason `BeastActor.reset` is a method and not a rebuild.
+ */
+function spawnInstance(species: BeastSpecies, id: string): BeastActor {
+  const b = new BeastActor(species, engine.scene, world, bus, id);
+  b.setVisible(false);
+  roster.push(b);
+  bound.push(b);
+  return b;
+}
+
+// `#2`, `#3`… past whatever the roster already holds, so an id in a save stays that beast for good.
+function freeInstanceId(speciesId: string): string {
+  for (let k = 2; ; k++) {
+    const id = `${speciesId}#${k}`;
+    if (!roster.some((b) => b.id === id)) {
+      return id;
+    }
+  }
 }
 
 // `beasts=0` hides the party and skips its update; it does NOT skip building the rigs, which is a boot cost.
@@ -1602,25 +1627,36 @@ function refreshVisibility(): void {
 refreshVisibility();
 
 // Empty slots first: the first bond leads, the second supports, later ones are benched rather than displacing a chosen beast.
-function grantBeast(speciesId: string): boolean {
-  const idx = roster.findIndex((b) => b.species.id === speciesId);
-  if (idx < 0 || owned.has(speciesId)) {
-    return false;
+// Every bond is a NEW body with its own level (issue #110): the boot body of the species, else an unowned spare, else
+// one built now. `id` is a save's word for which body — honoured when it is free, else the beast is rebuilt under a fresh one.
+function grantBeast(speciesId: string, id?: string): BeastActor | null {
+  const species = speciesById(speciesId);
+  if (!species) {
+    return null;
   }
-  owned.add(speciesId);
+  let b =
+    id !== undefined
+      ? roster.find((x) => x.id === id && x.species === species)
+      : roster.find((x) => x.species === species && !isOwned(x));
+  if (b === undefined || isOwned(b)) {
+    const fresh = id !== undefined && !roster.some((x) => x.id === id);
+    b = spawnInstance(species, fresh ? id : freeInstanceId(speciesId));
+  }
+  owned.add(b.id);
+  const idx = roster.indexOf(b);
   if (primaryIdx < 0) {
     primaryIdx = idx;
   } else if (supportIdx < 0) {
     supportIdx = idx;
   }
   refreshVisibility();
-  return true;
+  return b;
 }
 
 // Composition-root policy: only this file knows combat, the roster and the content state.
 function onBeastTamed(speciesId: string, nameKey: StringKey): void {
   const first = owned.size === 0;
-  if (!grantBeast(speciesId)) {
+  if (grantBeast(speciesId) === null) {
     return;
   }
   bus.emit({
@@ -1801,7 +1837,7 @@ function giveItemFromContent(id: string, n: number): void {
 }
 
 /** A beast's inventory id. The panel round-trips it; nothing else parses it. */
-const beastItemId = (b: BeastActor): string => BEAST_ID_PREFIX + b.species.id;
+const beastItemId = (b: BeastActor): string => BEAST_ID_PREFIX + b.id;
 
 /** One display stat pair, so the builders below all read the same way. */
 const invStat = (label: StringKey, value: string | number): InvStat => ({
@@ -1969,10 +2005,10 @@ function inventoryModel(): InventoryModel {
 // A button on a row; every rule the panel does not know lives in this switch.
 function inventoryAction(id: string, action: InvAction): void {
   if (id.startsWith(BEAST_ID_PREFIX)) {
-    const speciesId = id.slice(BEAST_ID_PREFIX.length);
-    const idx = roster.findIndex((b) => b.species.id === speciesId);
+    const beastId = id.slice(BEAST_ID_PREFIX.length);
+    const idx = roster.findIndex((b) => b.id === beastId);
     // Refused here as well as being absent from the model: `__dbgInvAction` bypasses the panel.
-    if (idx < 0 || !owned.has(speciesId)) {
+    if (idx < 0 || !owned.has(beastId)) {
       return;
     }
     // Straight onto the two indices Tab moves: putting a beast into one slot pushes whoever was there into the other rather than benching them.
@@ -3010,7 +3046,7 @@ function tickPracticeBeast(dt: number): void {
     }
     return;
   }
-  if (owned.has(PRACTICE_SPECIES.beast)) {
+  if (ownsSpecies(PRACTICE_SPECIES.beast)) {
     if (asset) {
       content.state.setProgress(asset.id, "bond-practice", need);
     }
@@ -3567,10 +3603,7 @@ function bondTargetInAim(def: ItemDef, from: THREE.Vector3, aim: THREE.Vector3):
     if ((dx * fx + dz * fz) / hd < ORB_AIM_CONE_COS) {
       continue;
     }
-    const species = e.beastSpecies?.id ?? null;
-    const bondable =
-      combat.bondRefusal(def, e as unknown as Damageable) === "ok" &&
-      !(species !== null && owned.has(species));
+    const bondable = combat.bondRefusal(def, e as unknown as Damageable) === "ok";
     if (best !== null && bestBondable && !bondable) {
       continue;
     }
@@ -3590,7 +3623,7 @@ const ORB_RANGE = 20;
 // EVERY REFUSAL HAPPENS BEFORE THE ORB LEAVES THE HAND, and each says why — an arrow at nothing is
 // free, an orb is sixty Cubloons. The odds are deliberately not checked. The outcome is returned as
 // well as toasted, so `__dbgThrowOrb` need not scrape a translated sentence.
-type ThrowOutcome = "thrown" | "noOrb" | "noTarget" | "notBondable" | "alreadyOwned" | "busy";
+type ThrowOutcome = "thrown" | "noOrb" | "noTarget" | "notBondable" | "busy";
 
 function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): ThrowOutcome {
   const def = readiedOrb ? itemDef(readiedOrb) : null;
@@ -3610,18 +3643,8 @@ function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): T
     bus.emit({ type: "toast", text: t("toast.orbNotBondable") });
     return "notBondable";
   }
-  const beastId = combat.bondSpeciesOf(target);
-  const nameKey = combat.bondNameKeyOf(target);
   if (refusal === "busy") {
     return "busy";
-  }
-  // ALREADY YOURS, refused rather than allowed-and-wasted: a duplicate bond has nothing to grant, so the orb would buy nothing.
-  if (beastId && owned.has(beastId)) {
-    bus.emit({
-      type: "toast",
-      text: t("toast.orbAlreadyOwned", { beast: nameKey ? t(nameKey) : "" }),
-    });
-    return "alreadyOwned";
   }
 
   if (bag.remove(def.id, 1) !== 1) {
@@ -3747,7 +3770,7 @@ function buildOffers(): ShopOffer[] {
         skill: def,
         price: def.storePrice,
         owned: beast.knownSkillIds.includes(id),
-        beastId: beast.species.id,
+        beastId: beast.id,
         beastName: t(beast.species.nameKey),
         affordable: shards() >= def.storePrice,
       });
@@ -3790,9 +3813,7 @@ function tryOpenShop(): void {
         spent += offer.price;
         // By ID, not by name: this matched on the display name until species names moved into the string table, at
         // which point a translated build charged for a skill nobody learned.
-        const beast = [primary(), support()].find(
-          (p) => p !== null && p.species.id === offer.beastId,
-        );
+        const beast = [primary(), support()].find((p) => p !== null && p.id === offer.beastId);
         beast?.learnSkill(offer.skill.id);
         bus.emit({
           type: "toast",
@@ -3923,7 +3944,7 @@ if (photoMode) {
     }
     // PHOTO MODE IGNORES OWNERSHIP — how every portrait in shots/ was taken, and the one door into a party slot that skips `grantBeast`.
     if (idx >= 0) {
-      owned.add(beastId);
+      owned.add(roster[idx].id);
     }
     // Staged portraits show ONE subject: hide the hero and every other beast.
     roster.forEach((p, i) => p.setVisible(i === primaryIdx));
@@ -4197,8 +4218,8 @@ const degShortest = (r: number): number => deg(shortest(r));
     held: readiedOrb ? bag.count(readiedOrb) : 0,
     bonding: combat.bonding,
     owned: [...owned],
-    lead: primary()?.species.id ?? null,
-    support: support()?.species.id ?? null,
+    lead: primary()?.id ?? null,
+    support: support()?.id ?? null,
     target: target
       ? {
           species: combat.bondSpeciesOf(target),
@@ -4319,14 +4340,14 @@ function nearestEnemyOfSpecies(species: string) {
     support: sup
       ? {
           // Probes report the IDENTIFIER, not the display name: a tool must not fail under `?lang=sv`.
-          id: sup.species.id,
+          id: sup.id,
           fetching: sup.isFetching,
           carrying: sup.isCarrying,
           item: sup.fetchItemId,
           pos: { x: +sup.position.x.toFixed(2), z: +sup.position.z.toFixed(2) },
         }
       : null,
-    primary: lead ? { id: lead.species.id, fetching: lead.isFetching } : null,
+    primary: lead ? { id: lead.id, fetching: lead.isFetching } : null,
   };
 };
 // `dy` and `reach` are the pair issue #70 is about — nine units away horizontally and ninety below — and `needed` is the gate the beam's landing rule reads.
@@ -4334,7 +4355,7 @@ function nearestEnemyOfSpecies(species: string) {
   const p = player.position;
   const one = (b: BeastActor, role: string) => ({
     role,
-    id: b.species.id,
+    id: b.id,
     transit: b.inTransit,
     drawn: b.isDrawn,
     dead: b.isDead,
@@ -4709,10 +4730,10 @@ const spawnCatalogue: SpawnCatalogue = {
       labelKey: "spawn.beasts",
       noteKey: "spawn.beasts.note",
       target: "party",
-      rows: roster.map((b) => ({
-        id: b.species.id,
-        label: t(b.species.nameKey),
-        had: owned.has(b.species.id),
+      rows: ALL_SPECIES.map((sp) => ({
+        id: sp.id,
+        label: t(sp.nameKey),
+        had: ownsSpecies(sp.id),
       })),
     },
     {
@@ -5312,12 +5333,12 @@ function devRide(arg: string | undefined, kind?: string): string {
     return `already riding ${mount.beast!.species.id} — /mount off first`;
   }
   if (arg) {
-    const idx = roster.findIndex((p) => p.species.id === arg);
+    const idx = roster.findIndex((p) => p.id === arg);
     if (idx < 0) {
-      return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(", ")}`;
+      return `no such beast "${arg}" — ${roster.map((p) => p.id).join(", ")}`;
     }
     // BONDED ONLY: a developer surface may skip the orb wobble but not OWNERSHIP, or the console is a different game from the one probes measure. `/grant` is that door.
-    if (!owned.has(arg)) {
+    if (!isOwned(roster[idx])) {
       const have = [...owned];
       return `"${arg}" is not bonded — ${have.length ? have.join(", ") : "you have bonded nothing yet"}`;
     }
@@ -5343,10 +5364,10 @@ function devRide(arg: string | undefined, kind?: string): string {
 /** How many beasts the developer door has seated. See `devGrant`. */
 let devSeated = 0;
 
-function devGrant(arg: string | undefined): string {
+function devGrant(arg: string | undefined, again = false): string {
   if (!arg) {
     const have = [...owned];
-    return `bonded: ${have.length ? have.join(", ") : "nothing"} — of ${roster.map((p) => p.species.id).join(", ")}`;
+    return `bonded: ${have.length ? have.join(", ") : "nothing"} — of ${ALL_SPECIES.map((sp) => sp.id).join(", ")}`;
   }
   // `all` is for the probe suite, where modules each need a DIFFERENT mount. `none` releases every bond,
   // which is what a probe about EARNING one needs: a companion fights the animals a taming test stages,
@@ -5363,24 +5384,30 @@ function devGrant(arg: string | undefined): string {
   }
   if (arg === "all") {
     let n = 0;
-    for (const b of roster) {
-      if (grantBeast(b.species.id)) {
+    for (const sp of ALL_SPECIES) {
+      if (!ownsSpecies(sp.id) && grantBeast(sp.id) !== null) {
         n++;
       }
     }
     inventory.refresh();
     return `bonded ${n} more (${owned.size} total)`;
   }
-  if (!roster.some((p) => p.species.id === arg)) {
-    return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(", ")}`;
+  if (!speciesById(arg)) {
+    return `no such beast "${arg}" — ${ALL_SPECIES.map((sp) => sp.id).join(", ")}`;
   }
-  if (!grantBeast(arg)) {
-    return `"${arg}" is already bonded`;
+  // ONE PER SPECIES unless asked: probes grant on every module and must not breed a pack. `again` is the
+  // player's second orb — another body of the species with its own level (issue #110).
+  if (!again && ownsSpecies(arg)) {
+    return `"${arg}" is already bonded — /grant ${arg} again for another`;
+  }
+  const granted = grantBeast(arg);
+  if (granted === null) {
+    return `"${arg}" could not be bonded`;
   }
   // AND SEAT IT: `grantBeast` only fills an EMPTY slot, which is right in play and wrong for this door —
   // with the starter in the primary slot the second grant landed nowhere. Grants arrive in the order the
   // caller wants them SEATED: first the lead, then support.
-  const idx = roster.findIndex((b) => b.species.id === arg);
+  const idx = roster.indexOf(granted);
   if (idx !== primaryIdx && idx !== supportIdx) {
     if (devSeated === 0) {
       primaryIdx = idx;
@@ -5391,7 +5418,7 @@ function devGrant(arg: string | undefined): string {
     refreshVisibility();
   }
   inventory.refresh();
-  return `bonded ${arg} (${owned.size} total)`;
+  return `bonded ${granted.id} (${owned.size} total)`;
 }
 devConsole?.register({
   name: "mount",
@@ -5403,11 +5430,11 @@ devConsole?.register({
 });
 devConsole?.register({
   name: "grant",
-  args: "[<speciesId>|all|none]",
+  args: "[<speciesId> [again]|all|none]",
   help:
-    "Bond a beast outright, no orb needed; /grant none releases every bond; " +
-    "bare /grant lists what you have.",
-  run: (args) => devGrant(args[0]),
+    "Bond a beast outright, no orb needed; `again` bonds a second body of a species you have; " +
+    "/grant none releases every bond; bare /grant lists what you have.",
+  run: (args) => devGrant(args[0], args[1] === "again"),
 });
 // TEST HOOK, and the same argument `__dbgTp` makes: it DRIVES STATE, which is a probe's job.
 (window as unknown as { __dbgRide: (id?: string) => string }).__dbgRide = (id) => devRide(id);
@@ -5415,8 +5442,18 @@ devConsole?.register({
 (
   window as unknown as { __dbgUnlockMount: (kind?: string, on?: boolean) => string }
 ).__dbgUnlockMount = (kind, on = true) => devUnlockMounts(on ? "unlock" : "lock", kind);
-(window as unknown as { __dbgGrantBeast: (id?: string) => string }).__dbgGrantBeast = (id) =>
-  devGrant(id);
+(
+  window as unknown as { __dbgGrantBeast: (id?: string, again?: boolean) => string }
+).__dbgGrantBeast = (id, again = false) => devGrant(id, again);
+// A DRIVER for a beast's level: two bodies of one species must come back from a save at their own levels (issue #110).
+(window as unknown as { __dbgBeastXp: (id: string, xp: number) => unknown }).__dbgBeastXp = (id, xp) => {
+  const b = roster.find((x) => x.id === id && isOwned(x));
+  if (!b) {
+    return { ok: false, why: `no bonded beast "${id}"` };
+  }
+  b.gainXp(xp);
+  return { ok: true, id: b.id, level: b.level, xp: b.xp };
+};
 // A pinned flag is reported and NOT written through: a measurement run may shadow the player's choice for one load, never become it.
 function setFeedbackPref(
   key: "hapticIntensity" | "shakeIntensity",
@@ -7853,7 +7890,9 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
   shards: shards(),
   bag: bag.entries().map((e) => ({ id: e.def.id, count: e.count })),
   beasts: roster.map((p) => ({
-    id: p.species.id,
+    id: p.id,
+    species: p.species.id,
+    owned: isOwned(p),
     level: p.level,
     xp: p.xp,
     hp: +p.hp.toFixed(2),

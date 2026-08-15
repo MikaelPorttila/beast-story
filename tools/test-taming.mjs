@@ -327,8 +327,7 @@ async function goToWild(species) {
 // throw, then no bond and no bondFailed, ever. Section 5's staging retries are
 // right for its claim and would hide this one; here ARRIVAL ITSELF is the
 // claim, so every accepted throw must start a ceremony. Forced to FALSE so the
-// beast escapes and stays on the board for the next throw — and BEFORE section
-// 5, because an owned species refuses the throw outright (`alreadyOwned`).
+// beast escapes and stays on the board for the next throw.
 {
   const found = await goToWild("wild-sproutle");
   check(found !== null, "no wild-sproutle for the arrival section");
@@ -488,7 +487,7 @@ async function goToWild(species) {
   }
 }
 
-// -- 6. what cannot be bonded, and what is already yours ---------------------
+// -- 6. what cannot be bonded, and a second of what is already yours ---------
 {
   await give("orb-master", 2);
   await invAct("orb-master", "ready");
@@ -508,17 +507,45 @@ async function goToWild(species) {
     results.gloopling = "none spawned";
   }
 
+  // A SECOND SPROUTLE IS A REAL BOND (issue #110): the throw is accepted and, forced
+  // to land, adds a second BODY of the species — its own id, its own level 1 —
+  // beside the one section 5 caught, which keeps its slot. Staged like section 5:
+  // the arrival is retried, the claim is not.
   const foundS = await goToWild("wild-sproutle");
   if (foundS) {
-    const before = (await taming()).held;
-    const res = await throwAt("wild-sproutle");
-    const after = (await taming()).held;
-    results.duplicate = { outcome: res.outcome, heldBefore: before, heldAfter: after };
+    const ownedBefore = (await taming()).owned;
+    let res = { outcome: "never thrown" };
+    let started = false;
+    for (let attempt = 0; attempt < 3 && !started; attempt++) {
+      if (attempt > 0 && !(await goToWild("wild-sproutle"))) {
+        break;
+      }
+      if (!(await weaken("wild-sproutle", 0.1)).ok) {
+        continue;
+      }
+      res = await throwAt("wild-sproutle", true);
+      if (res.outcome !== "thrown") {
+        continue;
+      }
+      for (let i = 0; i < 24 && !started; i++) {
+        await adv(0.1);
+        started = (await taming()).bonding;
+      }
+    }
+    for (let i = 0; i < 60 && (await taming()).bonding; i++) {
+      await adv(0.1);
+    }
+    await adv(0.3);
+    const t = await taming();
+    const sproutles = t.owned.filter((id) => id === "sproutle" || id.startsWith("sproutle#"));
+    results.duplicate = { outcome: res.outcome, ownedBefore, owned: t.owned, lead: t.lead };
+    check(res.outcome === "thrown", `a second Sproutle returned "${res.outcome}", want "thrown"`);
+    check(started, "no orb ever reached the second Sproutle in three tries");
     check(
-      res.outcome === "alreadyOwned",
-      `a second Sproutle returned "${res.outcome}", want "alreadyOwned"`,
+      sproutles.length === 2 && sproutles.includes("sproutle#2"),
+      `a second bond left the Sproutles as ${JSON.stringify(sproutles)}, want ["sproutle", "sproutle#2"]`,
     );
-    check(after === before, "throwing at a species you already own spent an orb");
+    check(t.lead === "sproutle", `the second body took the lead from the first (lead=${t.lead})`);
   } else {
     results.duplicate = "none spawned";
   }

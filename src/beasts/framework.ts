@@ -629,6 +629,8 @@ export class BeastActor {
   private readonly ride = new CarrierRide();
 
   species: BeastSpecies;
+  /** THIS body, not its kind: `emberfox` for the first of a species, `emberfox#2` for the next (issue #110). Saves and the bag key on it. */
+  readonly id: string;
   level = 1;
   xp = 0;
   xpToNext = 25;
@@ -702,8 +704,15 @@ export class BeastActor {
   private rideScale = 1;
   private rideScaleTarget = 1;
 
-  constructor(species: BeastSpecies, scene: THREE.Scene, world: World, bus: EventBus) {
+  constructor(
+    species: BeastSpecies,
+    scene: THREE.Scene,
+    world: World,
+    bus: EventBus,
+    bodyId: string = species.id,
+  ) {
     this.species = species;
+    this.id = bodyId;
     this.scene = scene;
     this.world = world;
     this.bus = bus;
