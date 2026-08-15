@@ -236,6 +236,36 @@ const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
       const r = document.querySelector(".bs-map .mc").getBoundingClientRect();
       return { left: r.left, top: r.top };
     });
+    // A travel target is a thing you click, and the cursor says so — the pointer, as over a
+    // button; the ground beside it is the draggable hand. Real mouse moves: the canvas's own
+    // pointermove listener declares the state, so a synthetic window event would prove nothing.
+    const cursorAt = async (x, y) => {
+      await page.mouse.move(rect.left + x, rect.top + y);
+      await wait(50);
+      return page.evaluate(() => window.__dbgCursor().state);
+    };
+    const size = await page.evaluate(() => {
+      const r = document.querySelector(".bs-map .mc").getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    });
+    const bare = [
+      [40, 40],
+      [size.w - 40, 40],
+      [40, size.h - 40],
+      [size.w - 40, size.h - 40],
+    ].find(([x, y]) => m.screen.every((h) => Math.hypot(h.x - x, h.y - y) > 60));
+    out.cursor = { overStone: await cursorAt(target.x, target.y), overGround: null };
+    check(
+      out.cursor.overStone === "link-select",
+      `over a lit stone the cursor resolved to "${out.cursor.overStone}"`,
+    );
+    if (bare) {
+      out.cursor.overGround = await cursorAt(bare[0], bare[1]);
+      check(
+        out.cursor.overGround === "grab",
+        `over bare map ground the cursor resolved to "${out.cursor.overGround}"`,
+      );
+    }
     await page.mouse.click(rect.left + target.x, rect.top + target.y);
     await wait(200);
     const asked = await dbgMap();

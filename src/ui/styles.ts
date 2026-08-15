@@ -873,6 +873,7 @@ const CSS = `
 /* The canvas owns every remaining pixel; its cursor says the ground is draggable. */
 .bs-map .mc{flex:1;min-height:0;width:100%;cursor:grab;display:block}
 .bs-map .mc:active{cursor:grabbing}
+.bs-map .mc[data-cursor="link-select"]{cursor:pointer}
 .bs-map .foot{display:flex;gap:18px;flex-wrap:wrap;padding:10px 18px;
   border-top:1px solid rgba(255,255,255,.1);font-size:16px;color:rgba(238,242,248,.72)}
 .bs-map .foot span{display:inline-flex;align-items:center;gap:7px}

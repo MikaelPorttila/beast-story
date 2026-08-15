@@ -261,6 +261,7 @@ export class MapPanel {
     (el.querySelector(".head") as HTMLElement).appendChild(closeBtn);
 
     this.canvas = el.querySelector(".mc") as HTMLCanvasElement;
+    this.canvas.dataset.cursor = "grab";
     this.ctx = this.canvas.getContext("2d");
 
     el.addEventListener("click", this.onClick);
@@ -1153,10 +1154,27 @@ export class MapPanel {
     this.lastX = ev.offsetX;
     this.lastY = ev.offsetY;
     this.steering = false;
+    this.updateCursor(ev.offsetX, ev.offsetY);
   };
+
+  /** The canvas declares its cursor: pointer over a travel target, hand for the draggable ground. */
+  private updateCursor(sx: number, sy: number): void {
+    if (!this.canvas) {
+      return;
+    }
+    const state = this.dragging
+      ? "grabbing"
+      : this.hotAt(sx, sy)?.kind === "stone"
+        ? "link-select"
+        : "grab";
+    if (this.canvas.dataset.cursor !== state) {
+      this.canvas.dataset.cursor = state;
+    }
+  }
 
   private onPointerMove = (ev: PointerEvent): void => {
     if (!this.dragging || !this.pointers.has(ev.pointerId)) {
+      this.updateCursor(ev.offsetX, ev.offsetY);
       return;
     }
     this.pointers.set(ev.pointerId, { x: ev.offsetX, y: ev.offsetY });
@@ -1193,6 +1211,7 @@ export class MapPanel {
     const wasDrag = this.dragMoved;
     this.dragging = false;
     this.dragMoved = false;
+    this.updateCursor(ev.offsetX, ev.offsetY);
     if (wasDrag || this.confirmEl) {
       return;
     }
