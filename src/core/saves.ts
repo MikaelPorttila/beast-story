@@ -31,6 +31,8 @@ export interface SaveLocation {
 
 /** Stats are recomputed from the level; `knownSkillIds` cannot be — skills are purchased. */
 export interface SavedBeast {
+  /** Which BODY (issue #110): `emberfox`, `emberfox#2`. Absent in older documents, where the one beast of a species is its boot body. */
+  id?: string;
   speciesId: string;
   level: number;
   xp: number;
@@ -225,7 +227,9 @@ function parseBeast(value: unknown): SavedBeast | null {
   const skills = Array.isArray(value.knownSkillIds)
     ? value.knownSkillIds.filter((s): s is string => typeof s === "string" && s.length > 0)
     : [];
+  const id = strOrNull(value.id);
   return {
+    ...(id ? { id } : {}),
     speciesId,
     level,
     xp: Math.max(0, num(value.xp, 0)),

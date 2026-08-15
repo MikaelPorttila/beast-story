@@ -66,9 +66,8 @@ const ORB_LOFT_CLEAR = 0.7;
 const ORB_LOFT_MAX = 0.5;
 /**
  * Terminal window for a homing orb, world units from the target's chest. Inside
- * it the orb pursues STRAIGHT and may SKIM the ground instead of dying on it —
- * outside it, nothing changes: a hill mid-flight stays an honest miss. See
- * `updateProjectiles` for both halves (issue #198).
+ * it the orb pursues STRAIGHT; outside it leans, so the loft survives. See
+ * `updateProjectiles` (issue #198).
  *
  * 4.5, NOT 2.5: the issue's misses were measured at throw distances 2.96–4.16,
  * and at 2.5 the window opened only after the lerp had already had its chance
@@ -76,8 +75,6 @@ const ORB_LOFT_MAX = 0.5;
  * six at 4.08. The window must cover the whole range the report names.
  */
 const ORB_LOCK_R = 4.5;
-/** Total seconds a homing orb may spend skimming before the ground wins. */
-const ORB_SKIM_MAX = 0.6;
 const PROJ_CAP = 14;
 const CRIT_CHANCE = 0.1;
 const CRIT_MULT = 1.5;
@@ -114,8 +111,6 @@ interface Projectile {
   hex: number;
   spin: number;
   homing: number;
-  /** Seconds spent skimming the ground in terminal pursuit — see ORB_SKIM_MAX. */
-  skim: number;
   // Carried here, not looked up on impact: the item can leave the bag mid-flight
   // and the orb in the air is already paid for.
   orbItem: ItemDef | null;
@@ -638,7 +633,6 @@ export class CombatSystem {
       hex: 0xffffff,
       spin: 0,
       homing: 1,
-      skim: 0,
     };
     this.projectiles.push(p);
     return p;
@@ -836,11 +830,10 @@ export class CombatSystem {
     p.target = target && !target.isDead ? target : null;
     p.homing = 1;
     // Long enough never to expire before arriving (issue #110): the life is only
-    // the guarantee a slot comes back. The ground still ends a throw early.
+    // the guarantee a slot comes back.
     p.life = 10;
     p.trailT = 0;
     p.spin = 0;
-    p.skim = 0;
     p.orbItem = def;
     p.orbForce = force;
     this.setProjectileForm(p, "orb", this.orbFor(p, def.color));
@@ -935,14 +928,12 @@ export class CombatSystem {
       const gy = this.world.getHeight(pos.x, pos.z);
       if (pos.y <= gy + 0.1) {
         pos.y = gy + 0.1;
-        // AN ORB IN TERMINAL PURSUIT SKIMS instead of dying: a target that
-        // stepped downhill during the flight drags the intercept through a
-        // terrace lip, and the kill here was issue #198's other silent fizzle.
-        // Bounded two ways — only inside ORB_LOCK_R, so a hill mid-flight
-        // stays the honest miss it always was, and only for ORB_SKIM_MAX in
-        // total, so a target on unreachable ground cannot keep an orb grinding.
-        if (p.orbItem !== null && targetDist < ORB_LOCK_R && p.skim < ORB_SKIM_MAX) {
-          p.skim += dt;
+        // AN ORB WITH A LIVE TARGET SKIMS instead of dying (issue #110: a thrown
+        // orb cannot miss — what it reaches first takes it). A target that
+        // stepped downhill drags the intercept through a terrace lip, and a hill
+        // mid-flight is ridden over; `life` is the only end. Issue #198's fizzle
+        // was the bounded version of this rule.
+        if (p.orbItem !== null && t && !t.isDead) {
           if (p.vel.y < 0) {
             p.vel.y = 0;
             p.vel.setLength(PROJ_SPEED);

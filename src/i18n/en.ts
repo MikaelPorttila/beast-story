@@ -312,7 +312,6 @@ export const en = {
   "toast.orbNone": "Ready a taming orb in your bag first",
   "toast.orbNoTarget": "Aim at a wild beast before you throw",
   "toast.orbNotBondable": "That one cannot be bonded",
-  "toast.orbAlreadyOwned": "{beast} is already bonded to you",
   // One per mount kind, because what the story hands over is the RIDING of a
   // kind of animal and each act hands over a different one (game-story.md §5).
   "toast.mountUnlocked.ground": "You may ride a ground beast — hold F beside your lead beast",
