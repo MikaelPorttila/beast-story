@@ -328,7 +328,72 @@
         "body": "sky-pilot",
         "homeOffset": 6,
         "acrossFocus": false,
-        "talk": [{ "line": { "key": "npc.skyPilot.greeting" } }]
+        "_role": "The pilot, home (game-story.md §2): the same body and name key as the wreck on Gullspire. His act rows are gated on knows-the-sky — the Rookery is why he is a pilot at all — and, like Gain's, live here beside him because an id is global and core may not depend on a package that arrives later (see story.json).",
+        "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/the-long-ascent",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sky/the-long-ascent",
+                  "objective": "reach-skyhaven",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.skyPilot.sky1.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:sky/the-long-ascent" }]
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "flag", "flag": "knows-the-sky" },
+                {
+                  "test": "quest",
+                  "quest": "quest:sea/what-the-tide-kept",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/the-long-ascent",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/the-long-ascent",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.skyPilot.sky1.offer" },
+            "actions": [
+              { "do": "quest.start", "quest": "quest:sky/the-long-ascent" },
+              {
+                "do": "progress.add",
+                "quest": "quest:sky/the-long-ascent",
+                "objective": "board-the-balloon"
+              }
+            ]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sky/the-long-ascent",
+              "status": "completed"
+            },
+            "line": { "key": "npc.skyPilot.sky1.after" }
+          },
+          { "line": { "key": "npc.skyPilot.greeting" } }
+        ]
       }
     },
 

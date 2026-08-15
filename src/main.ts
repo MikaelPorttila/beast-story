@@ -1003,11 +1003,13 @@ const contentBootMs = performance.now() - contentBootStart;
 
 // AN ACT'S PACKAGE LOADS ON THE FLAG THAT OPENS THE ACT (issue #209) — unless the act is part of
 // the open world, in which case its settlements must exist when the world is planned and the
-// package moves to the boot list above (issue #144: `story-sea` did exactly that). The mechanism
-// stays for a future act whose content CAN arrive late; today the list is empty. Loaded ONCE and
-// never released mid-session: progress lives in ContentState either way, and `exitToTitle` clears
-// the FACTS, after which nothing gates on the resident definitions.
-const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [];
+// package moves to the boot list above (issue #144: `story-sea` did exactly that). The sky CAN
+// arrive late — Skyhaven ships in `core`, so nothing of Act 3 is needed when the world is planned
+// (issue #157). Loaded ONCE and never released mid-session: progress lives in ContentState either
+// way, and `exitToTitle` clears the FACTS, after which nothing gates on the resident definitions.
+const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [
+  { flag: "sky-revealed", pkg: "story-sky" },
+];
 const actPackagesLoaded = new Set<string>();
 function syncActPackages(): void {
   for (const act of ACT_PACKAGES) {
@@ -2846,6 +2848,43 @@ function advanceObjectives(fact: QuestFact): void {
   }
 }
 
+/** The companion species a `tamed` filter names, whether it says `aquaxol` or `wild-aquaxol`. */
+function bondedSpeciesOf(id: string): string | undefined {
+  if (speciesById(id)) {
+    return id;
+  }
+  const spec = enemySpecies().find((s) => s.id === id);
+  return spec ? enemyBeast(spec)?.id : undefined;
+}
+
+// WHAT IS ALREADY TRUE COUNTS: a quest handed out after the fact — the beast bonded before anyone
+// asked for it, the salvage already in the bag — is advanced from the state the world is in, once
+// per activation. Only the kinds the state RECORDS: a kill or a throw leaves nothing to scan, and a
+// trigger with a `zone` asks WHERE it happened, which no roster or bag remembers, so it waits for
+// the live fact. Never runs `quest.complete`, like the router above.
+function replayObjectivesFromState(asset: ContentAsset<QuestData>): void {
+  for (const objective of asset.data.objectives) {
+    const trigger = objective.trigger;
+    if (!trigger || trigger.zone !== undefined) {
+      continue;
+    }
+    let met = 0;
+    if (trigger.kind === "tamed") {
+      const wanted = trigger.species?.map(bondedSpeciesOf);
+      met = ownedBeasts().filter(
+        (b) => wanted === undefined || wanted.includes(b.species.id),
+      ).length;
+    } else if (trigger.kind === "item-picked" && trigger.item !== undefined) {
+      met = bag.count(trigger.item);
+    }
+    const have = content.state.progress(asset.id, objective.key);
+    const n = Math.min(objective.count ?? 1, met);
+    if (n > have) {
+      content.state.setProgress(asset.id, objective.key, n);
+    }
+  }
+}
+
 /**
  * TOUCHING DARK WATER MOUNTS THE WATER BEAST (issue #153) — an engine mechanic,
  * not a quest step: gated on the story flag and the unlock, so it keeps working
@@ -2966,6 +3005,7 @@ content.state.onChange((change) => {
     if (inTown !== null) {
       advanceObjectives({ kind: "town-arrival", id: `town:${inTown}` });
     }
+    replayObjectivesFromState(asset);
   }
   if (status === "completed") {
     content.run(asset.data.onComplete);
