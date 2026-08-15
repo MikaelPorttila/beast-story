@@ -5,17 +5,15 @@
 //
 //   bun tools/pack-map-icons.mjs <map-markers.png> [out.webp]
 //
-// The source is the 1024x1024 sheet, a 4x4 grid of 256px cells in the order
-// ui/map-icons.ts lists (its own JSON map says the same: row-major, top-left
-// origin). Cells are scaled to 128px: an icon is drawn at 32-48 CSS px, so a
+// The source is a square 4x4 grid in the order ui/map-icons.ts lists (its own
+// JSON map says the same: row-major, top-left origin). The whole sheet is
+// scaled to 512px, so a cell is 128px: an icon is drawn at 32-48 CSS px, so a
 // dpr-3 phone asks for at most 144 texels and 128 keeps the atlas small.
-import { writeFile, readFile } from "node:fs/promises";
-import { launchBrowser, newPage } from "./browser.mjs";
+// ffmpeg rather than a browser canvas because it is on the machine and one
+// resize needs no page.
+import { spawnSync } from "node:child_process";
 
-const SRC_CELL = 256;
-const COLS = 4;
-const ROWS = 4;
-const TILE = 128;
+const SIZE = 512;
 
 const src = process.argv[2];
 const out = process.argv[3] ?? "src/ui/map-markers.webp";
@@ -24,41 +22,24 @@ if (!src) {
   process.exit(2);
 }
 
-const dataUri = `data:image/png;base64,${(await readFile(src)).toString("base64")}`;
-
-const browser = await launchBrowser();
-try {
-  const page = await newPage(browser, { width: 400, height: 300 });
-  const result = await page.evaluate(
-    async (uri, srcCell, cols, rows, tile) => {
-      const img = new Image();
-      img.src = uri;
-      await img.decode();
-      if (img.naturalWidth !== srcCell * cols || img.naturalHeight !== srcCell * rows) {
-        throw new Error(
-          `expected ${srcCell * cols}x${srcCell * rows}, got ${img.naturalWidth}x${img.naturalHeight}`,
-        );
-      }
-      const c = document.createElement("canvas");
-      c.width = cols * tile;
-      c.height = rows * tile;
-      const ctx = c.getContext("2d");
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, 0, 0, c.width, c.height);
-      return { url: c.toDataURL("image/webp", 0.92), w: c.width, h: c.height };
-    },
-    dataUri,
-    SRC_CELL,
-    COLS,
-    ROWS,
-    TILE,
-  );
-
-  const bytes = Buffer.from(result.url.split(",")[1], "base64");
-  await writeFile(out, bytes);
-  console.log(
-    JSON.stringify({ out, atlas: `${result.w}x${result.h}`, tile: TILE, bytes: bytes.length }),
-  );
-} finally {
-  await browser.close();
+const r = spawnSync(
+  "ffmpeg",
+  [
+    "-y",
+    "-loglevel",
+    "error",
+    "-i",
+    src,
+    "-vf",
+    `scale=${SIZE}:${SIZE}:flags=lanczos`,
+    "-quality",
+    "92",
+    out,
+  ],
+  { stdio: "inherit" },
+);
+if (r.error || r.status !== 0) {
+  console.error(r.error?.message ?? `ffmpeg exited ${r.status}`);
+  process.exit(1);
 }
+console.log(JSON.stringify({ out, atlas: `${SIZE}x${SIZE}`, tile: SIZE / 4 }));
