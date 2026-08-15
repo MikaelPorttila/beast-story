@@ -2,9 +2,8 @@
  * WAYPOINTS — the standing stones you wake up beside.
  *
  * A player who faints is put back at the nearest one he has LIT, so the cost of
- * dying is the walk back and not the whole valley. That is the only thing they
- * do today; a stone you can travel between is the obvious next thing and is
- * deliberately not here.
+ * dying is the walk back and not the whole valley, and the map travels him
+ * between the ones he has lit (`onTravel`, main.ts).
  *
  * WHERE THEY ARE IS DERIVED, NEVER AUTHORED. An id is `type:name` and never a
  * position (game-story.md §1), and a waypoint is a fact about the ROAD rather
@@ -24,6 +23,7 @@ import { relight, type SolidBox } from "./props";
 import { measureFootprint, StructureField } from "./structures";
 import { nearRoadFurniture, roadIntrusion } from "./placement";
 import { installRingFade, type RingBand } from "./distant-terrain";
+import { GLOW_PART } from "./town-parts";
 import type { Road } from "./roads";
 
 /** World units of road between two stones. A minute's walk at a hero's 6/s. */
@@ -72,6 +72,18 @@ const GOLD = 0xc9a24f;
 /** Dark until it is lit, and the lit colour is the gateway's own cyan. */
 const CRYSTAL_DARK = 0x2f4450;
 const CRYSTAL_LIT = 0x8be3ff;
+/** A lit column's glow: emissive and its point light. 0.9 / 6 cut 15% (issue #256). */
+const LIT_EMISSIVE = 0.765;
+const LIT_LIGHT = 5.1;
+/**
+ * The SIGNS: a marker post at each side of the plate with a band that glows at
+ * every hour, so an UNLIT stone is still found after dark (issue #256). Amber
+ * rather than the crystal's cyan, so a lit column stays the only cyan thing.
+ */
+const SIGN_GLOW = 0xffb347;
+const SIGN_EMISSIVE = 1.1;
+/** Cells out from the middle to a sign post — inside the plate's rim of 11. */
+const SIGN_R = 9;
 
 /**
  * SAFETY SPACING — how much bare, level, unbuilt ground a stone needs.
@@ -171,14 +183,40 @@ function buildColumn(): VoxelModel {
 }
 
 /**
- * One waypoint's mesh tree: the plate, and the column of light standing on it.
+ * The two sign posts' masonry: a 2×2 stele each side of the middle, on the
+ * plate's x axis, with a three-course gap where the glowing band goes.
+ */
+function buildSignPosts(): VoxelModel {
+  const v = new VoxelModel();
+  for (const px of [SIGN_R, -SIGN_R - 1]) {
+    v.box(px, 0, -1, px + 1, 3, 0, STONE_L);
+    v.box(px, 7, -1, px + 1, 8, 0, STONE_D);
+  }
+  return v;
+}
+
+/** The bands: one course wider than the post each way, so they read as boards. */
+function buildSignGlow(): VoxelModel {
+  const v = new VoxelModel();
+  for (const px of [SIGN_R, -SIGN_R - 1]) {
+    v.box(px - 1, 4, -1, px + 2, 6, 0, SIGN_GLOW);
+  }
+  return v;
+}
+
+/**
+ * One waypoint's mesh tree: the plate, the column of light standing on it, and
+ * the two sign posts flanking it.
  *
- * TWO MODELS, because the column changes colour when the stone is found and the
- * masonry must not — a material is per mesh.
+ * SEPARATE MODELS, because the column changes colour when the stone is found and
+ * the masonry must not, and the sign bands glow always — a material is per mesh.
+ * The posts are scenery, not colliders: `solid` is still the plate alone.
  */
 export function buildWaypointRig(): {
   group: THREE.Group;
   column: THREE.Mesh;
+  /** The posts and their bands; yaw it so they stand either side of the approach. */
+  signs: THREE.Group;
   solid: readonly SolidBox[];
   /** How far BELOW the site the plate's own base sits — the skirt's depth. */
   baseY: number;
@@ -213,7 +251,22 @@ export function buildWaypointRig(): {
   column.position.y = S;
   group.add(column);
 
-  return { group, column, solid: measureFootprint(plate, S), baseY };
+  const signs = new THREE.Group();
+  const posts = bake(buildSignPosts(), true);
+  posts.position.y = S;
+  signs.add(posts);
+  const glow = bake(buildSignGlow(), false);
+  // Off the posts' face grid by `GLOW_PART`, the town lantern's rule: the band
+  // and the stone above and below it would otherwise share two horizontal planes.
+  const part = GLOW_PART * S;
+  glow.position.set(part, glow.position.y + S + part, part);
+  const glowMat = glow.material as THREE.MeshStandardMaterial;
+  glowMat.emissive.setHex(SIGN_GLOW);
+  glowMat.emissiveIntensity = SIGN_EMISSIVE;
+  signs.add(glow);
+  group.add(signs);
+
+  return { group, column, signs, solid: measureFootprint(plate, S), baseY };
 }
 
 export interface WaypointInfo {
@@ -556,6 +609,10 @@ export class Waypoints {
         }
       });
       rig.group.position.set(site.x, site.y, site.z);
+      // The posts stand either side of the way IN: local +z along the approach.
+      if (site.from) {
+        rig.signs.rotation.y = Math.atan2(site.x - site.from.x, site.z - site.from.z);
+      }
       this.group.add(rig.group);
 
       // One light per stone would be one light per stone in every shader
@@ -571,6 +628,9 @@ export class Waypoints {
       this.stones.push({ info: site, group: rig.group, column: rig.column, light, lit: false });
       this.solids.add({ solid: rig.solid }, site.x, site.y + rig.baseY, site.z, 0, 1, 1);
       this.disposables.push(rig.column.geometry, rig.column.material as THREE.Material);
+      for (const sign of rig.signs.children as THREE.Mesh[]) {
+        this.disposables.push(sign.geometry, sign.material as THREE.Material);
+      }
     }
     // Freeze and index, once, after the last stamp — a field that is never built
     // answers -Infinity everywhere and the plate is scenery you fall through.
@@ -598,10 +658,10 @@ export class Waypoints {
       const mat = stone.column.material as THREE.MeshStandardMaterial;
       mat.color.setHex(want ? CRYSTAL_LIT : CRYSTAL_DARK);
       mat.emissive.setHex(want ? CRYSTAL_LIT : 0x000000);
-      mat.emissiveIntensity = want ? 0.9 : 0;
+      mat.emissiveIntensity = want ? LIT_EMISSIVE : 0;
       mat.needsUpdate = true;
       stone.light.visible = want;
-      stone.light.intensity = want ? 6 : 0;
+      stone.light.intensity = want ? LIT_LIGHT : 0;
     }
   }
 

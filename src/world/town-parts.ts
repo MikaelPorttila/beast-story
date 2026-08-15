@@ -153,7 +153,7 @@ function letters(
 /** Grid offset for every glow piece, in voxels. A glow cannot share a VoxelModel
  *  with its body (different material), so culling cannot run across the pair and
  *  both emit a face on every shared plane; yaw cannot part them (+Y stays +Y). */
-const GLOW_PART = 0.08;
+export const GLOW_PART = 0.08;
 
 /** Bake, then shift by (dx, dy, dz) WORLD units and off the body's face grid.
  *  `bake` re-bases each model on its OWN bounds, so a flame sitting in a bowl
