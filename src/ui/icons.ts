@@ -156,3 +156,36 @@ export const RMB_ICON = svg(
     `<path fill="currentColor" d="M12.6 3.4h.9a4 4 0 0 1 4 4v3.4h-4.9Z"/>` +
     `<path fill="none" stroke="currentColor" stroke-width="1.4" d="M12 3.2v7.6"/>`,
 );
+
+/**
+ * THE QUEST STAR — one shape for the map's canvas and the compass's chip
+ * (issue #252), so "a quest wants you this way" is recognisably the same
+ * glyph on both. Five points, inner radius 0.45 of the outer; `starPoints`
+ * is the geometry and the two renderers only trace it.
+ */
+export function starPoints(cx: number, cy: number, r: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (i * Math.PI) / 5 - Math.PI / 2;
+    const rr = i % 2 === 0 ? r : r * 0.45;
+    out.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]);
+  }
+  return out;
+}
+
+/** The star as inline SVG, filled with currentColor and outlined dark. */
+export const QUEST_STAR_ICON = svg(
+  `<path fill="currentColor" stroke="rgba(0,0,0,.65)" stroke-width="1.6" stroke-linejoin="round" d="M${starPoints(
+    12,
+    12.6,
+    10.4,
+  )
+    .map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`)
+    .join("L")}Z"/>`,
+);
+
+/** The player's flag (issue #245), for the compass chip beside the map's pin. */
+export const FLAG_ICON = svg(
+  `<path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M7 21V3.5"/>` +
+    `<path fill="currentColor" d="M7 4h11l-3.2 4.2L18 12.4H7Z"/>`,
+);

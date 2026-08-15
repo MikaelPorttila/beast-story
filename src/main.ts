@@ -144,6 +144,7 @@ import {
   type JournalTab,
 } from "./ui/journal";
 import { entryIconHtml, type TipContent } from "./ui/tooltip";
+import { FLAG_ICON, QUEST_STAR_ICON } from "./ui/icons";
 import { MapPanel, type MapTerrain } from "./ui/map";
 import {
   exitFullscreen,
@@ -2385,7 +2386,7 @@ function syncMarkerChip(): void {
       z: playerMarker.z,
       // The waystone crystal's cyan — the player's own things share a colour.
       color: 0x8be3ff,
-      label: "⚑",
+      icon: FLAG_ICON,
     });
   } else {
     hud.removeCompassMarker(MARKER_CHIP_ID);
@@ -2649,10 +2650,10 @@ function questCompassSpots(): CompassMarker[] {
     id: s.id,
     x: s.x,
     z: s.z,
-    // The gold the world marks are drawn in, so the chip on the rim and the
-    // glyph over the head are recognisably the same thing.
+    // The gold the world marks and the map's star are drawn in, and the SAME
+    // star (issue #252): a chip on the rim, a star on the map, one meaning.
     color: 0xffc44d,
-    label: s.name.slice(0, 4).toUpperCase(),
+    icon: QUEST_STAR_ICON,
   }));
 }
 
@@ -3029,12 +3030,15 @@ function tickWaypoints(dt: number): void {
   if (waypointPollIn > 0) {
     return;
   }
-  waypointPollIn = PRACTICE_POLL;
+  // A quarter second, not the practice pen's whole one: the sense band (issue #250) is
+  // crossed at a sprint in about a second, and a poll that ran once in it could miss.
+  waypointPollIn = 0.25;
   const field = world.waypoints;
   if (!field) {
     return;
   }
-  const at = field.touching(player.position.x, player.position.z);
+  // NOTICED, not touched: passing on the road beside the stone lights it (issue #250).
+  const at = field.sensing(player.position.x, player.position.y, player.position.z);
   if (!at || !isId(at.id) || waypointLit(at.id)) {
     return;
   }
@@ -7803,6 +7807,9 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
       from: w.from,
     })),
     touching: field?.touching(player.position.x, player.position.z)?.id ?? null,
+    // The wider band that actually LIGHTS one (issue #250).
+    sensing:
+      field?.sensing(player.position.x, player.position.y, player.position.z)?.id ?? null,
     respawnAt: player.respawnAt?.(player.position.x, player.position.z) ?? null,
   };
 };

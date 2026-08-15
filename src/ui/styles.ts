@@ -195,6 +195,13 @@ const CSS = `
   will-change:transform}
 /* A label-less marker is a pin, not the 20x22 box a four-character tag needs. */
 .bs-compass .mk:empty{min-width:0;width:12px;height:14px;padding:0;top:4px}
+/* An ICON chip (issue #252) is the glyph itself in the marker's colour — the
+   quest star, the flag — with no box behind it, so it reads like the map's. */
+.bs-compass .mk.ico{background:transparent;border:0;padding:0;min-width:0;
+  width:24px;height:24px;top:-1px;color:var(--mc);
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}
+.bs-compass .mk.ico svg{width:100%;height:100%;display:block}
+.bs-compass .mk.ico.edge svg{display:none}
 /* Behind you: the chip parks at the strip's end as an arrow pointing the short way. */
 .bs-compass .mk.edge{padding:0;min-width:0;width:0;height:0;border:0;
   border-top:9px solid transparent;border-bottom:9px solid transparent;

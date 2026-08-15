@@ -201,6 +201,11 @@ async function talkTo(id) {
     off,
   };
   check(chip !== null, "an active quest has no chip on the compass");
+  // The chip is the map's gold STAR, not letters (issue #252): a glyph, no text.
+  check(
+    chip !== null && chip.icon === true && chip.text === "",
+    `the quest chip draws ${JSON.stringify(chip?.text)} with icon=${chip?.icon} — want the star and no text`,
+  );
   check(
     off !== null && off < 6,
     `the quest chip is ${off?.toFixed(1)} deg off the bearing to the person it sends you to`,

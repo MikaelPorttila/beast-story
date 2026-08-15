@@ -19,6 +19,7 @@
  */
 import * as THREE from "three";
 import { VoxelModel } from "../core/voxel";
+import { inRise } from "../core/types";
 import { relight, type SolidBox } from "./props";
 import { measureFootprint, StructureField } from "./structures";
 import { nearRoadFurniture, roadIntrusion } from "./placement";
@@ -38,8 +39,18 @@ const MIN_APART = 110;
  */
 export const WAYPOINT_PLATE_R = 11 * 0.28;
 
-/** How near a stone the hero must be to light it. Generous: this is not a puzzle. */
+/** How near a stone counts as standing AT it — the plate and a pace around it. */
 export const WAYPOINT_TOUCH = 6;
+/**
+ * How near a stone's approach — the line from where its trail leaves the road
+ * to the plate — a hero must pass to NOTICE it (issue #250). Twelve covers the
+ * carriageway a spur leaves from (`from` is on the deck's rim, and a cart road
+ * is ~7 across) so running past on the road lights it; a stone you cannot see
+ * from the road is one you should not be credited with.
+ */
+export const WAYPOINT_SENSE = 12;
+/** The height band of `sensing`: a bridge or a flyer well above the plate is not passing it. */
+const SENSE_RISE = 6;
 /**
  * How far clear of the carriageway's RIM a stone stands, world units.
  *
@@ -220,7 +231,8 @@ export interface WaypointInfo {
  * position, and neither a probe nor a save can carry one.
  */
 interface Stone {
-  readonly info: WaypointInfo;
+  /** The SITE, `from` and all — `sensing` walks the approach line (issue #250). */
+  readonly info: WaypointSite;
   group: THREE.Group;
   column: THREE.Mesh;
   light: THREE.PointLight;
@@ -599,6 +611,32 @@ export class Waypoints {
       const d = (stone.info.x - x) ** 2 + (stone.info.z - z) ** 2;
       if (d <= WAYPOINT_TOUCH * WAYPOINT_TOUCH) {
         return stone.info;
+      }
+    }
+    return null;
+  }
+
+  /** See `WaypointField.sensing`: distance to the approach SEGMENT, in a height band. */
+  sensing(x: number, y: number, z: number): WaypointInfo | null {
+    const r2 = WAYPOINT_SENSE * WAYPOINT_SENSE;
+    for (const stone of this.stones) {
+      const s = stone.info;
+      if (!inRise(s.y, y, SENSE_RISE)) {
+        continue;
+      }
+      // Point-to-segment from the road junction to the plate; a stone that
+      // needed no trail is a point.
+      const ax = s.from?.x ?? s.x;
+      const az = s.from?.z ?? s.z;
+      const dx = s.x - ax;
+      const dz = s.z - az;
+      const l2 = dx * dx + dz * dz;
+      let u = l2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+      u = u < 0 ? 0 : u > 1 ? 1 : u;
+      const px = ax + dx * u - x;
+      const pz = az + dz * u - z;
+      if (px * px + pz * pz <= r2) {
+        return s;
       }
     }
     return null;
