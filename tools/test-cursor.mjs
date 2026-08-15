@@ -30,7 +30,7 @@ page.on("pageerror", (e) => console.error("[page]", e.message));
 // never takes one — see beginPlay in main.ts.
 // NO_WARMUP: this walks the staged boot and watches the CSS cursor and the
 // pointer lock; no frame is measured — see the note in tools/target.mjs.
-await page.goto(`${HOST}/?fs=0&${NO_WARMUP}`, { waitUntil: "load" });
+await page.goto(`${HOST}/?fs=0&debug=1&${NO_WARMUP}`, { waitUntil: "load" });
 await page.waitForSelector(".bs-menu");
 
 const results = {};

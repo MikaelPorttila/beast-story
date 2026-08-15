@@ -575,7 +575,7 @@ const ROOF_FIT_LIMIT = 0.6;
 async function rideOnFurniture() {
   const page = await newPage(browser, { width: 1280, height: 800 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?menu=0&fs=0`, { waitUntil: "load" });
+  await page.goto(`${HOST}/?menu=0&fs=0&debug=1`, { waitUntil: "load" });
   await page.waitForSelector("canvas");
   await wait(SETTLE);
 

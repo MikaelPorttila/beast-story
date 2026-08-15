@@ -355,7 +355,7 @@ page.on("pageerror", (e) => console.error("[pageerror]", e.message));
 page.on("request", (r) => requested.push(r.url()));
 // NO_WARMUP: the registry, the town/npc/enemy tables and the dev console are
 // all read without drawing anything — see the note in tools/target.mjs.
-await page.goto(`${HOST}/?menu=0&fs=0&${NO_WARMUP}`, { waitUntil: "load" });
+await page.goto(`${HOST}/?menu=0&fs=0&debug=1&${NO_WARMUP}`, { waitUntil: "load" });
 await page.waitForSelector("canvas");
 
 /**

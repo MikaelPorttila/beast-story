@@ -48,7 +48,7 @@ import { BASE as HOST } from "./target.mjs";
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 900, height: 600 });
 logPageErrors(page);
-await page.goto(`${HOST}/?fps=30&menu=0&fs=0&enemies=0&beasts=0`, { waitUntil: "load" });
+await page.goto(`${HOST}/?fps=30&menu=0&fs=0&enemies=0&beasts=0&debug=1`, { waitUntil: "load" });
 await page.waitForSelector("canvas");
 await wait(5000);
 

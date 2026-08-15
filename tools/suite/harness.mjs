@@ -56,7 +56,8 @@ import { BASE as HOST } from "../target.mjs";
  * transaction — inside a frame somebody is timing. tools/test-saves.mjs is the
  * one probe that leaves it off, because the store is what it is testing.
  */
-const BOOT_QUERY = "menu=0&fs=0&nostore=1";
+// `debug=1`: the developer's boot — F3 reachable and the starter bonded, which the modules press and count.
+const BOOT_QUERY = "menu=0&fs=0&nostore=1&debug=1";
 
 /**
  * Boot the game once and wait on STATE — `playing` is the last thing the

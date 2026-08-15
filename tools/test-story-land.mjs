@@ -77,7 +77,7 @@ import { BASE as HOST } from "./target.mjs";
 
 // `menu=0` because everything below measures the world, and the title screen
 // gates the frame loop. No `fps=` cap: nothing here is a frame-edge assertion.
-const URL = `${HOST}/?menu=0&vol=0`;
+const URL = `${HOST}/?menu=0&vol=0&debug=1`;
 
 const QUEST = "quest:land/first-light";
 const QUEST2 = "quest:land/the-first-bond";

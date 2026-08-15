@@ -112,9 +112,9 @@ await toggle(page, true);
 // The controller still RUNS behind the panel (issue #101); 0 travel is the
 // sticks being at rest, not the clock stopping.
 //
-// LET THE STARTER COMPANION LAND FIRST, and this is a fix for a real flake
-// rather than a precaution. `beginPlay` bonds a Frostwing, which then FLIES IN
-// to take up its follow distance — and a bonded beast that walks into the hero
+// LET ANY COMPANION LAND FIRST, and this is a fix for a real flake rather than
+// a precaution. A player's new game has no beast; the developer's (`debug=1`)
+// bonds a Frostwing, which FLIES IN to take up its follow distance — and a bonded beast that walks into the hero
 // pushes him, exactly as any body does. Landing about a second into the run, it
 // shoved a hero who was pressing nothing: measured over ten boots, two moved
 // 0.79 and 1.07 units with the panel up, from the same spawn pose in DIFFERENT
@@ -129,7 +129,7 @@ await page
   .waitForFunction(
     () => {
       const beasts = window.__dbgCompanions().beasts;
-      return !window.__dbgZone().streaming && beasts.length > 0 && beasts.every((b) => !b.transit);
+      return !window.__dbgZone().streaming && beasts.every((b) => !b.transit);
     },
     { timeout: 30000 },
   )
