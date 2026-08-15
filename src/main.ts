@@ -144,6 +144,7 @@ import {
   type JournalTab,
 } from "./ui/journal";
 import { entryIconHtml, type TipContent } from "./ui/tooltip";
+import { FLAG_ICON, QUEST_STAR_ICON } from "./ui/icons";
 import { MapPanel, type MapTerrain } from "./ui/map";
 import {
   exitFullscreen,
@@ -2385,7 +2386,7 @@ function syncMarkerChip(): void {
       z: playerMarker.z,
       // The waystone crystal's cyan — the player's own things share a colour.
       color: 0x8be3ff,
-      label: "⚑",
+      icon: FLAG_ICON,
     });
   } else {
     hud.removeCompassMarker(MARKER_CHIP_ID);
@@ -2649,10 +2650,10 @@ function questCompassSpots(): CompassMarker[] {
     id: s.id,
     x: s.x,
     z: s.z,
-    // The gold the world marks are drawn in, so the chip on the rim and the
-    // glyph over the head are recognisably the same thing.
+    // The gold the world marks and the map's star are drawn in, and the SAME
+    // star (issue #252): a chip on the rim, a star on the map, one meaning.
     color: 0xffc44d,
-    label: s.name.slice(0, 4).toUpperCase(),
+    icon: QUEST_STAR_ICON,
   }));
 }
 

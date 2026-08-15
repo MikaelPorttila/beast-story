@@ -42,6 +42,8 @@ export interface CompassMarker {
   color: number;
   /** Short tag inside the chip (~4 chars); omit for a plain square. */
   label?: string;
+  /** Inline SVG drawn instead of a label — the quest star, the player's flag (issue #252). Wins over `label`. */
+  icon?: string;
 }
 
 /** One HUD tracker row (issue #98). Strings arrive already resolved. */
@@ -813,7 +815,13 @@ export class HUD {
     refs.m = m;
     refs.lastPx = NaN;
     refs.el.style.setProperty("--mc", hexColor(m.color));
-    refs.el.textContent = m.label ?? "";
+    // An icon chip is a bare glyph in the marker's colour, not a filled box with text in it.
+    refs.el.classList.toggle("ico", m.icon !== undefined);
+    if (m.icon !== undefined) {
+      refs.el.innerHTML = m.icon;
+    } else {
+      refs.el.textContent = m.label ?? "";
+    }
   }
 
   removeCompassMarker(id: string): void {
@@ -892,6 +900,9 @@ export class HUD {
       tapeX: this.lastTapeX,
       markers: this.markers.map((r) => ({
         id: r.m.id,
+        // How the chip is DRAWN, so a probe can assert glyph-not-letters (issue #252).
+        icon: r.m.icon !== undefined,
+        text: r.el.textContent ?? "",
         // The marker's own world point, so a probe can hold a chip against the
         // fact it points at (test-map does, for the planted flag).
         x: +r.m.x.toFixed(2),

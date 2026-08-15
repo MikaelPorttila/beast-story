@@ -1,7 +1,7 @@
 import { t } from "../i18n";
 import { injectStyles } from "./styles";
 import { seedPadButtons } from "../core/gamepad";
-import { CLOSE_ICON } from "./icons";
+import { CLOSE_ICON, starPoints } from "./icons";
 
 /**
  * Fullscreen world map (issue #245). The panel owns the screen — pan, zoom and
@@ -594,17 +594,14 @@ export class MapPanel {
     ctx.strokeStyle = "rgba(0,0,0,.6)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const a = (i * Math.PI) / 5 - Math.PI / 2;
-      const rr = i % 2 === 0 ? r : r * 0.45;
-      const px = x + Math.cos(a) * rr;
-      const py = y + Math.sin(a) * rr;
+    // The compass chip's shape exactly (issue #252) — one geometry, two renderers.
+    starPoints(x, y, r).forEach(([px, py], i) => {
       if (i === 0) {
         ctx.moveTo(px, py);
       } else {
         ctx.lineTo(px, py);
       }
-    }
+    });
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
