@@ -2482,6 +2482,7 @@ const map = new MapPanel({
           : null,
     };
   },
+  zoneId: () => zones.id,
   terrain: mapTerrain,
   onTravel: (stoneId) => {
     const stone = world.waypoints?.all.find((w) => w.id === stoneId);
@@ -6418,6 +6419,9 @@ function frame(): void {
 
   engine.render();
   perf.section("render");
+  // The map paints its seen tiles AHEAD, a slice a frame, so it opens ready rather than filling in.
+  map.warm();
+  perf.section("map");
   if (perf.enabled) {
     const programs = engine.renderer.info.programs?.length ?? 0;
     if (programs !== lastPrograms) {

@@ -67,6 +67,8 @@ export interface MapTerrain {
 
 export interface MapHooks {
   model(): MapModel;
+  /** The zone the hero is in now — cheap, asked every frame; `terrain()` is only asked when it changes. */
+  zoneId(): string;
   terrain(): MapTerrain;
   /** A confirmed click on a lit stone. The host travels and closes the panel. */
   onTravel(stoneId: string): void;
@@ -82,10 +84,14 @@ const TILE = 128;
 const TILE_BUDGET_MS = 3;
 /** Rows sampled between budget checks; ~0.3 ms at the deepest level. */
 const ROW_SLICE = 8;
+/** Milliseconds a game frame lends the CLOSED map to paint ahead, so the panel opens with its tiles ready. */
+const WARM_BUDGET_MS = 2;
+/** Tiles handed to the painter per warm frame — a slice paints one, the rest keep the queue's order. */
+const WARM_BATCH = 6;
 /** World units per "seen" block; a tile whose rect touches no seen block is fog and is never painted. */
 const SEEN_BLOCK = 64;
-/** Tiles kept per zone before the oldest above level 0 go — ~25 MB at most. */
-const TILE_CACHE_MAX = 400;
+/** Tiles kept per zone before the oldest above level 0 go. Warming paints every seen tile at the open level, so a whole explored zone must fit; ~64 KB each. */
+const TILE_CACHE_MAX = 1500;
 /** Pixels of screen the map may zoom a world unit up to. */
 const MAX_SCALE = 6;
 /** World units across the SHORTER side of the view when the map opens on the hero. */
@@ -174,6 +180,10 @@ export class MapPanel {
   /** Tiles the last frame wanted and did not have, nearest the view centre first. */
   private pending: Array<{ level: number; i: number; j: number; d: number }> = [];
   private job: TileJob | null = null;
+  /** Tiles the closed panel paints ahead, in the order the player will want them; `warmHead` is how far it got. */
+  private warmQueue: Array<{ level: number; i: number; j: number; d: number }> = [];
+  private warmHead = 0;
+  private warmFor = -1;
   private fogBrush: HTMLCanvasElement | null = null;
   /** Session totals, for a probe: how much of the game frame the map has spent painting tiles. */
   private painted = 0;
@@ -251,8 +261,7 @@ export class MapPanel {
     this.canvas.addEventListener("pointercancel", this.onPointerUp);
     this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
 
-    this.terrain = this.hooks.terrain();
-    this.zone = this.zoneMap(this.terrain);
+    this.bindZone();
     this.resetView();
     this.focus = -1;
     this.steering = false;
@@ -357,6 +366,7 @@ export class MapPanel {
             painted: this.painted,
             paintMs: +this.paintMs.toFixed(1),
             frames: this.frames,
+            warm: { queued: this.warmQueue.length, head: this.warmHead },
           }
         : null,
       screen: this.isOpen
@@ -376,6 +386,106 @@ export class MapPanel {
     const dpr = this.canvas.width / Math.max(1, this.canvas.clientWidth);
     const d = this.ctx.getImageData(Math.round(sx * dpr), Math.round(sy * dpr), 1, 1).data;
     return [d[0], d[1], d[2], d[3]];
+  }
+
+  /**
+   * A frame's worth of painting AHEAD while the panel is closed: the fog record
+   * and the tiles the panel would open on, nearest the hero first, a slice per
+   * frame. The host calls it every game frame; it does nothing once caught up.
+   */
+  warm(): void {
+    if (this.el) {
+      return;
+    }
+    this.bindZone();
+    const zm = this.zone;
+    const ter = this.terrain;
+    if (!zm || !ter) {
+      return;
+    }
+    this.paintFog(zm, ter.explored());
+    if (this.warmFor !== zm.fogPainted) {
+      this.buildWarmQueue(zm);
+    }
+    const q = this.warmQueue;
+    while (
+      this.warmHead < q.length &&
+      zm.tiles.has(tileKey(q[this.warmHead].level, q[this.warmHead].i, q[this.warmHead].j))
+    ) {
+      this.warmHead++;
+    }
+    if (this.warmHead >= q.length) {
+      return;
+    }
+    this.pending = q.slice(this.warmHead, this.warmHead + WARM_BATCH);
+    this.paintPending(WARM_BUDGET_MS);
+  }
+
+  /** Terrain and zone map for the hero's zone; asked of the host only when the zone changes. */
+  private bindZone(): void {
+    const id = this.hooks.zoneId();
+    if (this.terrain?.zoneId === id && this.zone) {
+      return;
+    }
+    this.terrain = this.hooks.terrain();
+    this.zone = this.zoneMap(this.terrain);
+    this.job = null;
+    this.pending = [];
+    this.warmQueue = [];
+    this.warmHead = 0;
+    this.warmFor = -1;
+  }
+
+  /**
+   * Every tile the fog has lifted, at the level the panel opens on and the one
+   * above it (its stand-in), plus the whole-zone tile: level 0 first, then
+   * coarse to fine, nearest the hero first within a level.
+   */
+  private buildWarmQueue(zm: ZoneMap): void {
+    this.warmFor = zm.fogPainted;
+    // The panel's canvas is not laid out yet; the window is what it will fill, less the head and foot.
+    const w = Math.max(1, window.innerWidth);
+    const h = Math.max(1, window.innerHeight - 110);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const b = zm.bounds;
+    const cover = Math.max(w / (b.maxX - b.minX), h / (b.maxZ - b.minZ));
+    const openScale = Math.min(MAX_SCALE, Math.max(cover, Math.min(w, h) / OPEN_SPAN));
+    const open = Math.min(
+      zm.maxLevel,
+      Math.max(0, Math.floor(Math.log2((zm.span * openScale * dpr) / TILE))),
+    );
+    const levels = [...new Set([0, Math.max(0, open - 1), open])];
+    const p = this.hooks.model().player;
+    const pad = EXPLORE_CELL * 2;
+    const out: Array<{ level: number; i: number; j: number; d: number; rank: number }> = [];
+    levels.forEach((level, rank) => {
+      const tw = zm.span / (1 << level);
+      const cols = Math.ceil((b.maxX - b.minX) / tw);
+      const rows = Math.ceil((b.maxZ - b.minZ) / tw);
+      const seen = new Set<string>();
+      for (const key of zm.seen) {
+        const [bx, bz] = key.split(",").map(Number);
+        const i0 = Math.max(0, Math.floor((bx * SEEN_BLOCK - pad - b.minX) / tw));
+        const i1 = Math.min(cols - 1, Math.floor(((bx + 1) * SEEN_BLOCK + pad - b.minX) / tw));
+        const j0 = Math.max(0, Math.floor((bz * SEEN_BLOCK - pad - b.minZ) / tw));
+        const j1 = Math.min(rows - 1, Math.floor(((bz + 1) * SEEN_BLOCK + pad - b.minZ) / tw));
+        for (let j = j0; j <= j1; j++) {
+          for (let i = i0; i <= i1; i++) {
+            const k = tileKey(level, i, j);
+            if (seen.has(k) || zm.tiles.has(k)) {
+              continue;
+            }
+            seen.add(k);
+            const dx = (i + 0.5) * tw + b.minX - p.x;
+            const dz = (j + 0.5) * tw + b.minZ - p.z;
+            out.push({ level, i, j, d: dx * dx + dz * dz, rank });
+          }
+        }
+      }
+    });
+    out.sort((a, c) => a.rank - c.rank || a.d - c.d);
+    this.warmQueue = out;
+    this.warmHead = 0;
   }
 
   // ---- the base image: a tile pyramid, painted on demand -----------------------
@@ -539,7 +649,7 @@ export class MapPanel {
   }
 
   /** Spend the frame's budget on the tiles the last draw wanted, nearest the centre first, a slice at a time. */
-  private paintPending(): void {
+  private paintPending(budget = TILE_BUDGET_MS): void {
     const ter = this.terrain;
     const zm = this.zone;
     if (!ter || !zm) {
@@ -553,7 +663,7 @@ export class MapPanel {
     this.pending.sort((a, b) => a.d - b.d);
     const t0 = performance.now();
     let next = 0;
-    while (performance.now() - t0 < TILE_BUDGET_MS) {
+    while (performance.now() - t0 < budget) {
       if (!this.job) {
         while (
           next < this.pending.length &&

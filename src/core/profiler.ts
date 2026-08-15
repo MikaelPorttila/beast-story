@@ -12,6 +12,7 @@ export const PERF_SECTIONS = [
   "combat",
   "hud",
   "render",
+  "map",
   "overlay",
 ] as const;
 export type PerfSection = (typeof PERF_SECTIONS)[number];

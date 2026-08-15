@@ -26,11 +26,35 @@ const dbgMap = () => page.evaluate(() => window.__dbgMap());
 /** The fog's own colour, near enough: an RGBA pixel that is night-blue paper. */
 const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
 
+// ---------- 0. the closed map paints ahead, so it opens ready ---------------
+{
+  // A slice a frame under a small budget: give it a few seconds to catch up, then it must be caught up.
+  let warm = null;
+  for (let i = 0; i < 40; i++) {
+    warm = (await dbgMap()).tiles;
+    if (warm && warm.warm.queued > 0 && warm.warm.head === warm.warm.queued) {
+      break;
+    }
+    await wait(150);
+  }
+  out.warm = warm;
+  check(warm !== null && warm.cached > 0, "the closed map painted no tiles ahead");
+  check(
+    warm !== null && warm.warm.head === warm.warm.queued,
+    `the warm queue is ${warm?.warm.head}/${warm?.warm.queued} after six seconds`,
+  );
+}
+
 // ---------- 1. M opens it, and what it shows is what the world has ----------
 {
   await page.keyboard.press("KeyM");
   await wait(350);
   const m = await dbgMap();
+  out.openTiles = m.tiles;
+  check(
+    m.tiles.painted - out.warm.painted <= 4,
+    `opening painted ${m.tiles.painted - out.warm.painted} more tiles: the warm-up missed the open level`,
+  );
   const stones = await page.evaluate(() => window.__dbgWaypoints().all);
   const towns = await page.evaluate(() => window.__dbgTowns().towns);
   out.open = { open: m.open, stones: m.stones, lit: m.lit, towns: m.towns, quests: m.quests };
@@ -174,8 +198,23 @@ const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
   check(stone.lit === true, "standing at the stone did not light it");
 
   // Walk away so the travel below is a real displacement.
+  const cachedBefore = (await dbgMap()).tiles.cached;
   await page.evaluate((s) => window.__dbgTp(s.x + 120, s.z + 80), stone);
   await wait(200);
+  // New ground seen means new tiles to paint ahead — the warm-up follows the walk, not only the boot.
+  let warmed = null;
+  for (let i = 0; i < 40; i++) {
+    warmed = (await dbgMap()).tiles;
+    if (warmed.cached > cachedBefore && warmed.warm.head === warmed.warm.queued) {
+      break;
+    }
+    await wait(150);
+  }
+  out.warmAfterWalk = { cachedBefore, cached: warmed.cached, ...warmed.warm };
+  check(
+    warmed.cached > cachedBefore && warmed.warm.head === warmed.warm.queued,
+    `after walking, ${warmed.cached} tiles are cached (was ${cachedBefore}), queue ${warmed.warm.head}/${warmed.warm.queued}`,
+  );
 
   await page.keyboard.press("KeyM");
   await wait(350);
