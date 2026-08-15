@@ -198,6 +198,12 @@ export interface WaypointField {
   readonly all: readonly WaypointSpot[];
   /** The stone whose touch radius holds this point, or null. */
   touching(x: number, z: number): WaypointSpot | null;
+  /**
+   * The stone a hero passing HERE would notice, or null (issue #250): the
+   * plate, its trail and the carriageway beside it, in a height band — so a
+   * player who runs by on the road lights it and a flyer overhead does not.
+   */
+  sensing(x: number, y: number, z: number): WaypointSpot | null;
   /** Nearest stone this character has lit, or null when none is. */
   nearestLit(x: number, z: number, isLit: (id: string) => boolean): WaypointSpot | null;
   /** Redraw them against what the character has found; idempotent. */

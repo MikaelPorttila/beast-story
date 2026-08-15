@@ -3030,12 +3030,15 @@ function tickWaypoints(dt: number): void {
   if (waypointPollIn > 0) {
     return;
   }
-  waypointPollIn = PRACTICE_POLL;
+  // A quarter second, not the practice pen's whole one: the sense band (issue #250) is
+  // crossed at a sprint in about a second, and a poll that ran once in it could miss.
+  waypointPollIn = 0.25;
   const field = world.waypoints;
   if (!field) {
     return;
   }
-  const at = field.touching(player.position.x, player.position.z);
+  // NOTICED, not touched: passing on the road beside the stone lights it (issue #250).
+  const at = field.sensing(player.position.x, player.position.y, player.position.z);
   if (!at || !isId(at.id) || waypointLit(at.id)) {
     return;
   }
@@ -7804,6 +7807,9 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
       from: w.from,
     })),
     touching: field?.touching(player.position.x, player.position.z)?.id ?? null,
+    // The wider band that actually LIGHTS one (issue #250).
+    sensing:
+      field?.sensing(player.position.x, player.position.y, player.position.z)?.id ?? null,
     respawnAt: player.respawnAt?.(player.position.x, player.position.z) ?? null,
   };
 };

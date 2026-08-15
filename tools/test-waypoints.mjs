@@ -78,18 +78,35 @@ async function faint() {
 // ---------- 1 & 2. sited off the road, and dark ----------------------------
 {
   const w = await stones();
-  const towns = await dbg(() => window.__dbgTowns().towns.map((t) => t.id));
+  // A stone is a fact about the ROAD, so the towns owed one are the towns a
+  // road reaches — derived from the network, not a name list: the flying town
+  // and the Act 2 island towns have no carriageway to grow a stone beside.
+  const roadTowns = await dbg(() => {
+    const t = window.__dbgTowns();
+    const ids = new Set(t.towns.map((x) => x.id));
+    const on = new Set();
+    for (const r of t.roads) {
+      for (const end of [r.from, r.to]) {
+        if (ids.has(end)) {
+          on.add(end);
+        }
+      }
+    }
+    return [...on].toSorted();
+  });
   const gates = w.all.filter((s) => s.id.startsWith("waypoint:town-"));
   results.sited = {
     count: w.all.length,
+    roadTowns,
     gates: gates.map((s) => s.id),
     between: w.all.length - gates.length,
     lit: w.all.filter((s) => s.lit).map((s) => s.id),
   };
   check(w.all.length > 0, "the world grew no waypoints at all");
+  check(roadTowns.length >= 3, `only ${roadTowns.length} towns sit on the road network`);
   check(
-    gates.length === towns.filter((t) => t !== "skyhaven").length,
-    `${gates.length} town stones for ${towns.length} towns: ${JSON.stringify(results.sited.gates)}`,
+    roadTowns.every((id) => gates.some((s) => s.id === `waypoint:town-${id}`)),
+    `town stones ${JSON.stringify(results.sited.gates)} for road towns ${JSON.stringify(roadTowns)}`,
   );
   check(
     results.sited.between > gates.length,
@@ -230,10 +247,62 @@ let firstLit = null;
   check(lit.length === 1 && lit[0] === firstLit.id, `lighting one lit ${JSON.stringify(lit)}`);
 }
 
+// ---------- 3b. passing on the ROAD lights it too (issue #250) --------------
+// The pair: standing on the carriageway where the gate stone's trail leaves it
+// — the road out of the camp, never on the plate — lights that stone; standing
+// well clear of any approach lights nothing. The canonical case is the
+// Encampment's gate stone: leaving the camp by the road must light it.
+{
+  const w = await stones();
+  const gate = w.all.find((s) => s.id === "waypoint:town-encampment" && s.from);
+  check(!!gate, "the encampment's gate stone has no road junction to pass by");
+  if (gate) {
+    // ON THE ROAD: the junction is on the deck's rim; step 3 further onto the
+    // carriageway, away from the stone, so this is a walk-past and not a visit.
+    const dx = gate.from.x - gate.x;
+    const dz = gate.from.z - gate.z;
+    const len = Math.hypot(dx, dz) || 1;
+    await tp(gate.from.x + (dx / len) * 3, gate.from.z + (dz / len) * 3);
+    await adv(1);
+    const onRoad = await stones();
+    const fromStone = dist(await pos(), gate);
+    // AND CLEAR OF IT: three times the band, from the same stone the other way.
+    await tp(gate.x - (dx / len) * 40, gate.z - (dz / len) * 40);
+    await adv(1);
+    const away = await stones();
+    results.passing = {
+      stone: gate.id,
+      distanceFromPlate: +fromStone.toFixed(1),
+      touching: onRoad.touching,
+      sensing: onRoad.sensing,
+      litOnRoad: onRoad.all.filter((s) => s.lit).map((s) => s.id),
+      sensingAway: away.sensing,
+    };
+    check(
+      fromStone > 6,
+      `the walk-past stood ${fromStone.toFixed(1)} from the plate — that is a visit, not a pass`,
+    );
+    check(
+      onRoad.touching === null,
+      `standing on the road reports touching "${onRoad.touching}" — the plate radius grew`,
+    );
+    check(
+      results.passing.litOnRoad.includes(gate.id),
+      `passing on the road did not light ${gate.id}: lit ${JSON.stringify(results.passing.litOnRoad)}`,
+    );
+    check(
+      away.sensing === null,
+      `forty units off the stone still senses "${away.sensing}" — the band is too wide`,
+    );
+  }
+}
+
 // ---------- 4. a faint puts you at the nearest lit stone --------------------
 {
-  // Well away from it, so "nearest lit" is a real answer and not where he stood.
-  await tp(firstLit.x + 180, firstLit.z + 140);
+  // Well away from it, so "nearest lit" is a real answer and not where he stood
+  // — but nearer to it than to the gate stone 3b lit, so the answer is still
+  // this one. 60 clears `moved > 50` and is far short of the road home.
+  await tp(firstLit.x + 42, firstLit.z + 42);
   await adv(1);
   const from = await pos();
   const policy = (await stones()).respawnAt;
