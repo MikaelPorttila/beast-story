@@ -75,7 +75,16 @@ const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
     Math.abs(m.view.cx - pos.x) < 1 && Math.abs(m.view.cz - pos.z) < 1,
     `the map opened on (${m.view.cx}, ${m.view.cz}), the hero is at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`,
   );
-  check(m.view.scale > m.view.minScale * 1.5, `the map opened zoomed out (scale ${m.view.scale})`);
+  // Zoomed IN on him: the short side of the view spans a few hundred world units, not the zone.
+  const short = await page.evaluate(() => {
+    const c = document.querySelector(".bs-map .mc");
+    return Math.min(c.clientWidth, c.clientHeight);
+  });
+  out.open.spanAcross = +(short / m.view.scale).toFixed(0);
+  check(
+    short / m.view.scale < 420,
+    `the map opened showing ${(short / m.view.scale).toFixed(0)} units across`,
+  );
   check(m.icons === true, "the marker atlas has not decoded");
   // Fog of war: only the camp he stands in is known, and the far ground is covered.
   check(

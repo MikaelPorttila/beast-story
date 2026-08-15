@@ -15,7 +15,10 @@ import { cellOf, EXPLORE_CELL } from "../world/exploration";
  * The map IMAGE is generated like everything else the game draws: terrain
  * height and water sampled into a pyramid of tiles, painted on demand at the
  * zoom being looked at, cached per zone. Fog of war hides what the character
- * has not walked (world/exploration.ts).
+ * has not walked (world/exploration.ts). The world has NO EDGE — the engine
+ * grows it from its seed as far as anyone walks — so nothing here is sized to
+ * a zone: tiles and fog chunks are addressed by world coordinate and made when
+ * first needed, and the pannable extent is what has been explored so far.
  */
 
 export type MapCloseBy = "escape" | "hotkey" | "click" | "travel";
@@ -54,13 +57,12 @@ export interface MapModel {
   marker: { x: number; z: number } | null;
 }
 
-/** What the base image is painted from. `roads` are [x, z] polylines. */
+/** What the base image is painted from. `roads()` are [x, z] polylines, asked per tile: the world adds roads as it grows. */
 export interface MapTerrain {
   zoneId: string;
   heightAt(x: number, z: number): number;
   waterLevel: number;
-  roads: ReadonlyArray<ReadonlyArray<readonly [number, number]>>;
-  bounds: { minX: number; minZ: number; maxX: number; maxZ: number };
+  roads(): ReadonlyArray<ReadonlyArray<readonly [number, number]>>;
   /** Explored cell keys for this zone (`cellKey`), insertion-ordered so the fog can paint incrementally. */
   explored(): ReadonlySet<number>;
 }
@@ -78,8 +80,16 @@ export interface MapHooks {
   onClose?(by: MapCloseBy): void;
 }
 
-/** Texels on a tile's side. Level L covers the zone's long side in 2^L tiles. Small: one tile is ~8 ms of sampling, a frame's worth. */
+/** Texels on a tile's side. Small: one tile is ~8 ms of sampling, a frame's worth. */
 const TILE = 128;
+/** World units per texel at level 0; each level halves it. Level 0 tiles are 2048 units — a zone's worth of stand-in. */
+const UPT0 = 16;
+/** Levels 0..LEVELS-1, the deepest at half a unit per texel: the ground is voxels, so finer buys nothing. */
+const LEVELS = 6;
+const uptOf = (level: number): number => UPT0 / (1 << level);
+/** The level whose texel is one to two device pixels at this zoom (floor: a zoom crosses fewer levels). */
+const levelFor = (scale: number, dpr: number): number =>
+  Math.min(LEVELS - 1, Math.max(0, Math.floor(Math.log2(UPT0 * scale * dpr))));
 /** Milliseconds a frame may spend sampling tiles: a slice, never a whole tile, so pan and zoom never wait on one. */
 const TILE_BUDGET_MS = 3;
 /** Rows sampled between budget checks; ~0.3 ms at the deepest level. */
@@ -98,6 +108,10 @@ const MAX_SCALE = 6;
 const OPEN_SPAN = 360;
 /** World units per fog texel; the brush is soft, so coarse is fine and cheap. */
 const FOG_TEXEL = 4;
+/** Fog is kept in square chunks this many world units wide, made as the walk reaches them. */
+const FOG_CHUNK = 512;
+/** Sea room past the explored extent that the view may pan and zoom out to. */
+const EXTENT_MARGIN = 320;
 /** Screen px within which a click hits a marker: an icon's own half-size. */
 const HIT_R = 24;
 /** Keyboard pan speed, world units per frame at scale 1 — divided by scale so it is a screen speed. */
@@ -114,13 +128,11 @@ const tileKey = (level: number, i: number, j: number): string => `${level}:${i}:
 
 /** Everything painted for one zone; kept for the session — terrain does not change under a zone. */
 interface ZoneMap {
-  bounds: MapTerrain["bounds"];
-  /** The long side, world units: level L tiles are `span / (TILE << L)` units per texel. */
-  span: number;
-  /** Deepest level, where a texel is at most one world unit. */
-  maxLevel: number;
   tiles: Map<string, HTMLCanvasElement>;
-  fog: HTMLCanvasElement;
+  /** `cx,cz` chunk → its sheet, opaque where unseen. A chunk no walk has reached has no sheet and is all fog. */
+  fog: Map<string, HTMLCanvasElement>;
+  /** Bounding box of every explored cell, world units — the extent the view may roam. Null until anything is seen. */
+  extent: { minX: number; minZ: number; maxX: number; maxZ: number } | null;
   /** How many explored cells the fog canvas already has holes for. */
   fogPainted: number;
   /** `bx,bz` of every SEEN_BLOCK an explored cell touches — the painter's "is any of this tile visible" test. */
@@ -447,28 +459,20 @@ export class MapPanel {
     const w = Math.max(1, window.innerWidth);
     const h = Math.max(1, window.innerHeight - 110);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const b = zm.bounds;
-    const cover = Math.max(w / (b.maxX - b.minX), h / (b.maxZ - b.minZ));
-    const openScale = Math.min(MAX_SCALE, Math.max(cover, Math.min(w, h) / OPEN_SPAN));
-    const open = Math.min(
-      zm.maxLevel,
-      Math.max(0, Math.floor(Math.log2((zm.span * openScale * dpr) / TILE))),
-    );
+    const open = levelFor(Math.min(MAX_SCALE, Math.min(w, h) / OPEN_SPAN), dpr);
     const levels = [...new Set([0, Math.max(0, open - 1), open])];
     const p = this.hooks.model().player;
     const pad = EXPLORE_CELL * 2;
     const out: Array<{ level: number; i: number; j: number; d: number; rank: number }> = [];
     levels.forEach((level, rank) => {
-      const tw = zm.span / (1 << level);
-      const cols = Math.ceil((b.maxX - b.minX) / tw);
-      const rows = Math.ceil((b.maxZ - b.minZ) / tw);
+      const tw = TILE * uptOf(level);
       const seen = new Set<string>();
       for (const key of zm.seen) {
         const [bx, bz] = key.split(",").map(Number);
-        const i0 = Math.max(0, Math.floor((bx * SEEN_BLOCK - pad - b.minX) / tw));
-        const i1 = Math.min(cols - 1, Math.floor(((bx + 1) * SEEN_BLOCK + pad - b.minX) / tw));
-        const j0 = Math.max(0, Math.floor((bz * SEEN_BLOCK - pad - b.minZ) / tw));
-        const j1 = Math.min(rows - 1, Math.floor(((bz + 1) * SEEN_BLOCK + pad - b.minZ) / tw));
+        const i0 = Math.floor((bx * SEEN_BLOCK - pad) / tw);
+        const i1 = Math.floor(((bx + 1) * SEEN_BLOCK + pad) / tw);
+        const j0 = Math.floor((bz * SEEN_BLOCK - pad) / tw);
+        const j1 = Math.floor(((bz + 1) * SEEN_BLOCK + pad) / tw);
         for (let j = j0; j <= j1; j++) {
           for (let i = i0; i <= i1; i++) {
             const k = tileKey(level, i, j);
@@ -476,8 +480,8 @@ export class MapPanel {
               continue;
             }
             seen.add(k);
-            const dx = (i + 0.5) * tw + b.minX - p.x;
-            const dz = (j + 0.5) * tw + b.minZ - p.z;
+            const dx = (i + 0.5) * tw - p.x;
+            const dz = (j + 0.5) * tw - p.z;
             out.push({ level, i, j, d: dx * dx + dz * dz, rank });
           }
         }
@@ -495,19 +499,10 @@ export class MapPanel {
     if (hit) {
       return hit;
     }
-    const b = ter.bounds;
-    const w = b.maxX - b.minX;
-    const h = b.maxZ - b.minZ;
-    const span = Math.max(w, h);
-    const fog = document.createElement("canvas");
-    fog.width = Math.ceil(w / FOG_TEXEL);
-    fog.height = Math.ceil(h / FOG_TEXEL);
     const made: ZoneMap = {
-      bounds: b,
-      span,
-      maxLevel: Math.max(0, Math.ceil(Math.log2(span / TILE))),
       tiles: new Map(),
-      fog,
+      fog: new Map(),
+      extent: null,
       fogPainted: -1,
       seen: new Set(),
     };
@@ -517,14 +512,13 @@ export class MapPanel {
 
   /** Does the fog lift anywhere over this tile? Blocks are coarse, so this is a handful of lookups. */
   private tileSeen(zm: ZoneMap, level: number, i: number, j: number): boolean {
-    const tw = zm.span / (1 << level);
-    const b = zm.bounds;
+    const tw = TILE * uptOf(level);
     // A brush reaches past its cell; a tile beside seen ground shows a soft edge of it.
     const pad = EXPLORE_CELL * 2;
-    const bx0 = Math.floor((b.minX + i * tw - pad) / SEEN_BLOCK);
-    const bx1 = Math.floor((b.minX + (i + 1) * tw + pad) / SEEN_BLOCK);
-    const bz0 = Math.floor((b.minZ + j * tw - pad) / SEEN_BLOCK);
-    const bz1 = Math.floor((b.minZ + (j + 1) * tw + pad) / SEEN_BLOCK);
+    const bx0 = Math.floor((i * tw - pad) / SEEN_BLOCK);
+    const bx1 = Math.floor(((i + 1) * tw + pad) / SEEN_BLOCK);
+    const bz0 = Math.floor((j * tw - pad) / SEEN_BLOCK);
+    const bz1 = Math.floor(((j + 1) * tw + pad) / SEEN_BLOCK);
     for (let bz = bz0; bz <= bz1; bz++) {
       for (let bx = bx0; bx <= bx1; bx++) {
         if (zm.seen.has(`${bx},${bz}`)) {
@@ -535,16 +529,16 @@ export class MapPanel {
     return false;
   }
 
-  private startTile(zm: ZoneMap, level: number, i: number, j: number): TileJob {
-    const upt = zm.span / (TILE << level);
+  private startTile(level: number, i: number, j: number): TileJob {
+    const upt = uptOf(level);
     const ap = Math.min(APRON_MAX, Math.max(1, Math.round(SHADE_REACH / upt)));
     return {
       level,
       i,
       j,
       upt,
-      x0: zm.bounds.minX + i * TILE * upt,
-      z0: zm.bounds.minZ + j * TILE * upt,
+      x0: i * TILE * upt,
+      z0: j * TILE * upt,
       ap,
       n: TILE + 2 * ap,
       row: 0,
@@ -633,7 +627,7 @@ export class MapPanel {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.beginPath();
-    for (const road of ter.roads) {
+    for (const road of ter.roads()) {
       for (let k = 0; k < road.length; k++) {
         if (k === 0) {
           ctx.moveTo(road[k][0], road[k][1]);
@@ -677,7 +671,7 @@ export class MapPanel {
         if (!p) {
           break;
         }
-        this.job = this.startTile(zm, p.level, p.i, p.j);
+        this.job = this.startTile(p.level, p.i, p.j);
       }
       if (this.sampleRows(ter, this.job)) {
         zm.tiles.set(
@@ -707,34 +701,92 @@ export class MapPanel {
     if (cells.size === zm.fogPainted) {
       return;
     }
-    const ctx = zm.fog.getContext("2d") as CanvasRenderingContext2D;
     if (cells.size < zm.fogPainted || zm.fogPainted < 0) {
-      // Fewer than before means a load or a new game: start the sheet over.
-      ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = FOG_COLOUR;
-      ctx.fillRect(0, 0, zm.fog.width, zm.fog.height);
+      // Fewer than before means a load or a new game: start the sheets over.
+      zm.fog.clear();
+      zm.extent = null;
       zm.fogPainted = 0;
       zm.seen.clear();
     }
     const brush = this.fogBrush ?? (this.fogBrush = makeFogBrush());
     const r = brush.width / 2;
-    const b = zm.bounds;
-    ctx.globalCompositeOperation = "destination-out";
+    const rw = r * FOG_TEXEL;
     let k = 0;
     for (const key of cells) {
       if (k++ < zm.fogPainted) {
         continue;
       }
       const [cx, cz] = cellOf(key);
-      zm.seen.add(
-        `${Math.floor((cx * EXPLORE_CELL) / SEEN_BLOCK)},${Math.floor((cz * EXPLORE_CELL) / SEEN_BLOCK)}`,
-      );
-      const fx = ((cx + 0.5) * EXPLORE_CELL - b.minX) / FOG_TEXEL;
-      const fz = ((cz + 0.5) * EXPLORE_CELL - b.minZ) / FOG_TEXEL;
-      ctx.drawImage(brush, fx - r, fz - r);
+      const wx = (cx + 0.5) * EXPLORE_CELL;
+      const wz = (cz + 0.5) * EXPLORE_CELL;
+      zm.seen.add(`${Math.floor(wx / SEEN_BLOCK)},${Math.floor(wz / SEEN_BLOCK)}`);
+      const e = zm.extent;
+      zm.extent = e
+        ? {
+            minX: Math.min(e.minX, wx),
+            minZ: Math.min(e.minZ, wz),
+            maxX: Math.max(e.maxX, wx),
+            maxZ: Math.max(e.maxZ, wz),
+          }
+        : { minX: wx, minZ: wz, maxX: wx, maxZ: wz };
+      // The brush may straddle a chunk edge: punch it into every sheet it touches, making them as needed.
+      for (
+        let gz = Math.floor((wz - rw) / FOG_CHUNK);
+        gz <= Math.floor((wz + rw) / FOG_CHUNK);
+        gz++
+      ) {
+        for (
+          let gx = Math.floor((wx - rw) / FOG_CHUNK);
+          gx <= Math.floor((wx + rw) / FOG_CHUNK);
+          gx++
+        ) {
+          const ctx = this.fogChunk(zm, gx, gz);
+          ctx.globalCompositeOperation = "destination-out";
+          ctx.drawImage(
+            brush,
+            (wx - gx * FOG_CHUNK) / FOG_TEXEL - r,
+            (wz - gz * FOG_CHUNK) / FOG_TEXEL - r,
+          );
+        }
+      }
     }
-    ctx.globalCompositeOperation = "source-over";
     zm.fogPainted = cells.size;
+  }
+
+  private fogChunk(zm: ZoneMap, gx: number, gz: number): CanvasRenderingContext2D {
+    const key = `${gx},${gz}`;
+    let c = zm.fog.get(key);
+    if (!c) {
+      c = document.createElement("canvas");
+      c.width = FOG_CHUNK / FOG_TEXEL;
+      c.height = FOG_CHUNK / FOG_TEXEL;
+      const ctx = c.getContext("2d") as CanvasRenderingContext2D;
+      ctx.fillStyle = FOG_COLOUR;
+      ctx.fillRect(0, 0, c.width, c.height);
+      zm.fog.set(key, c);
+    }
+    return c.getContext("2d") as CanvasRenderingContext2D;
+  }
+
+  /** The extent the view may roam: what has been seen, plus sea room, and never smaller than the open span. */
+  private bounds(): { minX: number; minZ: number; maxX: number; maxZ: number } {
+    const e = this.zone?.extent;
+    const p = this.hooks.model().player;
+    const half = OPEN_SPAN;
+    const b = e
+      ? {
+          minX: e.minX - EXTENT_MARGIN,
+          minZ: e.minZ - EXTENT_MARGIN,
+          maxX: e.maxX + EXTENT_MARGIN,
+          maxZ: e.maxZ + EXTENT_MARGIN,
+        }
+      : { minX: p.x - half, minZ: p.z - half, maxX: p.x + half, maxZ: p.z + half };
+    return {
+      minX: Math.min(b.minX, p.x - half),
+      minZ: Math.min(b.minZ, p.z - half),
+      maxX: Math.max(b.maxX, p.x + half),
+      maxZ: Math.max(b.maxZ, p.z + half),
+    };
   }
 
   // ---- view -----------------------------------------------------------------
@@ -758,14 +810,15 @@ export class MapPanel {
   }
 
   private clampView(): void {
-    const b = this.zone?.bounds;
-    if (!b) {
+    if (!this.zone) {
       return;
     }
+    const b = this.bounds();
     const { w, h } = this.viewSize();
-    // The map COVERS the view at every zoom: no dark paper past its edge, so the floor is the cover scale.
-    this.minScale = Math.max(w / (b.maxX - b.minX), h / (b.maxZ - b.minZ));
-    this.scale = Math.min(Math.max(MAX_SCALE, this.minScale), Math.max(this.minScale, this.scale));
+    // The map COVERS the view at every zoom: the floor is the cover scale of the explored extent, so
+    // zooming all the way out shows everything seen so far and no more; the extent grows with the walk.
+    this.minScale = Math.min(MAX_SCALE, Math.max(w / (b.maxX - b.minX), h / (b.maxZ - b.minZ)));
+    this.scale = Math.min(MAX_SCALE, Math.max(this.minScale, this.scale));
     const hw = w / 2 / this.scale;
     const hh = h / 2 / this.scale;
     // The view may not leave the zone: when it is zoomed out past the bounds it pins to the middle.
@@ -848,15 +901,21 @@ export class MapPanel {
     if (zm && ter) {
       this.paintFog(zm, ter.explored());
       this.drawTiles(ctx, zm, dpr, w, h);
-      const b = zm.bounds;
-      const tl = this.toScreen(b.minX, b.minZ);
-      ctx.drawImage(
-        zm.fog,
-        tl.x,
-        tl.y,
-        (b.maxX - b.minX) * this.scale,
-        (b.maxZ - b.minZ) * this.scale,
-      );
+      // Fog sheets over the tiles; a chunk with no sheet is the untouched fog-coloured ground already painted.
+      const v0 = this.toWorld(0, 0);
+      const v1 = this.toWorld(w, h);
+      const snap = (v: number): number => Math.round(v * dpr) / dpr;
+      for (let gz = Math.floor(v0.z / FOG_CHUNK); gz <= Math.floor(v1.z / FOG_CHUNK); gz++) {
+        for (let gx = Math.floor(v0.x / FOG_CHUNK); gx <= Math.floor(v1.x / FOG_CHUNK); gx++) {
+          const sheet = zm.fog.get(`${gx},${gz}`);
+          if (!sheet) {
+            continue;
+          }
+          const a = this.toScreen(gx * FOG_CHUNK, gz * FOG_CHUNK);
+          const e = this.toScreen((gx + 1) * FOG_CHUNK, (gz + 1) * FOG_CHUNK);
+          ctx.drawImage(sheet, snap(a.x), snap(a.y), snap(e.x) - snap(a.x), snap(e.y) - snap(a.y));
+        }
+      }
     }
 
     const model = this.hooks.model();
@@ -943,25 +1002,18 @@ export class MapPanel {
     w: number,
     h: number,
   ): void {
-    const b = zm.bounds;
-    const level = Math.min(
-      zm.maxLevel,
-      // floor, not ceil: a texel spans one to two device pixels, and a zoom crosses half as many levels.
-      Math.max(0, Math.floor(Math.log2((zm.span * this.scale * dpr) / TILE))),
-    );
-    const tw = zm.span / (1 << level);
-    const cols = Math.ceil((b.maxX - b.minX) / tw);
-    const rows = Math.ceil((b.maxZ - b.minZ) / tw);
+    const level = levelFor(this.scale, dpr);
+    const tw = TILE * uptOf(level);
     const v0 = this.toWorld(0, 0);
     const v1 = this.toWorld(w, h);
-    const i0 = Math.max(0, Math.floor((v0.x - b.minX) / tw));
-    const i1 = Math.min(cols - 1, Math.floor((v1.x - b.minX) / tw));
-    const j0 = Math.max(0, Math.floor((v0.z - b.minZ) / tw));
-    const j1 = Math.min(rows - 1, Math.floor((v1.z - b.minZ) / tw));
+    const i0 = Math.floor(v0.x / tw);
+    const i1 = Math.floor(v1.x / tw);
+    const j0 = Math.floor(v0.z / tw);
+    const j1 = Math.floor(v1.z / tw);
     // Tile edges snapped to device pixels: neighbours share an edge exactly, so no seam bleeds through.
     const snap = (v: number): number => Math.round(v * dpr) / dpr;
-    const edgeX = (i: number): number => snap(this.toScreen(b.minX + i * tw, 0).x);
-    const edgeY = (j: number): number => snap(this.toScreen(0, b.minZ + j * tw).y);
+    const edgeX = (i: number): number => snap(this.toScreen(i * tw, 0).x);
+    const edgeY = (j: number): number => snap(this.toScreen(0, j * tw).y);
     for (let j = j0; j <= j1; j++) {
       const sy = edgeY(j);
       const sh = edgeY(j + 1) - sy;
@@ -977,9 +1029,10 @@ export class MapPanel {
         if (!this.tileSeen(zm, level, i, j)) {
           continue;
         }
-        const dx = (i + 0.5) * tw + b.minX - this.cx;
-        const dz = (j + 0.5) * tw + b.minZ - this.cz;
+        const dx = (i + 0.5) * tw - this.cx;
+        const dz = (j + 0.5) * tw - this.cz;
         this.pending.push({ level, i, j, d: dx * dx + dz * dz });
+        // `>>` floors and `&` wraps for negative indices too, so an ancestor west of the origin is the right one.
         for (let up = 1; up <= level; up++) {
           const anc = zm.tiles.get(tileKey(level - up, i >> up, j >> up));
           if (anc) {

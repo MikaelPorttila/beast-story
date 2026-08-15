@@ -2408,46 +2408,31 @@ function setPlayerMarker(spot: { x: number; z: number } | null): void {
 }
 
 /**
- * What the map paints its base image from. Bounds are DERIVED from what the
- * zone contains — spawn, towns, stones and roads — so a grown world grows its
- * map without anyone updating a constant.
+ * What the map paints its base image from. The world has no bounds — it grows
+ * from its seed as far as anyone walks — so this hands over samplers, not a
+ * rectangle. Roads are re-read when the network has grown (memoised on count).
  */
 function mapTerrain(): MapTerrain {
-  let minX = world.spawnPoint.x;
-  let maxX = minX;
-  let minZ = world.spawnPoint.z;
-  let maxZ = minZ;
-  const take = (x: number, z: number): void => {
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minZ = Math.min(minZ, z);
-    maxZ = Math.max(maxZ, z);
-  };
-  for (const town of world.towns.all) {
-    take(town.x - town.outerRadius, town.z - town.outerRadius);
-    take(town.x + town.outerRadius, town.z + town.outerRadius);
-  }
-  for (const w of world.waypoints?.all ?? []) {
-    take(w.x, w.z);
-  }
-  const roads: Array<Array<readonly [number, number]>> = [];
-  for (const r of world.towns.roads) {
-    const line: Array<readonly [number, number]> = [];
-    for (let i = 0; i < r.path.length; i += 3) {
-      line.push([r.path[i], r.path[i + 2]]);
-      take(r.path[i], r.path[i + 2]);
-    }
-    roads.push(line);
-  }
-  // Margin so nothing sits on the edge of the paper; the sea past it is context.
-  const M = 140;
+  let roadsOf: typeof world.towns.roads | null = null;
+  let roads: Array<Array<readonly [number, number]>> = [];
   return {
     zoneId: zones.id,
     heightAt: (x, z) => world.getHeight(x, z),
     waterLevel: world.waterLevel,
     explored: () => exploration.cells(zones.id),
-    roads,
-    bounds: { minX: minX - M, minZ: minZ - M, maxX: maxX + M, maxZ: maxZ + M },
+    roads: () => {
+      if (roadsOf !== world.towns.roads || roads.length !== world.towns.roads.length) {
+        roadsOf = world.towns.roads;
+        roads = world.towns.roads.map((r) => {
+          const line: Array<readonly [number, number]> = [];
+          for (let i = 0; i < r.path.length; i += 3) {
+            line.push([r.path[i], r.path[i + 2]]);
+          }
+          return line;
+        });
+      }
+      return roads;
+    },
   };
 }
 
