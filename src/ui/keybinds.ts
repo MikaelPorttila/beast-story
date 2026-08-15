@@ -22,6 +22,8 @@ export interface Binding {
   /** Controller faces, or null where the pad has no binding at all. */
   pad: readonly PadAction[] | null;
   note?: StringKey;
+  /** A developer's key: read only under `debug=1`, and listed on the F1 sheet only then. */
+  dev?: true;
 }
 
 export interface BindSection {
@@ -129,7 +131,7 @@ export const CONTROL_SECTIONS: readonly BindSection[] = [
       { label: "keys.cancel", mode: "press", codes: ["Escape"], caps: ["Esc"], pad: ["cancel"] },
       { label: "keys.controls", mode: "press", codes: ["F1"], caps: ["F1"], pad: null },
       { label: "keys.debugOverlay", mode: "press", codes: ["F2"], caps: ["F2"], pad: null },
-      { label: "keys.perfPanel", mode: "press", codes: ["F3"], caps: ["F3"], pad: null },
+      { label: "keys.perfPanel", mode: "press", codes: ["F3"], caps: ["F3"], pad: null, dev: true },
       {
         label: "keys.cursor",
         mode: "hold",

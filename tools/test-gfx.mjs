@@ -708,7 +708,7 @@ export const sections = [
       const bctx = await ctx.page.browser().createBrowserContext();
       const fresh = await newPage(bctx, { width: 1280, height: 800 });
       try {
-        await fresh.goto(`${HOST}/?menu=0&fs=0`, { waitUntil: "load" });
+        await fresh.goto(`${HOST}/?menu=0&fs=0&debug=1`, { waitUntil: "load" });
         await fresh.waitForSelector("canvas");
         await fresh.waitForFunction(
           () => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance,

@@ -16,7 +16,7 @@ const check = (ok, message) => {
 const circular = (a, b) => Math.abs(((((a - b) % 1) + 1.5) % 1) - 0.5);
 
 try {
-  await page.goto(`${HOST}/?fps=30&menu=0&vol=0`, { waitUntil: "load", timeout: 90000 });
+  await page.goto(`${HOST}/?fps=30&menu=0&vol=0&debug=1`, { waitUntil: "load", timeout: 90000 });
   await page.waitForFunction(() => window.__dbgBoot?.().playing && window.__dbgTime, {
     timeout: 60000,
   });

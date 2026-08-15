@@ -730,6 +730,40 @@ await page.close();
   await p.close();
 }
 
+// ---------- 9. F3 IS THE DEVELOPER'S KEY, BEHIND `debug=1` -----------------
+//
+// Both halves. On a player's page the sheet does not list F3 and the press opens
+// nothing; on a `debug=1` page it is listed and it opens the panel. The row stays
+// in the table either way — section 1's static scan is about what the CODE
+// reads, and the code still reads F3 (behind the flag).
+{
+  const probe = async (query) => {
+    const p = await newPage(browser, { width: 1280, height: 800 });
+    await p.goto(`${HOST}/?fps=30&menu=0${query}`, { waitUntil: "load" });
+    await p.waitForSelector("canvas");
+    await p.waitForFunction(() => window.__dbgBoot?.().playing, { timeout: 60000 });
+    await wait(300);
+    await p.keyboard.press("F1");
+    await wait(400);
+    const listsF3 = await p.evaluate(() =>
+      [...document.querySelectorAll(".bs-keys .bs-keyrow kbd")].some(
+        (k) => k.textContent.trim() === "F3",
+      ),
+    );
+    await p.keyboard.press("Escape");
+    await wait(300);
+    await p.keyboard.press("F3");
+    await wait(400);
+    const panelOpen = await p.evaluate(() => {
+      const el = document.querySelector(".bs-perf");
+      return !!el && getComputedStyle(el).display !== "none";
+    });
+    await p.close();
+    return { listsF3, panelOpen };
+  };
+  results.debugGate = { player: await probe(""), developer: await probe("&debug=1") };
+}
+
 console.log(JSON.stringify(results, null, 2));
 await browser.close();
 
@@ -857,6 +891,15 @@ check(
 check(
   results.menuKey?.pointer?.turnedAfterRelock > 0.01,
   "the pointer came back but the camera did not turn — the game is not reading it",
+);
+
+check(
+  results.debugGate?.player?.listsF3 === false && results.debugGate?.player?.panelOpen === false,
+  `a player's page: F3 listed=${results.debugGate?.player?.listsF3}, panel opened=${results.debugGate?.player?.panelOpen} — want neither`,
+);
+check(
+  results.debugGate?.developer?.listsF3 === true && results.debugGate?.developer?.panelOpen === true,
+  `a debug=1 page: F3 listed=${results.debugGate?.developer?.listsF3}, panel opened=${results.debugGate?.developer?.panelOpen} — want both`,
 );
 
 if (fail.length) {

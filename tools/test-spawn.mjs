@@ -38,7 +38,7 @@ import { BASE as HOST } from "./target.mjs";
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 900 });
 page.on("pageerror", (e) => console.error("[page]", e.message));
-await page.goto(`${HOST}/?menu=0&vol=0&fs=0`, { waitUntil: "load" });
+await page.goto(`${HOST}/?menu=0&vol=0&fs=0&debug=1`, { waitUntil: "load" });
 await page.waitForFunction(() => typeof window.__dbgSpawn === "function", { timeout: 60000 });
 await page.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 60000 });
 

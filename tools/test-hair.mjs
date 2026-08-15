@@ -28,7 +28,7 @@ const check = (ok, msg) => {
 const { ctx, page } = await newContextPage(browser, { width: 900, height: 600 });
 // NO_WARMUP: nothing here times a frame — the hair is geometry, and every
 // reading below comes off the model rather than off the picture.
-const url = `${HOST}/?fps=30&menu=0&vol=0&${NO_WARMUP}`;
+const url = `${HOST}/?fps=30&menu=0&vol=0&debug=1&${NO_WARMUP}`;
 await page.goto(url, { waitUntil: "load" });
 await page.waitForSelector("canvas");
 await whenPlaying(page);
