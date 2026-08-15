@@ -188,11 +188,11 @@ export const sections = [
         boot.gear.find((g) => g.slot === "weapon")?.id === "sword-iron",
         "the weapon slot does not hold the starting sword",
       );
-      // A NEW GAME OWNS THE STARTER AND NOTHING ELSE. It owned nothing at all
-      // (issue #4) until `STARTER_BEAST` in main.ts put one Frostwing back; the
-      // panel's side of that claim is one beast row, the lead slot filled and the
-      // support slot empty. tools/test-taming.mjs asserts the same thing from the
-      // party's side and is where earning the NEXT one is tested.
+      // THE DEVELOPER'S NEW GAME OWNS THE STARTER AND NOTHING ELSE — the harness
+      // boots with `debug=1`, which is what bonds `STARTER_BEAST`; a player's new
+      // game owns nothing (issue #4, and tools/test-taming.mjs asserts that boot).
+      // The panel's side of the claim is one beast row, the lead slot filled and
+      // the support slot empty.
       // STILL NO BAG ROW. A beast is not a bag entry — it is roster-derived, and
       // the line below is where it shows up — so the starter changes the SLOTS
       // and leaves this at zero.

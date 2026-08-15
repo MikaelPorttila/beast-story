@@ -4,6 +4,7 @@ import { CURRENCY, itemName, type BagEntry } from "../core/items";
 import { t, type StringKey } from "../i18n";
 import { PAD_GLYPHS, type PadGlyphs } from "../core/gamepad";
 import { CONTROL_SECTIONS } from "./keybinds";
+import { flags } from "../core/flags";
 import { injectStyles } from "./styles";
 import {
   elementIcon,
@@ -256,6 +257,9 @@ function controlsHtml(glyphs: PadGlyphs | null): string {
       `<span class="kbm">${escapeHtml(t("keys.col.kbm"))}</span>` +
       `<span class="pad">${escapeHtml(t("keys.col.pad"))}</span><span class="mode"></span></div>`;
     for (const b of section.rows) {
+      if (b.dev && !flags.debug) {
+        continue;
+      }
       const caps = b.caps.map(kbd).join(b.join ?? " ");
       const pad = b.pad
         ? b.pad.map((a) => padKey(faces[a])).join("")

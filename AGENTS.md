@@ -42,7 +42,7 @@ and everything browser-related goes through
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Boot                                    | `menu=0` skip title · `menu=1` force it · `photo=1` staged capture (implies `menu=0`) · `warmup=0` skip the shader sweep                                            |
 | Framing                                 | `cam=x,y,z` / `look=x,y,z` **offsets from `world.spawnPoint`** · `beast=<id>` · `anim=` · `a=<deg>` · `hud=0` · `npct=<s>` NPC clock · `colliders=1` draw colliders |
-| Performance                             | `fps=<n>` cap (default 120, `0` = off) · `simhz=` · `view=<n>` streaming radius · `debug=1` F2 overlay · `perf=1` pin the profiler                                  |
+| Performance                             | `fps=<n>` cap (default 120, `0` = off) · `simhz=` · `view=<n>` streaming radius · `debug=1` developer mode: F2 overlay open, F3 and the `§` console reachable, starter beast bonded · `perf=1` pin the profiler                                  |
 | A/B switches                            | `towns=0` · `solids=0` · `sway=0` · `props=0` · `clouds=0` · `water=0` · `enemies=0` · `beasts=0` · `aim=0` · `shadows=0` · `shadowcache=0` (must move no pixel)    |
 | Post                                    | `post=0` · `ao=` · `bloom=` · `aa=0` · `grade=0` · `roll=` · `aoview=1`                                                                                             |
 | Preferences (one load, never persisted) | `vol=<0..1>` · `lang=<iso639-1>` · `fs=<0\|1>` fullscreen on start · `haptics=` · `shake=` · `invx=` · `invy=`                                                      |
@@ -51,7 +51,7 @@ and everything browser-related goes through
 
 Lab flags are in [LAB.md](LAB.md).
 
-**Console** (`§`): `/gfx` · `/nature` · `/content` · `/give` · `/path` · `/tp` · `/zone` ·
+**Console** (`§`, under `debug=1`): `/gfx` · `/nature` · `/content` · `/give` · `/path` · `/tp` · `/zone` ·
 `/mount <species>` · `/mount unlock [<kind>|all]` · `/show-colliders` · `/volume` · `/haptics` · `/vibration` ·
 `/shake` · `/invertlook`
 
@@ -161,7 +161,8 @@ self-contained build, not for shipping.
 2. `bun tools/probe.mjs all`, plus the guard for the area you touched.
 3. Branch, commit, push, open the PR.
 4. **Report the PR with its Vercel preview URL in the chat, always suffixed
-   `?vol=0&nostore=1`** so an opened preview is muted and ignores stored state. Poll
+   `?vol=0&nostore=1&debug=1`** so an opened preview is muted, ignores stored
+   state and has the developer's instruments (F3, `§`, the starter beast). Poll
    `gh pr view <n> --json comments` until the deployment comment lands (about a
    minute). If it does not arrive, say so and give the PR link alone.
 
@@ -254,8 +255,8 @@ Cross-cutting rules:
     out of step with the first.
   - **Nothing refuses a save.** Every unresolvable field degrades to a default
     and the load continues, because a throw out of a load costs the player the
-    character. Where degrading would leave them unable to play, REPAIR: a save
-    with no resolvable beast is granted the starter.
+    character. A save with no resolvable beast loads with an empty party, which
+    is how every new game starts.
   - **A field whose MEANING changes is a version bump**, not an edit — bump
     `SAVE_DOC_VERSION` and add a branch to `migrateSaveDoc`. Adding a field
     needs neither, and needs no Dexie version either.

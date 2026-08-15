@@ -479,6 +479,8 @@ const readState = (page) =>
   const { ctx, page } = await boot();
   const ids = await page.evaluate(async () => {
     window.__dbgGive("sunberry", 2);
+    // A beast for the power line below: a player's new game has none (issue #4).
+    window.__dbgGrantBeast("emberfox");
     const a = await window.__dbgSaves.save("Ayla");
     // A SECOND CHARACTER, not a second save of the first — `save()` writes
     // whoever is being played, so without this the two calls update one record.
@@ -503,9 +505,9 @@ const readState = (page) =>
     list.some((r) => r.name === "Ayla") && list.some((r) => r.name === "Bram"),
     `the names did not reach the list: ${JSON.stringify(out.slots.list)}`,
   );
-  // The power level is the sum of bonded beast levels, and a new game has one
-  // beast at level 1 — so it is 1 rather than 0, which is what says it was
-  // derived from the roster and not left at a default.
+  // The power level is the sum of bonded beast levels: one beast at level 1 in
+  // each, so it is 1 rather than 0, which is what says it was derived from the
+  // roster and not left at a default.
   check(
     list.every((r) => r.powerLevel >= 1),
     `a character listed a power level of 0: ${JSON.stringify(out.slots.list)}`,

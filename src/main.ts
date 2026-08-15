@@ -300,8 +300,9 @@ function beginPlay(): void {
     const doc = pendingSave;
     pendingSave = null;
     applySave(doc);
-  } else {
-    // No-op when already bonded, so this is safe after an exit to title too.
+  } else if (flags.debug && !ownsSpecies(STARTER_BEAST)) {
+    // THE DEVELOPER'S GAME ONLY: a player's new game is bonded to nothing (issue #4) — the first orb
+    // is the first beast. Skipped when already bonded, so this is safe after an exit to title too.
     grantBeast(STARTER_BEAST);
   }
   // Drain keys latched while the title screen was up — endFrame() only runs inside frame(), so the first slice would otherwise see the whole menu session at once.
@@ -659,10 +660,8 @@ function applySave(doc: SaveDocument): void {
       id !== null && owned.has(id) ? roster.findIndex((b) => b.id === id) : -1;
     primaryIdx = slotOf(doc.party.primary);
     supportIdx = slotOf(doc.party.support);
-    // Repairs: a character with no resolvable beast at all is granted the starter.
-    if (owned.size === 0) {
-      grantBeast(STARTER_BEAST);
-    } else if (primaryIdx < 0) {
+    // A save with no resolvable beast loads with an empty party — how every new game starts.
+    if (primaryIdx < 0) {
       primaryIdx = roster.findIndex(isOwned);
     }
     if (supportIdx === primaryIdx) {
@@ -4622,7 +4621,7 @@ const DEFAULT_FPS_CAP = 120;
 const fpsCap = Number(params.get("fps") ?? DEFAULT_FPS_CAP);
 engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
-if (params.get("debug") === "1") {
+if (flags.debug) {
   debug.toggle();
 }
 
@@ -5094,7 +5093,8 @@ if (params.get("perf") === "1") {
 }
 let lastPrograms = 0;
 
-const devConsole = photoMode ? null : new DevConsole();
+// A developer's instrument like F3: not built at all outside `debug=1`, and photo mode has no one to type into it.
+const devConsole = photoMode || !flags.debug ? null : new DevConsole();
 const colliderView = new ColliderView(engine.scene, world);
 bound.push(colliderView);
 // `colliders=1` starts them visible for a staged capture; photo mode has no console to type into.
@@ -6411,7 +6411,8 @@ function frame(): void {
   }
   // F3 is the panel F2's numbers are FOR: deliberately not gated on photo mode and deliberately not a
   // modal — the point is watching a working frame get cheaper, and a frozen world streams nothing.
-  if (input.takePress("F3")) {
+  // Gated on `debug=1` and nothing else: it is a developer's instrument, not a player's.
+  if (flags.debug && input.takePress("F3")) {
     perfPanel.toggle();
   }
   // Per frame as well as on input events: opening the shop changes the answer and is no DOM event here.

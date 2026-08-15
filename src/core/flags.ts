@@ -56,6 +56,11 @@ export const flags = {
   /** `nostore=1` — core/saves.ts opens no database and autosave never arms. Defaults OFF. */
   noStore: p.get("nostore") === "1",
   /**
+   * `debug=1` — the developer's game: F2 overlay open at boot, F3 and the `§` console reachable,
+   * F3 on the F1 sheet, a new game bonded to the starter. A player's new game has none of these. Defaults OFF.
+   */
+  debug: p.get("debug") === "1",
+  /**
    * `mounts=all` / `mounts=ground,water`. Words stay UNRESOLVED so this file keeps no
    * imports; main.ts expands `all` and `MountUnlocks.restore` drops what it cannot match.
    */
