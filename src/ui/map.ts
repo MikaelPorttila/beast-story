@@ -1,7 +1,9 @@
 import { t } from "../i18n";
 import { injectStyles } from "./styles";
 import { seedPadButtons } from "../core/gamepad";
-import { CLOSE_ICON, starPoints } from "./icons";
+import { CLOSE_ICON } from "./icons";
+import { drawMapIcon, MAP_ICON_SIZE, mapIconsReady } from "./map-icons";
+import { cellOf, EXPLORE_CELL } from "../world/exploration";
 
 /**
  * Fullscreen world map (issue #245). The panel owns the screen — pan, zoom and
@@ -11,7 +13,9 @@ import { CLOSE_ICON, starPoints } from "./icons";
  * its own pollPad while a panel is up.
  *
  * The map IMAGE is generated like everything else the game draws: terrain
- * height and water sampled into a canvas at panel-open, cached per zone.
+ * height and water sampled into a pyramid of tiles, painted on demand at the
+ * zoom being looked at, cached per zone. Fog of war hides what the character
+ * has not walked (world/exploration.ts).
  */
 
 export type MapCloseBy = "escape" | "hotkey" | "click" | "travel";
@@ -22,6 +26,9 @@ export interface MapTown {
   color: number;
   x: number;
   z: number;
+  kind: "camp" | "hamlet" | "harbour";
+  /** Seen, or sent to by a quest. An unknown town is not drawn: the world is not spoiled by data. */
+  known: boolean;
 }
 
 export interface MapStone {
@@ -54,6 +61,8 @@ export interface MapTerrain {
   waterLevel: number;
   roads: ReadonlyArray<ReadonlyArray<readonly [number, number]>>;
   bounds: { minX: number; minZ: number; maxX: number; maxZ: number };
+  /** Explored cell keys for this zone (`cellKey`), insertion-ordered so the fog can paint incrementally. */
+  explored(): ReadonlySet<number>;
 }
 
 export interface MapHooks {
@@ -67,14 +76,23 @@ export interface MapHooks {
   onClose?(by: MapCloseBy): void;
 }
 
-/** Base-image resolution cap, px on the long side. ~5 world units per texel on the overworld. */
-const IMG_MAX = 640;
+/** Texels on a tile's side. Level L covers the zone's long side in 2^L tiles. Small: one tile is ~8 ms of sampling, a frame's worth. */
+const TILE = 128;
+/** Milliseconds a frame may spend painting tiles; the game runs on under the panel. */
+const TILE_BUDGET_MS = 6;
+/** Tiles kept per zone before the oldest above level 0 go — ~25 MB at most. */
+const TILE_CACHE_MAX = 400;
 /** Pixels of screen the map may zoom a world unit up to. */
 const MAX_SCALE = 6;
-/** Screen px within which a click hits a marker. Generous — these are travel buttons, not pixels. */
-const HIT_R = 26;
+/** World units across the SHORTER side of the view when the map opens on the hero. */
+const OPEN_SPAN = 360;
+/** World units per fog texel; the brush is soft, so coarse is fine and cheap. */
+const FOG_TEXEL = 4;
+/** Screen px within which a click hits a marker: an icon's own half-size. */
+const HIT_R = 24;
 /** Keyboard pan speed, world units per frame at scale 1 — divided by scale so it is a screen speed. */
 const KEY_PAN = 14;
+const FOG_COLOUR = "#101821";
 
 const escapeHtml = (s: string): string =>
   s.replace(
@@ -82,11 +100,19 @@ const escapeHtml = (s: string): string =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string,
   );
 
-const hex = (c: number): string => `#${c.toString(16).padStart(6, "0")}`;
+const tileKey = (level: number, i: number, j: number): string => `${level}:${i}:${j}`;
 
-interface BaseImage {
-  canvas: HTMLCanvasElement;
+/** Everything painted for one zone; kept for the session — terrain does not change under a zone. */
+interface ZoneMap {
   bounds: MapTerrain["bounds"];
+  /** The long side, world units: level L tiles are `span / (TILE << L)` units per texel. */
+  span: number;
+  /** Deepest level, where a texel is at most one world unit. */
+  maxLevel: number;
+  tiles: Map<string, HTMLCanvasElement>;
+  fog: HTMLCanvasElement;
+  /** How many explored cells the fog canvas already has holes for. */
+  fogPainted: number;
 }
 
 /** One interactive thing on the map this frame, in world coordinates. */
@@ -97,13 +123,41 @@ interface Hot {
   z: number;
 }
 
+/** A soft disc two cells across; a hole per explored cell, and their union is the seen ground. */
+function makeFogBrush(): HTMLCanvasElement {
+  const r = Math.ceil((EXPLORE_CELL * 1.6) / FOG_TEXEL);
+  const c = document.createElement("canvas");
+  c.width = r * 2;
+  c.height = r * 2;
+  const ctx = c.getContext("2d") as CanvasRenderingContext2D;
+  const g = ctx.createRadialGradient(r, r, 0, r, r, r);
+  g.addColorStop(0, "rgba(0,0,0,1)");
+  g.addColorStop(0.5, "rgba(0,0,0,1)");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, r * 2, r * 2);
+  return c;
+}
+
+/** The hillshade reads slope over this many world units, so a voxel step does not draw as a contour line. */
+const SHADE_REACH = 3;
+const APRON_MAX = 6;
+/** Height scratch for one tile plus the apron the hillshade gradient reaches into. */
+const heights = new Float32Array((TILE + 2 * APRON_MAX) * (TILE + 2 * APRON_MAX));
+
 export class MapPanel {
   private el: HTMLDivElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
-  /** Per-zone base images, kept for the session — terrain does not change under a zone. */
-  private readonly cache = new Map<string, BaseImage>();
-  private base: BaseImage | null = null;
+  private readonly cache = new Map<string, ZoneMap>();
+  private zone: ZoneMap | null = null;
+  private terrain: MapTerrain | null = null;
+  /** Tiles the last frame wanted and did not have, nearest the view centre first. */
+  private pending: Array<{ level: number; i: number; j: number; d: number }> = [];
+  private fogBrush: HTMLCanvasElement | null = null;
+  /** Session totals, for a probe: how much of the game frame the map has spent painting tiles. */
+  private painted = 0;
+  private paintMs = 0;
 
   /** View: world point at the canvas centre, and screen px per world unit. */
   private cx = 0;
@@ -175,7 +229,8 @@ export class MapPanel {
     this.canvas.addEventListener("pointercancel", this.onPointerUp);
     this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
 
-    this.base = this.baseImage();
+    this.terrain = this.hooks.terrain();
+    this.zone = this.zoneMap(this.terrain);
     this.resetView();
     this.focus = -1;
     this.steering = false;
@@ -205,6 +260,7 @@ export class MapPanel {
     this.el = null;
     this.canvas = null;
     this.ctx = null;
+    this.pending = [];
     this.pointers.clear();
     this.dragging = false;
     this.hooks.onClose?.(by);
@@ -255,14 +311,30 @@ export class MapPanel {
     const model = this.hooks.model();
     return {
       open: this.isOpen,
-      view: { cx: +this.cx.toFixed(1), cz: +this.cz.toFixed(1), scale: +this.scale.toFixed(3) },
+      view: {
+        cx: +this.cx.toFixed(1),
+        cz: +this.cz.toFixed(1),
+        scale: +this.scale.toFixed(3),
+        minScale: +this.minScale.toFixed(3),
+      },
       confirm: this.confirmStone,
       focus: this.hots[this.focus]?.id ?? null,
       towns: model.towns.length,
+      known: model.towns.filter((tn) => tn.known).map((tn) => tn.id),
       stones: model.stones.length,
       lit: model.stones.filter((s) => s.lit).length,
       quests: model.quests.length,
       marker: model.marker,
+      icons: mapIconsReady(),
+      tiles: this.zone
+        ? {
+            cached: this.zone.tiles.size,
+            pending: this.pending.length,
+            fogPainted: this.zone.fogPainted,
+            painted: this.painted,
+            paintMs: +this.paintMs.toFixed(1),
+          }
+        : null,
       screen: this.isOpen
         ? this.hots.map((h) => {
             const p = this.toScreen(h.x, h.z);
@@ -272,10 +344,19 @@ export class MapPanel {
     };
   }
 
-  // ---- the base image -------------------------------------------------------
+  /** Reads one canvas pixel back, in CSS px — a probe's proof that fog covers, or does not. */
+  pixelAt(sx: number, sy: number): [number, number, number, number] | null {
+    if (!this.canvas || !this.ctx) {
+      return null;
+    }
+    const dpr = this.canvas.width / Math.max(1, this.canvas.clientWidth);
+    const d = this.ctx.getImageData(Math.round(sx * dpr), Math.round(sy * dpr), 1, 1).data;
+    return [d[0], d[1], d[2], d[3]];
+  }
 
-  private baseImage(): BaseImage {
-    const ter = this.hooks.terrain();
+  // ---- the base image: a tile pyramid, painted on demand -----------------------
+
+  private zoneMap(ter: MapTerrain): ZoneMap {
     const hit = this.cache.get(ter.zoneId);
     if (hit) {
       return hit;
@@ -283,20 +364,57 @@ export class MapPanel {
     const b = ter.bounds;
     const w = b.maxX - b.minX;
     const h = b.maxZ - b.minZ;
-    const px = Math.max(64, Math.round(w >= h ? IMG_MAX : (IMG_MAX * w) / h));
-    const pz = Math.max(64, Math.round(w >= h ? (IMG_MAX * h) / w : IMG_MAX));
+    const span = Math.max(w, h);
+    const fog = document.createElement("canvas");
+    fog.width = Math.ceil(w / FOG_TEXEL);
+    fog.height = Math.ceil(h / FOG_TEXEL);
+    const made: ZoneMap = {
+      bounds: b,
+      span,
+      maxLevel: Math.max(0, Math.ceil(Math.log2(span / TILE))),
+      tiles: new Map(),
+      fog,
+      fogPainted: -1,
+    };
+    // Level 0 is the whole zone in one tile, painted now: every deeper tile has an ancestor to stand in for it.
+    made.tiles.set(tileKey(0, 0, 0), this.paintTile(ter, made, 0, 0, 0));
+    this.cache.set(ter.zoneId, made);
+    return made;
+  }
+
+  private paintTile(
+    ter: MapTerrain,
+    zm: ZoneMap,
+    level: number,
+    i: number,
+    j: number,
+  ): HTMLCanvasElement {
+    const t0 = performance.now();
+    const b = zm.bounds;
+    const upt = zm.span / (TILE << level);
+    const x0 = b.minX + i * TILE * upt;
+    const z0 = b.minZ + j * TILE * upt;
+    const ap = Math.min(APRON_MAX, Math.max(1, Math.round(SHADE_REACH / upt)));
+    const n = TILE + 2 * ap;
+    for (let jj = 0; jj < n; jj++) {
+      const z = z0 + (jj - ap + 0.5) * upt;
+      for (let ii = 0; ii < n; ii++) {
+        heights[jj * n + ii] = ter.heightAt(x0 + (ii - ap + 0.5) * upt, z);
+      }
+    }
     const canvas = document.createElement("canvas");
-    canvas.width = px;
-    canvas.height = pz;
+    canvas.width = TILE;
+    canvas.height = TILE;
     const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
-    const img = ctx.createImageData(px, pz);
+    const img = ctx.createImageData(TILE, TILE);
     const data = img.data;
     const sea = ter.waterLevel;
-    for (let j = 0; j < pz; j++) {
-      const z = b.minZ + ((j + 0.5) / pz) * h;
-      for (let i = 0; i < px; i++) {
-        const x = b.minX + ((i + 0.5) / px) * w;
-        const y = ter.heightAt(x, z);
+    // Hillshade: slope in world units per unit, lit from the top-left of the page.
+    const shadeK = 0.45 / (2 * ap * upt);
+    for (let jj = 0; jj < TILE; jj++) {
+      for (let ii = 0; ii < TILE; ii++) {
+        const at = (jj + ap) * n + ii + ap;
+        const y = heights[at];
         let r: number, g: number, bl: number;
         if (y <= sea) {
           // Depth-shaded sea, clamped a few units down so the shelf still reads.
@@ -324,8 +442,14 @@ export class MapPanel {
             g = 92 + u * 50;
             bl = 84 + u * 50;
           }
+          const gx = heights[at + ap] - heights[at - ap];
+          const gz = heights[at + ap * n] - heights[at - ap * n];
+          const shade = Math.min(1.35, Math.max(0.55, 1 + (gx + gz) * shadeK));
+          r *= shade;
+          g *= shade;
+          bl *= shade;
         }
-        const o = (j * px + i) * 4;
+        const o = (jj * TILE + ii) * 4;
         data[o] = r;
         data[o + 1] = g;
         data[o + 2] = bl;
@@ -333,30 +457,93 @@ export class MapPanel {
       }
     }
     ctx.putImageData(img, 0, 0);
-    // The roads, over the terrain: wayfinding is what a map is FOR.
+    // The roads, over the terrain: wayfinding is what a map is FOR. Three world
+    // units wide, and never thinner than a texel and a bit when zoomed far out.
+    ctx.save();
+    ctx.scale(1 / upt, 1 / upt);
+    ctx.translate(-x0, -z0);
     ctx.strokeStyle = "rgba(206,182,140,.9)";
-    ctx.lineWidth = Math.max(1, px / 320);
+    ctx.lineWidth = Math.max(1.2 * upt, 3);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    ctx.beginPath();
     for (const road of ter.roads) {
-      if (road.length < 2) {
-        continue;
-      }
-      ctx.beginPath();
-      for (let i = 0; i < road.length; i++) {
-        const sx = ((road[i][0] - b.minX) / w) * px;
-        const sy = ((road[i][1] - b.minZ) / h) * pz;
-        if (i === 0) {
-          ctx.moveTo(sx, sy);
+      for (let k = 0; k < road.length; k++) {
+        if (k === 0) {
+          ctx.moveTo(road[k][0], road[k][1]);
         } else {
-          ctx.lineTo(sx, sy);
+          ctx.lineTo(road[k][0], road[k][1]);
         }
       }
-      ctx.stroke();
     }
-    const made = { canvas, bounds: b };
-    this.cache.set(ter.zoneId, made);
-    return made;
+    ctx.stroke();
+    ctx.restore();
+    this.painted++;
+    this.paintMs += performance.now() - t0;
+    return canvas;
+  }
+
+  /** Spend the frame's budget on the tiles the last draw wanted, nearest the centre first. */
+  private paintPending(): void {
+    const ter = this.terrain;
+    const zm = this.zone;
+    if (!ter || !zm || this.pending.length === 0) {
+      return;
+    }
+    this.pending.sort((a, b) => a.d - b.d);
+    const t0 = performance.now();
+    for (const p of this.pending) {
+      const key = tileKey(p.level, p.i, p.j);
+      if (!zm.tiles.has(key)) {
+        zm.tiles.set(key, this.paintTile(ter, zm, p.level, p.i, p.j));
+      }
+      if (performance.now() - t0 > TILE_BUDGET_MS) {
+        break;
+      }
+    }
+    this.pending = [];
+    // Oldest first, insertion order; the level-0 tile is the fallback for everything and stays.
+    for (const key of zm.tiles.keys()) {
+      if (zm.tiles.size <= TILE_CACHE_MAX) {
+        break;
+      }
+      if (!key.startsWith("0:")) {
+        zm.tiles.delete(key);
+      }
+    }
+  }
+
+  // ---- fog of war -----------------------------------------------------------
+
+  /** Punch a soft hole per explored cell, only for the cells added since last time. */
+  private paintFog(zm: ZoneMap, cells: ReadonlySet<number>): void {
+    if (cells.size === zm.fogPainted) {
+      return;
+    }
+    const ctx = zm.fog.getContext("2d") as CanvasRenderingContext2D;
+    if (cells.size < zm.fogPainted || zm.fogPainted < 0) {
+      // Fewer than before means a load or a new game: start the sheet over.
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = FOG_COLOUR;
+      ctx.fillRect(0, 0, zm.fog.width, zm.fog.height);
+      zm.fogPainted = 0;
+    }
+    const brush = this.fogBrush ?? (this.fogBrush = makeFogBrush());
+    const r = brush.width / 2;
+    const b = zm.bounds;
+    ctx.globalCompositeOperation = "destination-out";
+    let k = 0;
+    for (const key of cells) {
+      if (k++ < zm.fogPainted) {
+        continue;
+      }
+      const [cx, cz] = cellOf(key);
+      const fx = ((cx + 0.5) * EXPLORE_CELL - b.minX) / FOG_TEXEL;
+      const fz = ((cz + 0.5) * EXPLORE_CELL - b.minZ) / FOG_TEXEL;
+      ctx.drawImage(brush, fx - r, fz - r);
+    }
+    ctx.globalCompositeOperation = "source-over";
+    zm.fogPainted = cells.size;
   }
 
   // ---- view -----------------------------------------------------------------
@@ -367,27 +554,27 @@ export class MapPanel {
   }
 
   private resetView(): void {
-    const b = this.base?.bounds;
-    if (!b) {
+    if (!this.zone) {
       return;
     }
+    // Open on the hero, close enough that the ground round him reads.
     const { w, h } = this.viewSize();
-    // Fit the whole zone, then start centred on the hero at a readable zoom.
-    this.minScale = Math.min(w / (b.maxX - b.minX), h / (b.maxZ - b.minZ)) * 0.92;
     const p = this.hooks.model().player;
-    this.scale = Math.min(MAX_SCALE, Math.max(this.minScale, this.minScale * 2.6));
+    this.scale = Math.min(w, h) / OPEN_SPAN;
     this.cx = p.x;
     this.cz = p.z;
     this.clampView();
   }
 
   private clampView(): void {
-    const b = this.base?.bounds;
+    const b = this.zone?.bounds;
     if (!b) {
       return;
     }
-    this.scale = Math.min(MAX_SCALE, Math.max(this.minScale, this.scale));
     const { w, h } = this.viewSize();
+    // The map COVERS the view at every zoom: no dark paper past its edge, so the floor is the cover scale.
+    this.minScale = Math.max(w / (b.maxX - b.minX), h / (b.maxZ - b.minZ));
+    this.scale = Math.min(Math.max(MAX_SCALE, this.minScale), Math.max(this.minScale, this.scale));
     const hw = w / 2 / this.scale;
     const hh = h / 2 / this.scale;
     // The view may not leave the zone: when it is zoomed out past the bounds it pins to the middle.
@@ -460,15 +647,19 @@ export class MapPanel {
     const ctx = this.ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = true;
-    ctx.fillStyle = "#101821";
+    ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = FOG_COLOUR;
     ctx.fillRect(0, 0, w, h);
 
-    const base = this.base;
-    if (base) {
-      const b = base.bounds;
+    const zm = this.zone;
+    const ter = this.terrain;
+    if (zm && ter) {
+      this.drawTiles(ctx, zm, dpr, w, h);
+      this.paintFog(zm, ter.explored());
+      const b = zm.bounds;
       const tl = this.toScreen(b.minX, b.minZ);
       ctx.drawImage(
-        base.canvas,
+        zm.fog,
         tl.x,
         tl.y,
         (b.maxX - b.minX) * this.scale,
@@ -479,23 +670,20 @@ export class MapPanel {
     const model = this.hooks.model();
     this.hots = [];
 
-    // Towns: a labelled dot in the town's own colour.
+    // Towns he knows of: the settlement's icon under its name.
     ctx.textAlign = "center";
+    ctx.font = "700 16px -apple-system,'Segoe UI',Roboto,Arial,sans-serif";
     for (const town of model.towns) {
+      if (!town.known) {
+        continue;
+      }
       const p = this.toScreen(town.x, town.z);
-      ctx.fillStyle = hex(town.color);
-      ctx.strokeStyle = "rgba(0,0,0,.55)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.font = "700 16px -apple-system,'Segoe UI',Roboto,Arial,sans-serif";
+      drawMapIcon(ctx, town.kind === "camp" ? "encampment" : "town", p.x, p.y);
       ctx.fillStyle = "rgba(238,242,248,.92)";
       ctx.strokeStyle = "rgba(0,0,0,.7)";
       ctx.lineWidth = 3;
-      ctx.strokeText(town.name, p.x, p.y - 11);
-      ctx.fillText(town.name, p.x, p.y - 11);
+      ctx.strokeText(town.name, p.x, p.y - MAP_ICON_SIZE / 2 - 4);
+      ctx.fillText(town.name, p.x, p.y - MAP_ICON_SIZE / 2 - 4);
     }
 
     // Waystones: lit ones are travel targets and go into the hit list.
@@ -505,64 +693,27 @@ export class MapPanel {
       }
       const p = this.toScreen(stone.x, stone.z);
       this.hots.push({ kind: "stone", id: stone.id, x: stone.x, z: stone.z });
-      ctx.fillStyle = "#8be3ff";
-      ctx.strokeStyle = "rgba(0,0,0,.6)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      // A standing stone: a slim diamond.
-      ctx.moveTo(p.x, p.y - 8);
-      ctx.lineTo(p.x + 5, p.y);
-      ctx.lineTo(p.x, p.y + 8);
-      ctx.lineTo(p.x - 5, p.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      drawMapIcon(ctx, "waypoint", p.x, p.y, MAP_ICON_SIZE * 0.85);
     }
 
-    // Quest objectives: the same gold the compass chips and world marks use.
+    // Quest objectives: the same star the compass chips and world marks use.
     for (const q of model.quests) {
       const p = this.toScreen(q.x, q.z);
-      this.star(ctx, p.x, p.y, 9, "#ffc44d");
+      drawMapIcon(ctx, "quest", p.x, p.y);
     }
 
     // The player marker, a flag.
     if (model.marker) {
       const p = this.toScreen(model.marker.x, model.marker.z);
       this.hots.push({ kind: "marker", id: "player-marker", x: model.marker.x, z: model.marker.z });
-      ctx.strokeStyle = "#eef2f8";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      ctx.lineTo(p.x, p.y - 14);
-      ctx.stroke();
-      ctx.fillStyle = "#ff5d5d";
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - 14);
-      ctx.lineTo(p.x + 10, p.y - 10);
-      ctx.lineTo(p.x, p.y - 6);
-      ctx.closePath();
-      ctx.fill();
+      drawMapIcon(ctx, "custom-player-marker", p.x, p.y);
     }
 
     // The hero: an arrow along his facing. Heading 0 is +Z (atan2(x, z)), which
     // is screen-DOWN here; π − h maps that convention onto canvas rotation.
     {
       const p = this.toScreen(model.player.x, model.player.z);
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(Math.PI - model.player.facing);
-      ctx.fillStyle = "#ffffff";
-      ctx.strokeStyle = "rgba(0,0,0,.6)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, -9);
-      ctx.lineTo(6, 7);
-      ctx.lineTo(0, 3);
-      ctx.lineTo(-6, 7);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
+      drawMapIcon(ctx, "player", p.x, p.y, MAP_ICON_SIZE * 0.9, Math.PI - model.player.facing);
     }
 
     // Focus ring for keyboard/pad, drawn over whatever holds it.
@@ -572,7 +723,7 @@ export class MapPanel {
       ctx.strokeStyle = "#ffd23f";
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, HIT_R, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -587,24 +738,71 @@ export class MapPanel {
       ctx.lineTo(w / 2, h / 2 + 10);
       ctx.stroke();
     }
+
+    // After the draw, so a slow tile costs the NEXT frame's paint and never this one's input.
+    this.paintPending();
   };
 
-  private star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string): void {
-    ctx.fillStyle = fill;
-    ctx.strokeStyle = "rgba(0,0,0,.6)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    // The compass chip's shape exactly (issue #252) — one geometry, two renderers.
-    starPoints(x, y, r).forEach(([px, py], i) => {
-      if (i === 0) {
-        ctx.moveTo(px, py);
-      } else {
-        ctx.lineTo(px, py);
+  /** Draw the level that puts at least a texel under every device pixel; a missing tile shows its nearest ancestor. */
+  private drawTiles(
+    ctx: CanvasRenderingContext2D,
+    zm: ZoneMap,
+    dpr: number,
+    w: number,
+    h: number,
+  ): void {
+    const b = zm.bounds;
+    const level = Math.min(
+      zm.maxLevel,
+      Math.max(0, Math.ceil(Math.log2((zm.span * this.scale * dpr) / TILE))),
+    );
+    const tw = zm.span / (1 << level);
+    const cols = Math.ceil((b.maxX - b.minX) / tw);
+    const rows = Math.ceil((b.maxZ - b.minZ) / tw);
+    const v0 = this.toWorld(0, 0);
+    const v1 = this.toWorld(w, h);
+    const i0 = Math.max(0, Math.floor((v0.x - b.minX) / tw));
+    const i1 = Math.min(cols - 1, Math.floor((v1.x - b.minX) / tw));
+    const j0 = Math.max(0, Math.floor((v0.z - b.minZ) / tw));
+    const j1 = Math.min(rows - 1, Math.floor((v1.z - b.minZ) / tw));
+    // Tile edges snapped to device pixels: neighbours share an edge exactly, so no seam bleeds through.
+    const snap = (v: number): number => Math.round(v * dpr) / dpr;
+    const edgeX = (i: number): number => snap(this.toScreen(b.minX + i * tw, 0).x);
+    const edgeY = (j: number): number => snap(this.toScreen(0, b.minZ + j * tw).y);
+    for (let j = j0; j <= j1; j++) {
+      const sy = edgeY(j);
+      const sh = edgeY(j + 1) - sy;
+      for (let i = i0; i <= i1; i++) {
+        const sx = edgeX(i);
+        const sw = edgeX(i + 1) - sx;
+        const tile = zm.tiles.get(tileKey(level, i, j));
+        if (tile) {
+          ctx.drawImage(tile, sx, sy, sw, sh);
+          continue;
+        }
+        const dx = (i + 0.5) * tw + b.minX - this.cx;
+        const dz = (j + 0.5) * tw + b.minZ - this.cz;
+        this.pending.push({ level, i, j, d: dx * dx + dz * dz });
+        for (let up = 1; up <= level; up++) {
+          const anc = zm.tiles.get(tileKey(level - up, i >> up, j >> up));
+          if (anc) {
+            const part = TILE >> up;
+            ctx.drawImage(
+              anc,
+              (i & ((1 << up) - 1)) * part,
+              (j & ((1 << up) - 1)) * part,
+              part,
+              part,
+              sx,
+              sy,
+              sw,
+              sh,
+            );
+            break;
+          }
+        }
       }
-    });
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    }
   }
 
   // ---- interaction ----------------------------------------------------------

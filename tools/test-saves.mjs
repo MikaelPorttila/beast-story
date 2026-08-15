@@ -70,6 +70,10 @@ const readState = (page) =>
       lit: (window.__dbgWaypoints().all ?? []).filter((w) => w.lit).map((w) => w.id),
       // The map's one planted flag (issue #245), zone and all — absent is null.
       marker: doc.marker ?? null,
+      // Explored cells per zone: fog of war state, a restore and not a merge.
+      explored: Object.fromEntries(
+        Object.entries(doc.explored ?? {}).map(([z, c]) => [z, c.length]),
+      ),
     };
   });
 
@@ -108,6 +112,8 @@ const readState = (page) =>
     window.__dbgUnlockMount("all", true);
     window.__dbgMarker(null);
     window.__dbgTp(-300, 400);
+    // A frame, so the walk to the new spot is SEEN (exploration reads the hero on the slice).
+    window.__dbgAdvance(1);
     void window.__dbgSaves.save; // no-op read: the perturbation must not itself save
   });
   const perturbed = await readState(page);
@@ -157,6 +163,15 @@ const readState = (page) =>
   check(
     JSON.stringify(back.marker) === JSON.stringify(saved.marker),
     `the map marker changed: ${JSON.stringify(saved.marker)} -> ${JSON.stringify(back.marker)}`,
+  );
+  // The ground he had seen: the perturbation walked new ground, the load puts the old record back.
+  check(
+    saved.explored.overworld > 0 && perturbed.explored.overworld > saved.explored.overworld,
+    `exploration did not grow: ${JSON.stringify(saved.explored)} -> ${JSON.stringify(perturbed.explored)}`,
+  );
+  check(
+    JSON.stringify(back.explored) === JSON.stringify(saved.explored),
+    `the explored ground changed: ${JSON.stringify(saved.explored)} -> ${JSON.stringify(back.explored)}`,
   );
   // Within a unit: the position is re-grounded on the way in, and the ground
   // under a point is the same ground it was.

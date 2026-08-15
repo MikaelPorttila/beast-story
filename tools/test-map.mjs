@@ -23,6 +23,8 @@ await whenPlaying(page);
 await wait(400);
 
 const dbgMap = () => page.evaluate(() => window.__dbgMap());
+/** The fog's own colour, near enough: an RGBA pixel that is night-blue paper. */
+const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
 
 // ---------- 1. M opens it, and what it shows is what the world has ----------
 {
@@ -42,6 +44,49 @@ const dbgMap = () => page.evaluate(() => window.__dbgMap());
     `the map lights ${m.lit} stones, the character has lit ${stones.filter((s) => s.lit).length}`,
   );
   check(m.towns === towns.length, `the map carries ${m.towns} towns, the world ${towns.length}`);
+  // It opens ON the hero, zoomed in, with the icon atlas decoded.
+  const pos = await page.evaluate(() => window.__dbgPlayerPos());
+  out.open.view = m.view;
+  check(
+    Math.abs(m.view.cx - pos.x) < 1 && Math.abs(m.view.cz - pos.z) < 1,
+    `the map opened on (${m.view.cx}, ${m.view.cz}), the hero is at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`,
+  );
+  check(m.view.scale > m.view.minScale * 1.5, `the map opened zoomed out (scale ${m.view.scale})`);
+  check(m.icons === true, "the marker atlas has not decoded");
+  // Fog of war: only the camp he stands in is known, and the far ground is covered.
+  check(
+    m.known.length === 1 && m.known[0] === "encampment",
+    `towns known on a fresh character: ${JSON.stringify(m.known)}`,
+  );
+  check(m.explored > 0, "standing in the world explored nothing");
+  const fog = await page.evaluate(() => {
+    // Zoom all the way out, then read a pixel far from the hero and one under him.
+    for (let i = 0; i < 20; i++) {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "-" }));
+    }
+    return new Promise((resolve) =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const c = document.querySelector(".bs-map .mc");
+          const w = c.clientWidth;
+          const h = c.clientHeight;
+          resolve({
+            far: window.__dbgMapPixel(w * 0.05, h * 0.05),
+            here: window.__dbgMapPixel(w / 2, h / 2),
+          });
+        }),
+      ),
+    );
+  });
+  out.fog = fog;
+  check(dark(fog.far), `the far corner is not fogged: ${JSON.stringify(fog.far)}`);
+  check(!dark(fog.here), `the ground under the hero is fogged: ${JSON.stringify(fog.here)}`);
+  // The zoom-out floor covers the view: the map may not be smaller than the canvas.
+  const floor = await dbgMap();
+  check(
+    Math.abs(floor.view.scale - floor.view.minScale) < 1e-6,
+    `zooming out stopped at ${floor.view.scale}, floor ${floor.view.minScale}`,
+  );
 }
 
 // ---------- 2. the one player marker, and its compass chip ------------------

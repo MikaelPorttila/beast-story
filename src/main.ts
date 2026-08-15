@@ -146,6 +146,7 @@ import {
 import { entryIconHtml, type TipContent } from "./ui/tooltip";
 import { FLAG_ICON, QUEST_STAR_ICON } from "./ui/icons";
 import { MapPanel, type MapTerrain } from "./ui/map";
+import { Exploration } from "./world/exploration";
 import {
   exitFullscreen,
   fullscreenSupported,
@@ -419,6 +420,7 @@ function exitToTitle(): void {
   map.close();
   // The flag is the character's, and the chip goes with it.
   setPlayerMarker(null);
+  exploration.reset();
   // `attackStat` is the one loadout field Player.reset deliberately leaves alone (see BASE_ATTACK); giveStartingKit re-equips and calls applyLoadout.
   equippedWeapon = null;
   attackBuff = 0;
@@ -601,6 +603,7 @@ function collectSave(): SaveDocument {
     content: content.state.toJSON(),
     dayPhase: dayNight.phase,
     ...(playerMarker ? { marker: { ...playerMarker } } : {}),
+    explored: exploration.toJSON(),
   };
   if (carriedExtra) {
     saved.extra = carriedExtra;
@@ -633,9 +636,10 @@ function applySave(doc: SaveDocument): void {
     mountUnlocks.restore(doc.mounts);
 
     // The map marker: a zone this build no longer has drops the flag, never the load.
-    playerMarker =
-      doc.marker && zones.zoneIds.includes(doc.marker.zone) ? { ...doc.marker } : null;
+    playerMarker = doc.marker && zones.zoneIds.includes(doc.marker.zone) ? { ...doc.marker } : null;
     syncMarkerChip();
+    // The ground he has seen: a zone this build no longer has is dropped, the rest loads.
+    exploration.fromJSON(doc.explored, zones.zoneIds);
 
     // 4. THE PARTY. Reset first: the roster holds every species, bonded or not.
     for (const b of roster) {
@@ -1197,7 +1201,10 @@ function findPierSpot(w: LandmarkProbe): { x: number; z: number } {
       for (const spread of [-0.4, 0, 0.4]) {
         for (let d = 6; d <= 30; d += 4) {
           samples++;
-          if (w.getHeight(x + Math.cos(away + spread) * d, z + Math.sin(away + spread) * d) < w.waterLevel) {
+          if (
+            w.getHeight(x + Math.cos(away + spread) * d, z + Math.sin(away + spread) * d) <
+            w.waterLevel
+          ) {
             wet++;
           }
         }
@@ -2377,6 +2384,8 @@ inventory.onPortrait = (id, url) => journal.patchPortrait(id, url);
 // has drops the flag rather than the load.
 let playerMarker: { zone: string; x: number; z: number } | null = null;
 const MARKER_CHIP_ID = "player-marker";
+/** Where he has walked, per zone — the map's fog of war lifts over it. Same lifecycle as the flag. */
+const exploration = new Exploration();
 
 function syncMarkerChip(): void {
   if (playerMarker && playerMarker.zone === zones.id) {
@@ -2436,33 +2445,43 @@ function mapTerrain(): MapTerrain {
     zoneId: zones.id,
     heightAt: (x, z) => world.getHeight(x, z),
     waterLevel: world.waterLevel,
+    explored: () => exploration.cells(zones.id),
     roads,
     bounds: { minX: minX - M, minZ: minZ - M, maxX: maxX + M, maxZ: maxZ + M },
   };
 }
 
 const map = new MapPanel({
-  model: () => ({
-    towns: world.towns.all.map((town) => ({
-      id: town.id,
-      name: t(town.nameKey),
-      color: town.color,
-      x: town.x,
-      z: town.z,
-    })),
-    stones: (world.waypoints?.all ?? []).map((w) => ({
-      id: w.id,
-      x: w.x,
-      z: w.z,
-      lit: waypointLit(w.id),
-    })),
-    quests: questSpots(),
-    player: { x: player.position.x, z: player.position.z, facing: player.facing },
-    marker:
-      playerMarker && playerMarker.zone === zones.id
-        ? { x: playerMarker.x, z: playerMarker.z }
-        : null,
-  }),
+  model: () => {
+    const quests = questSpots();
+    return {
+      towns: world.towns.all.map((town) => ({
+        id: town.id,
+        name: t(town.nameKey),
+        color: town.color,
+        x: town.x,
+        z: town.z,
+        kind: town.kind,
+        // A town is on the map once he has SEEN it, or a quest has sent him there
+        // (its spot lies within the town): the world map is not spoiled by data.
+        known:
+          exploration.revealed(zones.id, town.x, town.z) ||
+          quests.some((s) => Math.hypot(s.x - town.x, s.z - town.z) <= town.outerRadius),
+      })),
+      stones: (world.waypoints?.all ?? []).map((w) => ({
+        id: w.id,
+        x: w.x,
+        z: w.z,
+        lit: waypointLit(w.id),
+      })),
+      quests,
+      player: { x: player.position.x, z: player.position.z, facing: player.facing },
+      marker:
+        playerMarker && playerMarker.zone === zones.id
+          ? { x: playerMarker.x, z: playerMarker.z }
+          : null,
+    };
+  },
   terrain: mapTerrain,
   onTravel: (stoneId) => {
     const stone = world.waypoints?.all.find((w) => w.id === stoneId);
@@ -3475,9 +3494,7 @@ function tickMawsStage(dt: number): void {
   // ARRIVAL: a landmark is not a town, so the stage's own reach test marks it —
   // the same inReach rule town-arrival uses, pointed at a ring of water.
   if (content.state.progress(asset.id, "reach-maws-rest") < 1) {
-    content.run([
-      { do: "progress.add", quest: asset.id, objective: "reach-maws-rest" },
-    ]);
+    content.run([{ do: "progress.add", quest: asset.id, objective: "reach-maws-rest" }]);
   }
   if (
     content.state.progress(asset.id, "defeat-brineholder") < 1 &&
@@ -4450,8 +4467,7 @@ function teleportTo(x: number, z: number, y?: number): void {
   player.position.y = y ?? Math.max(world.getHeight(x, z), world.waterLevel);
   player.velocity.set(0, 0, 0);
 }
-(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp =
-  teleportTo;
+(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = teleportTo;
 // TEST HOOK, `__dbgTp`'s argument exactly: it DRIVES the map marker without the
 // panel, which is how test-saves plants a flag to round-trip.
 (window as unknown as { __dbgMarker: (x: number | null, z?: number) => void }).__dbgMarker = (
@@ -5847,6 +5863,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickRookeryStage(dt);
   tickMawsStage(dt);
   tickWaypoints(dt);
+  // Where he has been, for the map's fog: cheap until he crosses a cell.
+  exploration.visit(zones.id, player.position.x, player.position.z);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
   // deliberately: that runs at the END of a slice, so riders would spend the delta a slice late. Above the
@@ -6719,7 +6737,12 @@ beginPlay();
 (window as unknown as { __dbgMap: () => unknown }).__dbgMap = () => ({
   ...(map.debug() as Record<string, unknown>),
   planted: playerMarker,
+  explored: exploration.cells(zones.id).size,
 });
+(window as unknown as { __dbgMapPixel: (x: number, y: number) => unknown }).__dbgMapPixel = (
+  x,
+  y,
+) => map.pixelAt(x, y);
 
 (window as unknown as { __dbgJournal: () => unknown }).__dbgJournal = () => ({
   open: journal.isOpen,
@@ -7808,8 +7831,7 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
     })),
     touching: field?.touching(player.position.x, player.position.z)?.id ?? null,
     // The wider band that actually LIGHTS one (issue #250).
-    sensing:
-      field?.sensing(player.position.x, player.position.y, player.position.z)?.id ?? null,
+    sensing: field?.sensing(player.position.x, player.position.y, player.position.z)?.id ?? null,
     respawnAt: player.respawnAt?.(player.position.x, player.position.z) ?? null,
   };
 };
