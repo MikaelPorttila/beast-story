@@ -71,11 +71,22 @@ try {
   check(cleared.source === "auto", "Clear did not resume the automatic clock");
   check(cleared.phase > 0 && cleared.phase < 0.01, "Clear did not resume from the pinned phase");
 
-  await page.evaluate(async () => {
+  // WHOSE CLOCK IT IS, IN THE SAME TASK AS THE CHANGE — no frame can run between
+  // two statements of one evaluate, so this needs no waiting and cannot flake on a
+  // loaded host. It is the regression guard for issue #269: `source` was written
+  // only by the per-frame `derive`, so a reader in this window was told "auto",
+  // and every phase in this section is midnight, which hid it from the phase checks.
+  const atOnce = await page.evaluate(async () => {
     const { content } = await import("/src/content/index.ts");
     await content.load("example-quest", "quest");
     content.state.setQuestStatus("quest:encampment/first-steps", "active");
+    const t = window.__dbgTime();
+    return { source: t.source, quest: t.quest };
   });
+  check(
+    atOnce.source === "quest" && atOnce.quest === "quest:encampment/first-steps",
+    `the quest lock was not owned until a frame ran: ${JSON.stringify(atOnce)}`,
+  );
   await wait(1250);
   const quest = await page.evaluate(() => window.__dbgTime());
   check(
@@ -97,7 +108,12 @@ try {
       debugOverQuest.lighting["skyhaven-local-light"] < 0.01,
     "night-only emissive details remained lit at noon",
   );
-  await page.evaluate(() => window.__dbgTime("clear"));
+  // The same claim on the way back: clearing debug hands the clock to the quest at once.
+  const backAtOnce = await page.evaluate(() => {
+    window.__dbgTime("clear");
+    return window.__dbgTime().source;
+  });
+  check(backAtOnce === "quest", `clearing debug did not hand the clock back at once (${backAtOnce})`);
   await wait(1250);
   const questRestored = await page.evaluate(() => window.__dbgTime());
   check(
@@ -129,6 +145,8 @@ try {
         midnight,
         cadenceUpdates: cadence1 - cadence0,
         quest: questRestored,
+        atOnce,
+        backAtOnce,
         released,
         f3,
         failures,
