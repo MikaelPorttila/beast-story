@@ -135,17 +135,19 @@ of each act is the animal you ride for the rest of it.
 
 ## 4. The acts
 
-Each act is a **zone** ([src/world/zones.ts](src/world/zones.ts)), which is what makes
-"the sea" and "the sky" buildable at all: a zone is created, streamed and disposed on
-its own, and the player crosses between them at a gateway. `overworld` and `hold` ship
-today; `brine`, `cirrus` and `seam` are new.
+Acts 1–3 are **one open world**: the sea is Embervale's coastline blending into an
+island sea (issue #144), and the sky is the same world's sky — carried towns roaming
+above it (issue #145). What gates an act is the means of crossing (the ferry, the
+balloon, a mount), never a load. Only the Seam is a **zone**
+([src/world/zones.ts](src/world/zones.ts)), created and disposed on its own; `hold`
+is the shipped example of one.
 
-| Act | Zone id     | Zone name        | Theme                       | Mount unlocked | Towns           |
-| --- | ----------- | ---------------- | --------------------------- | -------------- | --------------- |
-| 1   | `overworld` | Embervale        | Pastoral frontier           | Ground         | 3 (all shipped) |
-| 2   | `brine`     | The Brine Reach  | Tide-worn archipelago       | Water          | 3 + 2 landmarks |
-| 3   | `cirrus`    | The Cirran Shelf | Cloud-borne cities          | Flying         | 4 (all carried) |
-| 4   | `seam`      | The Seam         | The three horizons stitched | — (all three)  | 0               |
+| Act | Region            | Name             | Theme                       | Mount unlocked | Towns           |
+| --- | ----------------- | ---------------- | --------------------------- | -------------- | --------------- |
+| 1   | `overworld`       | Embervale        | Pastoral frontier           | Ground         | 3 (all shipped) |
+| 2   | `region:brine`    | The Brine Reach  | Tide-worn archipelago       | Water          | 3 + 2 landmarks |
+| 3   | the sky           | The Cirran Shelf | Cloud-borne cities          | Flying         | 4 (all carried) |
+| 4   | zone `seam`       | The Seam         | The three horizons stitched | — (all three)  | 0               |
 
 ---
 
@@ -316,8 +318,12 @@ wondrous — these places have drainage and rotas and a shortage of lamp oil —
 the reveal is that the polite, well-run cities up here built the thing eating the world
 below, and have been quietly maintaining it ever since.
 
-**Zone.** `cirrus`, "The Cirran Shelf". Reached by balloon, which is a transition
-between two balloon models rather than a flight (the player's craft is not simulated).
+**Where.** "The Cirran Shelf" is the open world's sky — there is no `cirrus` zone
+(issue #145, decided with quest 1). Its four towns are carriers roaming on a fan of
+bearings out from the Encampment, and the balloon is the ferry's own mechanism with a
+second craft: Corwin Vane's patched wreck on Gullspire to Skyhaven's mooring and back,
+moored on `sky-revealed`. Boarding is a `ride` fact. From quest 2 the flying mount
+reaches every island, which is what makes the fork open.
 
 **Towns.** All four are `carried: true` and therefore exempt from the road planner
 (rule 4), which is why the sky can afford more settlements than the sea. Skyhaven and
@@ -385,7 +391,7 @@ taken off it in a hundred years has cost a region below. Objectives:
 above and it is not below. It is _between_ — and Mother Pell knows what it is, because
 her garden was grown from a cutting of it.
 
-**New content:** zone `cirrus`; carried layouts `gallery` ⚙, `orrery` ⚙; towns
+**New content:** carried layouts `gallery` ⚙, `orrery` ⚙; towns
 `lanternfall`, `cinderhelm`, `orrery`; `npc:gain/skyhaven`,
 `npc:sky-lamplighter/lanternfall`, `npc:vess` (body ⚙), `npc:coil/orrery`;
 `enemy:cinderguard` (model ⚙), `enemy:choirguard` (model ⚙); `music:cirrus` ⚙.
@@ -471,7 +477,7 @@ chain; nothing here loads at boot except `core`.
 | `story`      | `data/story.json`      | `core`   | At boot, after `core`. The hub every act's package requires. Small — see the two corrections below.         |
 | `story-land` | `data/story-land.json` | `story`  | At boot, after `story` — see the correction below                                                           |
 | `story-sea`  | `data/story-sea.json`  | `story`  | At boot — Act 2 is part of the open world (issue #144), so its islands must exist when the world is planned |
-| `story-sky`  | `data/story-sky.json`  | `story`  | On `sky-revealed` — the flag Act 2's closer sets (issue #157). Skyhaven itself ships in `core`              |
+| `story-sky`  | `data/story-sky.json`  | `story`, `story-sea` | At boot — the sky is part of the open world too (issue #145), and a carried town's island is built with the world |
 | `story-seam` | `data/story-seam.json` | `story`  | On entering `seam`                                                                                          |
 
 **Act 1's towns stay in `core`** — they are the shipped world and moving them would
@@ -596,7 +602,7 @@ as much as the list: the top group blocks every quest, the bottom group blocks o
 
 - Town layouts: `harbour` (Act 2), `gallery` and `orrery` as **carried** layouts (Act 3).
   Note carried layouts come from a different factory kind than ground ones.
-- Zones `brine`, `cirrus`, `seam`, each with a terrain/water/sky character of its own.
+- Zone `seam`, with a terrain/water/sky character of its own (`brine` and `cirrus` became regions of the one world).
 - `biome:reef`.
 
 **Bodies and models.**

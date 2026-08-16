@@ -622,6 +622,50 @@
             },
             "line": { "key": "npc.skyPilot.sea4.busy" }
           },
+          {
+            "when": {
+              "all": [
+                { "test": "flag", "flag": "sky-revealed" },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/the-long-ascent",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/the-long-ascent",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.skyPilot.sky1.ground" },
+            "actions": [{ "do": "quest.start", "quest": "quest:sky/the-long-ascent" }],
+            "_seam": "THE ACT 2 -> ACT 3 SEAM, ground half (issue #157): the same man who owed you a rescue offers the ride up, here beside the balloon he patched. Boarding it is the objective's own `ride` trigger, not a line."
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/the-long-ascent",
+                  "status": "active"
+                },
+                {
+                  "not": {
+                    "test": "progress",
+                    "quest": "quest:sky/the-long-ascent",
+                    "objective": "board-the-balloon",
+                    "atLeast": 1
+                  }
+                }
+              ]
+            },
+            "line": { "key": "npc.skyPilot.sky1.board" }
+          },
           { "line": { "key": "npc.skyPilot.sea4.after" } }
         ]
       }

@@ -254,6 +254,24 @@ export const ITEMS: Record<string, ItemDef> = {
     descriptionKey: "item.componentVane.desc",
     rarity: "rare",
   },
+  // Lanternfall's haul (issue #159): six casks, flown up and carried on.
+  "lamp-oil": {
+    id: "lamp-oil",
+    nameKey: "item.lampOil",
+    kind: "quest",
+    color: 0xf0c96a,
+    descriptionKey: "item.lampOil.desc",
+    rarity: "common",
+  },
+  // The cities' own minutes, recovered under Cinderhelm (issue #160).
+  "the-record": {
+    id: "the-record",
+    nameKey: "item.theRecord",
+    kind: "quest",
+    color: 0xd8c48a,
+    descriptionKey: "item.theRecord.desc",
+    rarity: "rare",
+  },
 
   // Handed out via the `item.give` action; reachable today through `/give`.
   "gain-token": {

@@ -382,7 +382,8 @@
                 "quest": "quest:sky/the-long-ascent",
                 "objective": "board-the-balloon"
               }
-            ]
+            ],
+            "_fallback": "The wreck on Gullspire is the door (story-sea.json's Vane), and the balloon's own `ride` fact marks boarding. This row is for whoever rode up WITHOUT asking first — the balloon is moored on the flag, not on the quest — so he marks the boarding he watched."
           },
           {
             "when": {
@@ -407,7 +408,85 @@
         "body": "sky-gardener",
         "homeOffset": 11,
         "acrossFocus": true,
-        "talk": [{ "line": { "key": "npc.skyGardener.greeting" } }]
+        "_role": "Keeps the ballast garden and, in Act 3, the Galebird in it (issue #158): nobody goes near the bird until she says so, and her saying so is what stands it up. Her rows live here beside her because an id is global (see npc:sky-pilot).",
+        "talk": [
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:sky/wingbroken", "status": "active" },
+                {
+                  "not": {
+                    "test": "progress",
+                    "quest": "quest:sky/wingbroken",
+                    "objective": "free-the-galebird",
+                    "atLeast": 1
+                  }
+                }
+              ]
+            },
+            "line": { "key": "npc.skyGardener.sky2.allow" },
+            "actions": [
+              {
+                "do": "progress.add",
+                "quest": "quest:sky/wingbroken",
+                "objective": "free-the-galebird"
+              }
+            ]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:sky/wingbroken", "status": "active" },
+            "line": { "key": "npc.skyGardener.sky2.gently" }
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:sky/cinderhelm", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:sky/cinderhelm",
+                  "objective": "recover-the-record",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": { "key": "npc.skyGardener.sky4.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:sky/cinderhelm" }],
+            "_reads-backwards": "The record only lands because of red-thread-seen and device-built; the line assumes both, since Act 3 stands on both acts (issue #160)."
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:sky/wingbroken", "status": "completed" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:sky/cinderhelm", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:sky/cinderhelm", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.skyGardener.sky4.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:sky/cinderhelm" }],
+            "_fork": "Cinderhelm hangs off Wingbroken ALONE, beside Lanternfall (issue #159) — she offers it whether or not the lamps are lit."
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:sky/cinderhelm", "status": "active" },
+            "line": { "key": "npc.skyGardener.sky4.busy" }
+          },
+          {
+            "when": { "test": "flag", "flag": "vess-truth" },
+            "line": { "key": "npc.skyGardener.sky5.after" }
+          },
+          {
+            "when": { "test": "flag", "flag": "knows-the-cities-built-it" },
+            "line": { "key": "npc.skyGardener.sky4.after" }
+          },
+          {
+            "when": { "test": "flag", "flag": "mount-flying" },
+            "line": { "key": "npc.skyGardener.sky2.after" }
+          },
+          { "line": { "key": "npc.skyGardener.greeting" } }
+        ]
       }
     },
 

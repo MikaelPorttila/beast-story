@@ -299,6 +299,27 @@ export interface SafeZoneRegistry {
  * `topAt` so its deck is a floor by the same mechanism a hut roof is. A rider is attached exactly
  * while inside `contains`, so stepping off needs no detach event.
  */
+/**
+ * A moving frame seen from something standing on it: enough to turn a local
+ * point into a world one every slice. `CarrierBody` implements it; NPC crews and
+ * ferry stops carry one rather than the carrier itself.
+ */
+export interface LocalFrame {
+  readonly y: number;
+  readonly yaw: number;
+  toWorld(lx: number, lz: number, out: { x: number; z: number }): void;
+}
+
+/** Where a balloon calls on a carried town. Every coordinate is in `frame`; `y` is the deck. */
+export interface Mooring {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly boatX: number;
+  readonly boatZ: number;
+  readonly frame: LocalFrame;
+}
+
 export interface CarrierInfo {
   /** Stable for the life of the frame. A rider stores this, not the object. */
   readonly id: string;
@@ -543,6 +564,11 @@ export interface World {
    * deck top, not the seabed under it), `boatX/boatZ` the mooring beside it.
    */
   portOf(townId: string): { x: number; y: number; z: number; boatX: number; boatZ: number } | null;
+  /**
+   * A carried town's balloon berth, or null for a town without one (issue #157).
+   * LOCAL to `frame`, the piece of world the town rides — resolve through it.
+   */
+  mooringOf(townId: string): Mooring | null;
   /**
    * The standing stones this world grew, or an empty list where it grew none.
    *

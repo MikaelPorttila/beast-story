@@ -132,7 +132,8 @@ export class Player {
   maxHp = 100;
   isDead = false;
   /** Set by the composition root: where a faint puts him back. See `respawn`. */
-  respawnAt: ((x: number, z: number) => { x: number; z: number } | null) | null = null;
+  /** `y` is the DECK a stone stands on — a waystone on a shard (world/sky-shards.ts); absent, the ground. */
+  respawnAt: ((x: number, z: number) => { x: number; z: number; y?: number } | null) | null = null;
   readonly faction = "player" as const;
   attackStat = 14;
   /** The ONE writer is `applyLoadout`; the rig is the storage, so nothing can disagree. */
@@ -400,7 +401,7 @@ export class Player {
     // this always sent him.
     const at = this.respawnAt?.(this.position.x, this.position.z) ?? null;
     this.position.set(at?.x ?? this.world.spawnPoint.x, 0, at?.z ?? this.world.spawnPoint.z);
-    this.position.y = this.world.getHeight(this.position.x, this.position.z);
+    this.position.y = at?.y ?? this.world.getHeight(this.position.x, this.position.z);
     this.bus.emit({ type: "playerRevived" });
     this.bus.emit({ type: "toast", text: t("toast.revived") });
   }

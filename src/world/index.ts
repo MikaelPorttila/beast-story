@@ -12,12 +12,15 @@ import type {
   PlayerStart,
   TownInfo,
   TownRegistry,
+  WaypointField,
+  WaypointSpot,
   World,
   WorldLayer,
 } from "../core/types";
 import { excludeFromAO } from "../core/types";
 import { CarrierField } from "./carriers";
-import { ISLAND_KEEL, SkyIsland, readCarriedTown } from "./sky-island";
+import { ISLAND_KEEL, ROAM_R, SkyIsland, readCarriedTowns } from "./sky-island";
+import { ShardCluster, planShardClusters } from "./sky-shards";
 import { CHUNK_SIZE, DEEP_WATER_TOP, Terrain, WATER_LEVEL, makeScratch } from "./terrain";
 import { buildTerrainMesh, buildTerrainMeshSteps } from "./chunk";
 import { DistantTerrain, makeHorizonFade } from "./distant-terrain";
@@ -416,12 +419,79 @@ function pickPlayerStart(
  */
 const SKY_HOME_DIST = 170;
 const SKY_HOME_ANGLE = 2.1;
+/**
+ * The other carried towns fan out from the same bearing, far enough apart that
+ * their roam discs (ROAM_R, sky-island.ts) never overlap: the sky act's islands
+ * are reached on a flying mount, not on foot (issue #145). Bearing offset and
+ * distance per index past the first; a fifth reuses the last entry.
+ */
+const SKY_FAN: ReadonlyArray<readonly [dAngle: number, dist: number]> = [
+  [0, SKY_HOME_DIST],
+  [0.9, 900],
+  [-0.9, 900],
+  [0, 1500],
+];
+/** Shard clusters seeded over the world. Each is one carrier of one to four rocks. */
+const SHARD_CLUSTERS = 14;
 
 /**
  * Two NPC fields behind one, for people on the ground AND people on something
  * that moves. A COMPOSITE rather than a wider `Npcs` because the two crews
  * differ in the one thing `Npcs` is built around: their coordinate frame.
  */
+/** The stones of several fields as one — the ground's and each shard cluster's. */
+class WaypointFields implements WaypointField {
+  constructor(private readonly parts: readonly WaypointField[]) {}
+
+  get all(): readonly WaypointSpot[] {
+    // Allocates; the map and a load ask, never a frame path.
+    return this.parts.flatMap((p) => p.all as WaypointSpot[]);
+  }
+
+  touching(x: number, z: number): WaypointSpot | null {
+    for (const p of this.parts) {
+      const w = p.touching(x, z);
+      if (w) {
+        return w;
+      }
+    }
+    return null;
+  }
+
+  sensing(x: number, y: number, z: number): WaypointSpot | null {
+    for (const p of this.parts) {
+      const w = p.sensing(x, y, z);
+      if (w) {
+        return w;
+      }
+    }
+    return null;
+  }
+
+  nearestLit(x: number, z: number, isLit: (id: string) => boolean): WaypointSpot | null {
+    let best: WaypointSpot | null = null;
+    let bd = Infinity;
+    for (const p of this.parts) {
+      const w = p.nearestLit(x, z, isLit);
+      if (!w) {
+        continue;
+      }
+      const d = (w.x - x) ** 2 + (w.z - z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = w;
+      }
+    }
+    return best;
+  }
+
+  setLit(isLit: (id: string) => boolean): void {
+    for (const p of this.parts) {
+      p.setLit(isLit);
+    }
+  }
+}
+
 class NpcFields implements NpcField {
   constructor(private readonly parts: readonly NpcField[]) {}
 
@@ -822,23 +892,61 @@ export function createWorld(
   // it borrows, and before the clouds, which must keep out of it. A CARRIER, not
   // a landmark: it claims no clearing, flatten or exclusion.
   const carriers = new CarrierField();
-  const skyData = flags.towns ? readCarriedTown() : null;
-  const sky = skyData
-    ? new SkyIsland(
+  const skies: SkyIsland[] = [];
+  if (flags.towns) {
+    readCarriedTowns().forEach((skyData, i) => {
+      const [dAngle, dist] = SKY_FAN[Math.min(i, SKY_FAN.length - 1)];
+      const isle = new SkyIsland(
         terrain,
         propLib,
         skyData,
-        spawnPoint.x + Math.sin(SKY_HOME_ANGLE) * SKY_HOME_DIST,
-        spawnPoint.z + Math.cos(SKY_HOME_ANGLE) * SKY_HOME_DIST,
-        seed,
+        spawnPoint.x + Math.sin(SKY_HOME_ANGLE + dAngle) * dist,
+        spawnPoint.z + Math.cos(SKY_HOME_ANGLE + dAngle) * dist,
+        // Its own outline and plan: two islands from one seed are one island twice.
+        seed ^ (i * 0x9e37),
         // The lakes' own shader: one water in this world, lit and clocked once.
         waterMat,
-      )
-    : null;
-  if (sky) {
-    carriers.add(sky);
-    scene.add(sky.root);
+      );
+      skies.push(isle);
+      carriers.add(isle);
+      scene.add(isle.root);
+    });
   }
+  // THE SHARDS (world/sky-shards.ts): open-world rock scattered over the whole map,
+  // hovering where it was seeded. After the towns, so a probe's `carriers.all[0]` is
+  // still Skyhaven, and clear of every town island's roam disc.
+  const shards: ShardCluster[] = [];
+  if (flags.towns && flags.shards) {
+    const avoid = skies.map((s, i) => {
+      const [dAngle, dist] = SKY_FAN[Math.min(i, SKY_FAN.length - 1)];
+      return {
+        x: spawnPoint.x + Math.sin(SKY_HOME_ANGLE + dAngle) * dist,
+        z: spawnPoint.z + Math.cos(SKY_HOME_ANGLE + dAngle) * dist,
+        r: ROAM_R + s.radius,
+      };
+    });
+    for (const spec of planShardClusters(seed, spawnPoint, avoid, SHARD_CLUSTERS)) {
+      const cluster = new ShardCluster(spec, propLib, ringBand);
+      shards.push(cluster);
+      carriers.add(cluster);
+      scene.add(cluster.root);
+    }
+  }
+  // ONE set of night lights for every island (see `SkyIsland.nightLamps`): held by
+  // the island nearest the camera, so the light count — and every compiled shader —
+  // never changes with how many towns fly.
+  const SKY_NIGHT_LIGHTS = 4;
+  const skyLights: THREE.PointLight[] = [];
+  if (skies.length > 0) {
+    for (let i = 0; i < SKY_NIGHT_LIGHTS; i++) {
+      const light = new THREE.PointLight(0xffb86a, 0, 1, 2);
+      light.castShadow = false;
+      light.userData.bsNightRole = "skyhaven-local-light";
+      skyLights.push(light);
+    }
+    skies[0].holdNightLights(skyLights);
+  }
+  let lightHolder: SkyIsland | null = skies[0] ?? null;
 
   const clouds = flags.clouds ? new Clouds(seed) : null;
   // A cumulus is a volume of droplets: AO found only the seams between puffs and
@@ -1206,7 +1314,13 @@ export function createWorld(
     spawnPoint,
     playerStart,
     // Null when `towns=0` switched the road network off: no roads, no stones.
-    waypoints,
+    // Every standing stone: the roads' and the shards'. One field, so a load lights all of them.
+    waypoints: ((): WaypointField | null => {
+      const parts = [waypoints, ...shards.map((c) => c.waypoints)].filter(
+        (f): f is Waypoints => f !== null,
+      );
+      return parts.length > 1 ? new WaypointFields(parts) : (parts[0] ?? null);
+    })(),
     // The start town's pen — the camp layout's own answer, never rederived
     // (issue #178). `y` is read here so the caller stands things ON the ground.
     tamingPen: ((): { x: number; y: number; z: number; r: number } | null => {
@@ -1216,8 +1330,12 @@ export function createWorld(
     })(),
     // The pier head's y is the DECK, which the layout knew and the height field never will.
     portOf: (townId) => towns?.portOf(townId) ?? null,
+    mooringOf: (townId) => skies.find((s) => s.town.id === townId)?.mooring ?? null,
     shopPositions: shops.positions,
-    towns: withCarriedTowns(townReg, sky ? [sky.town] : []),
+    towns: withCarriedTowns(
+      townReg,
+      skies.map((s) => s.town),
+    ),
     safeZones,
     carriers,
     debugSpawn: spawned,
@@ -1318,7 +1436,10 @@ export function createWorld(
      */
     structureTopAt: structureTop,
     // Everyone in the zone. One field when there are only ground people.
-    npcs: sky?.npcs ? new NpcFields(npcs ? [npcs, sky.npcs] : [sky.npcs]) : npcs,
+    npcs: ((): NpcField | null => {
+      const fields = [npcs, ...skies.map((s) => s.npcs)].filter((f): f is Npcs => f !== null);
+      return fields.length > 1 ? new NpcFields(fields) : (fields[0] ?? null);
+    })(),
     /**
      * Is this sphere inside a canopy? The only query that treats the crown as a
      * VOLUME. The three tests are ordered to reject early — vertical band, then
@@ -1631,7 +1752,12 @@ export function createWorld(
         return;
       }
       towns?.solids.debugBoxes(out);
-      sky?.debugStructures(out);
+      for (const s of skies) {
+        s.debugStructures(out);
+      }
+      for (const c of shards) {
+        c.debugStructures(out);
+      }
       shops.solids.debugBoxes(out);
       npcs?.solids.debugBoxes(out);
       spawned.debugBoxes(out);
@@ -1677,11 +1803,11 @@ export function createWorld(
     },
 
     debugCarriedTrees(): Array<{ x: number; z: number }> {
-      return sky?.debugTrees() ?? [];
+      return skies[0]?.debugTrees() ?? [];
     },
 
     debugCarriedStreets() {
-      return sky?.debugStreets() ?? { count: 0, paved: 0, clear: [] };
+      return skies[0]?.debugStreets() ?? { count: 0, paved: 0, clear: [] };
     },
 
     applyCelestial(state: Readonly<CelestialState>): void {
@@ -1692,7 +1818,9 @@ export function createWorld(
         waterMat.uniforms["uSunStrength"].value = state.keyIntensity / 3.05;
       }
       clouds?.applyCelestial(state);
-      sky?.applyCelestial(state);
+      for (const s of skies) {
+        s.applyCelestial(state);
+      }
       towns?.applyCelestial(state);
     },
 
@@ -1722,10 +1850,28 @@ export function createWorld(
       sway?.update(focus, time, dt);
       // WHERE the island is was decided by `carriers.advance` at the top of the
       // slice; this is only the people standing on it.
-      sky?.update(dt, time, focus);
-      // ...and the clouds part around it, or a cumulus grows through the square.
-      if (sky) {
-        clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius, ISLAND_KEEL);
+      for (const c of shards) {
+        c.update(focus);
+      }
+      let nearest: SkyIsland | null = null;
+      let nearestD = Infinity;
+      for (const s of skies) {
+        s.update(dt, time, focus);
+        const d = (s.x - focus.x) ** 2 + (s.z - focus.z) ** 2;
+        if (d < nearestD) {
+          nearestD = d;
+          nearest = s;
+        }
+      }
+      // ...and the clouds part around the one you are nearest, or a cumulus grows
+      // through the square. One keep-out: the others are past the cloud deck's reach.
+      if (nearest) {
+        clouds?.setKeepOut(nearest.x, nearest.y, nearest.z, nearest.radius, ISLAND_KEEL);
+        if (nearest !== lightHolder) {
+          lightHolder?.releaseNightLights();
+          nearest.holdNightLights(skyLights);
+          lightHolder = nearest;
+        }
       }
       clouds?.update(focus, dt);
       shops.update(time, focus);
@@ -1839,7 +1985,9 @@ export function createWorld(
       // The island's fall is water too. Before the clouds branch and without
       // returning: the streamed water chunks below still need handling.
       if (layer === "water") {
-        sky?.setWaterfallVisible(on);
+        for (const s of skies) {
+          s.setWaterfallVisible(on);
+        }
       }
       if (layer === "water") {
         distant.setWaterVisible(on);
@@ -1895,11 +2043,13 @@ export function createWorld(
     },
 
     warmUpEffects(render: () => void): void {
-      sky?.warmUpWaterfall(render);
+      for (const s of skies) {
+        s.warmUpWaterfall(render);
+      }
     },
 
     debugSkyFall(): Record<string, number> | null {
-      return sky?.debugFall() ?? null;
+      return skies[0]?.debugFall() ?? null;
     },
 
     /**
@@ -1947,7 +2097,9 @@ export function createWorld(
       }
       // One flag on its root takes its people and lamps too. Its glow is
       // emissive, so it adds no lights; hidden anyway, being a lot of rock.
-      sky?.setVisible(v);
+      for (const s of skies) {
+        s.setVisible(v);
+      }
       // A hidden layer stays hidden through a hide/show cycle.
       if (clouds) {
         clouds.group.visible = v && !hiddenLayers.clouds;
@@ -2001,9 +2153,17 @@ export function createWorld(
         scene.remove(towns.group);
         towns.dispose();
       }
-      if (sky) {
-        scene.remove(sky.root);
-        sky.dispose();
+      lightHolder?.releaseNightLights();
+      for (const light of skyLights) {
+        light.dispose();
+      }
+      for (const s of skies) {
+        scene.remove(s.root);
+        s.dispose();
+      }
+      for (const c of shards) {
+        scene.remove(c.root);
+        c.dispose();
       }
       if (clouds) {
         scene.remove(clouds.group);

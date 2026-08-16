@@ -1,43 +1,908 @@
 {
   "id": "story-sky",
-  "version": "0.1.0",
-  "requires": ["story"],
+  "version": "0.2.0",
+  "requires": [
+    "story",
+    "story-sea"
+  ],
   "meta": {
     "title": "Act 3 — Sky: The Cirran Shelf",
-    "note": "The five main quests of Act 3 (game-story.md §4, issue #145). Only the entry ships today: the RECEIVING HALF of the Act 2 -> Act 3 seam (issue #157), the same shape #214 gave the sea act — the ordering is final, the geography is not.",
-    "loading": "Loaded on `sky-revealed` (ACT_PACKAGES in main.ts), the flag Act 2's closer sets — not at boot, because nothing of the sky needs to exist when the world is planned: Skyhaven and its residents ship in `core` and stay there. Loaded once and never released mid-session; progress lives in ContentState.",
-    "the-stub": "The quest names its giver and its town by reference and Corwin Vane's rows in core.json (Gain's precedent, see story.json) offer and close it. What is NOT here is the balloon: the transition between two balloon models is engine work under #157, and boarding it is what should mark `board-the-balloon` on the way up. Until then Vane's offer row marks it in the same breath — you rode up with him — and `reach-skyhaven` is the arrival replay every town-arrival objective gets on activation."
+    "note": "The five main quests of Act 3 (game-story.md §4, issue #145). Act 3 is PART OF THE OPEN WORLD, the way Act 2 is (issue #144): the Shelf is the open world's sky, its towns are CARRIERS that roam above it, and there is no `cirrus` zone. What `sky-revealed` opens is the BALLOON — the means of getting up — not the geography.",
+    "loading": "Boot-loaded (see bootstrapContent in main.ts), for the same reason story-sea is: a carried town must exist when the world is built, because the island that carries it is built with the world. The flag-gated load recorded in issue #261 was the zone-era answer and went with the zone.",
+    "the-seam": "The ascent is offered at the WRECK on Gullspire by Corwin Vane's sea placement (story-sea.json — the same man, the balloon he patched) and closed by his Skyhaven placement (core.json). Boarding is a `ride` fact the balloon emits, `reach-skyhaven` the arrival replay every town-arrival objective gets. The balloon runs both ways from the first day it is moored: Act 4 stages out of the Encampment.",
+    "the-stub": "Quests 3-5 ship as DATA over placeholders (issues #262-#267): `gallery`/`orrery` are Skyhaven's stamping, the Cinderguard and Choirguard wear borrowed rigs, Vess wears Mera's body, the vent under Cinderhelm is the town itself, and Tobin relights the galleries in one breath. Each placeholder names its issue beside it. No cargo weight (decided), and no music:cirrus yet (#267)."
   },
   "assets": [
     {
       "id": "quest:sky/the-long-ascent",
       "schema": 1,
-      "name": { "key": "quest.sky.theLongAscent.name" },
-      "description": { "key": "quest.sky.theLongAscent.desc" },
-      "tags": ["story", "act3"],
+      "name": {
+        "key": "quest.sky.theLongAscent.name"
+      },
+      "description": {
+        "key": "quest.sky.theLongAscent.desc"
+      },
+      "tags": [
+        "story",
+        "act3"
+      ],
       "data": {
         "category": "main",
         "arc": "sky",
-        "giver": "npc:sky-pilot",
+        "giver": "npc:sky-pilot/gullspire",
+        "turnIn": "npc:sky-pilot",
         "location": "town:skyhaven",
-        "prerequisites": ["quest:sea/what-the-tide-kept"],
-        "_seam": "THE ACT 2 -> ACT 3 SEAM, receiving half. The prerequisite alone is the door for THIS quest; everything else in the sky tests sky-revealed. Vane's rows are gated on knows-the-sky besides — he is the pilot only because the Rookery pulled him off Gullspire.",
+        "prerequisites": [
+          "quest:sea/what-the-tide-kept"
+        ],
+        "_seam": "THE ACT 2 -> ACT 3 SEAM, receiving half. The prerequisite alone is the door for THIS quest; everything else in the sky tests sky-revealed. Given at the wreck, closed on the deck: giver and turnIn are the two placements of one pilot.",
         "objectives": [
           {
             "key": "board-the-balloon",
-            "text": { "key": "quest.sky.theLongAscent.obj.boardTheBalloon" }
+            "text": {
+              "key": "quest.sky.theLongAscent.obj.boardTheBalloon"
+            },
+            "trigger": {
+              "kind": "ride",
+              "site": "vane-wreck"
+            }
           },
           {
             "key": "reach-skyhaven",
-            "text": { "key": "quest.sky.theLongAscent.obj.reachSkyhaven" },
-            "trigger": { "kind": "town-arrival", "town": "town:skyhaven" }
+            "text": {
+              "key": "quest.sky.theLongAscent.obj.reachSkyhaven"
+            },
+            "trigger": {
+              "kind": "town-arrival",
+              "town": "town:skyhaven"
+            }
           }
         ],
         "onComplete": [
-          { "do": "discover", "id": "town:skyhaven" },
-          { "do": "flag.set", "flag": "act-3-open" }
+          {
+            "do": "discover",
+            "id": "town:skyhaven"
+          },
+          {
+            "do": "flag.set",
+            "flag": "act-3-open"
+          }
         ],
-        "rewards": { "xp": 400, "shard": 100 }
+        "rewards": {
+          "xp": 400,
+          "shard": 100
+        }
+      }
+    },
+    {
+      "id": "npc:gain/skyhaven",
+      "schema": 1,
+      "name": {
+        "key": "npc.gain.name"
+      },
+      "tags": [
+        "resident",
+        "quest-giver",
+        "act3"
+      ],
+      "data": {
+        "town": "town:skyhaven",
+        "body": "gain",
+        "homeOffset": 15,
+        "acrossFocus": false,
+        "_role": "The THIRD PLACEMENT of the Encampment's Gain (game-story.md §2): one body, one name key, and the joke — he was on the mooring deck with a hot cup when you landed, and Vane did not carry him. His rows are this act's tame quest, the mount tutorial for the sky.",
+        "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/wingbroken",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sky/wingbroken",
+                  "objective": "tame-galebird",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.gain.sky2.done"
+            },
+            "actions": [
+              {
+                "do": "quest.complete",
+                "quest": "quest:sky/wingbroken"
+              }
+            ]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/the-long-ascent",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/wingbroken",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/wingbroken",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.gain.sky2.offer"
+            },
+            "actions": [
+              {
+                "do": "quest.start",
+                "quest": "quest:sky/wingbroken"
+              }
+            ]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sky/wingbroken",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.gain.sky2.busy"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "mount-flying"
+            },
+            "line": {
+              "key": "npc.gain.sky2.after"
+            }
+          },
+          {
+            "line": {
+              "key": "npc.gain.sky.greeting"
+            }
+          }
+        ],
+        "_spot": "Off the square rather than across it: Pell (11, across) and he (8, across) stood three units apart, and E talks to the nearest."
+      }
+    },
+    {
+      "id": "quest:sky/wingbroken",
+      "schema": 1,
+      "name": {
+        "key": "quest.sky.wingbroken.name"
+      },
+      "description": {
+        "key": "quest.sky.wingbroken.desc"
+      },
+      "tags": [
+        "story",
+        "act3"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "sky",
+        "giver": "npc:gain/skyhaven",
+        "location": "town:skyhaven",
+        "prerequisites": [
+          "quest:sky/the-long-ascent"
+        ],
+        "objectives": [
+          {
+            "key": "free-the-galebird",
+            "text": {
+              "key": "quest.sky.wingbroken.obj.freeTheGalebird"
+            },
+            "_free": "Mother Pell's row marks it: she is the only one who lets anyone near the bird, and the stage (tickWingStage in main.ts) stands it up in her garden only after she has."
+          },
+          {
+            "key": "tame-galebird",
+            "text": {
+              "key": "quest.sky.wingbroken.obj.tameGalebird"
+            },
+            "trigger": {
+              "kind": "tamed",
+              "species": [
+                "wild-galebird"
+              ]
+            }
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "mount.unlock",
+            "kind": "flying"
+          },
+          {
+            "do": "flag.set",
+            "flag": "mount-flying"
+          }
+        ],
+        "_mount-flying": "Action and flag both, per §6: the action does the unlocking, the flag is what quest:seam/guardian-sky gates on in Act 4. From here the act is OPEN — a flying mount reaches every remaining island, and quests 3 and 4 hang off this one alone.",
+        "rewards": {
+          "xp": 450,
+          "shard": 120
+        }
+      }
+    },
+    {
+      "id": "town:lanternfall",
+      "schema": 1,
+      "name": {
+        "key": "town.lanternfall.name"
+      },
+      "tags": [
+        "settlement",
+        "carried",
+        "act3"
+      ],
+      "data": {
+        "sign": {
+          "key": "town.lanternfall.sign"
+        },
+        "layout": "gallery",
+        "radius": 30,
+        "color": "#f0c96a",
+        "waterside": false,
+        "order": 7,
+        "start": false,
+        "carried": true,
+        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #262). Carried, so the road planner never sees it (game-story.md §1.4)."
+      }
+    },
+    {
+      "id": "npc:sky-lamplighter/lanternfall",
+      "schema": 1,
+      "name": {
+        "key": "npc.skyLamplighter.name"
+      },
+      "tags": [
+        "resident",
+        "quest-giver",
+        "act3"
+      ],
+      "data": {
+        "town": "town:lanternfall",
+        "body": "sky-lamplighter",
+        "homeOffset": 6,
+        "acrossFocus": true,
+        "_role": "Tobin Ashgrove's second placement (game-story.md §2): the lamplighter at his own galleries. His sister Mera runs Redbriar Mill and neither knows the other is alive — the player is who tells them (ashgrove-reunited).",
+        "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/lanternfall",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sky/lanternfall",
+                  "objective": "carry-oil",
+                  "atLeast": 6
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.skyLamplighter.sky3.done"
+            },
+            "actions": [
+              {
+                "do": "progress.add",
+                "quest": "quest:sky/lanternfall",
+                "objective": "relight-galleries",
+                "by": 4
+              },
+              {
+                "do": "quest.complete",
+                "quest": "quest:sky/lanternfall"
+              }
+            ],
+            "_relight": "PLACEHOLDER for a real relighting: there is no interactable a player can carry oil TO yet (issue #266), so the six casks handed over are the four galleries relit, in one breath."
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/wingbroken",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/lanternfall",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/lanternfall",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.skyLamplighter.sky3.offer"
+            },
+            "actions": [
+              {
+                "do": "quest.start",
+                "quest": "quest:sky/lanternfall"
+              }
+            ]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sky/lanternfall",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.skyLamplighter.sky3.busy"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ashgrove-reunited"
+            },
+            "line": {
+              "key": "npc.skyLamplighter.sky3.after"
+            }
+          },
+          {
+            "line": {
+              "key": "npc.skyLamplighter.greeting"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "quest:sky/lanternfall",
+      "schema": 1,
+      "name": {
+        "key": "quest.sky.lanternfall.name"
+      },
+      "description": {
+        "key": "quest.sky.lanternfall.desc"
+      },
+      "tags": [
+        "story",
+        "act3"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "sky",
+        "giver": "npc:sky-lamplighter/lanternfall",
+        "location": "town:lanternfall",
+        "prerequisites": [
+          "quest:sky/wingbroken"
+        ],
+        "_fork": "Requires wingbroken ONLY — the other arm of the fork beside cinderhelm (#160); neither requires the other and the-orrery lists both.",
+        "_cargo": "DECIDED: no cargo weight (issue #159's optional mechanic is cut). A plain collect: the casks Vane flew up wait at Skyhaven's mooring, and a flying mount carries them the rest of the way.",
+        "objectives": [
+          {
+            "key": "carry-oil",
+            "text": {
+              "key": "quest.sky.lanternfall.obj.carryOil"
+            },
+            "count": 6,
+            "trigger": {
+              "kind": "item-picked",
+              "item": "lamp-oil",
+              "site": "skyhaven-mooring"
+            },
+            "_site": "The site is WHERE the oil is, for the compass chip and the journal tip; item-picked does not filter on it."
+          },
+          {
+            "key": "relight-galleries",
+            "text": {
+              "key": "quest.sky.lanternfall.obj.relightGalleries"
+            },
+            "count": 4
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "flag.set",
+            "flag": "component-lantern"
+          },
+          {
+            "do": "flag.set",
+            "flag": "ashgrove-reunited"
+          },
+          {
+            "do": "discover",
+            "id": "town:lanternfall"
+          }
+        ],
+        "rewards": {
+          "xp": 500,
+          "shard": 140
+        }
+      }
+    },
+    {
+      "id": "town:cinderhelm",
+      "schema": 1,
+      "name": {
+        "key": "town.cinderhelm.name"
+      },
+      "tags": [
+        "settlement",
+        "carried",
+        "act3"
+      ],
+      "data": {
+        "sign": {
+          "key": "town.cinderhelm.sign"
+        },
+        "layout": "gallery",
+        "radius": 30,
+        "color": "#8a5a4a",
+        "waterside": false,
+        "order": 8,
+        "start": false,
+        "carried": true,
+        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #262). Carried, so the road planner never sees it (game-story.md §1.4)."
+      }
+    },
+    {
+      "id": "enemy:cinderguard",
+      "schema": 1,
+      "name": {
+        "key": "enemy.cinderguard.name"
+      },
+      "tags": [
+        "story",
+        "act3",
+        "boss"
+      ],
+      "data": {
+        "model": "brineholder",
+        "behaviour": "snortle",
+        "flying": false,
+        "hp": 800,
+        "atk": 16,
+        "speed": 3.4,
+        "xp": 450,
+        "radius": 1.1,
+        "height": 1.4,
+        "aggro": 30,
+        "_model": "PLACEHOLDER: wears the Brineholder's rig in ember colours until its own is built (issue #263) — a guardian beast that is not hostile so much as unable to stop.",
+        "variants": [
+          {
+            "element": "fire",
+            "main": "#5a3a30",
+            "dark": "#33201a",
+            "belly": "#b06a4a",
+            "accent": "#ff7a3c"
+          },
+          {
+            "element": "fire",
+            "main": "#54362c",
+            "dark": "#2f1d17",
+            "belly": "#a86446",
+            "accent": "#ff7a3c"
+          },
+          {
+            "element": "fire",
+            "main": "#5f3d32",
+            "dark": "#36221b",
+            "belly": "#b8704e",
+            "accent": "#ff7a3c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "quest:sky/cinderhelm",
+      "schema": 1,
+      "name": {
+        "key": "quest.sky.cinderhelm.name"
+      },
+      "description": {
+        "key": "quest.sky.cinderhelm.desc"
+      },
+      "tags": [
+        "story",
+        "act3"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "sky",
+        "giver": "npc:sky-gardener",
+        "location": "town:cinderhelm",
+        "prerequisites": [
+          "quest:sky/wingbroken"
+        ],
+        "_fork": "Requires wingbroken ONLY — parallel with lanternfall (#159), either order; the-orrery lists both.",
+        "objectives": [
+          {
+            "key": "descend-the-vent",
+            "text": {
+              "key": "quest.sky.cinderhelm.obj.descendTheVent"
+            },
+            "trigger": {
+              "kind": "town-arrival",
+              "town": "town:cinderhelm"
+            },
+            "_vent": "PLACEHOLDER: the vent is a dungeon under the shelf (issue #265); until it exists, reaching the burnt half-town is the descent."
+          },
+          {
+            "key": "defeat-cinderguard",
+            "text": {
+              "key": "quest.sky.cinderhelm.obj.defeatCinderguard"
+            },
+            "trigger": {
+              "kind": "enemy-killed",
+              "enemies": [
+                "enemy:cinderguard"
+              ],
+              "town": "town:cinderhelm"
+            },
+            "_town": "WHERE, for the chip: enemy-killed does not filter on it. The stage stands the guardian up on Cinderhelm's deck (tickDeckStages in main.ts)."
+          },
+          {
+            "key": "recover-the-record",
+            "text": {
+              "key": "quest.sky.cinderhelm.obj.recoverTheRecord"
+            },
+            "trigger": {
+              "kind": "item-picked",
+              "item": "the-record",
+              "town": "town:cinderhelm"
+            }
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "flag.set",
+            "flag": "knows-the-cities-built-it"
+          },
+          {
+            "do": "discover",
+            "id": "town:cinderhelm"
+          }
+        ],
+        "rewards": {
+          "xp": 550,
+          "shard": 160
+        }
+      }
+    },
+    {
+      "id": "town:orrery",
+      "schema": 1,
+      "name": {
+        "key": "town.orrery.name"
+      },
+      "tags": [
+        "settlement",
+        "carried",
+        "act3"
+      ],
+      "data": {
+        "sign": {
+          "key": "town.orrery.sign"
+        },
+        "layout": "orrery",
+        "radius": 30,
+        "color": "#c9a86a",
+        "waterside": false,
+        "order": 9,
+        "start": false,
+        "carried": true,
+        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #262). Carried, so the road planner never sees it (game-story.md §1.4)."
+      }
+    },
+    {
+      "id": "npc:vess",
+      "schema": 1,
+      "name": {
+        "key": "npc.vess.name"
+      },
+      "tags": [
+        "resident",
+        "quest-giver",
+        "act3"
+      ],
+      "data": {
+        "town": "town:orrery",
+        "body": "mera",
+        "homeOffset": 6,
+        "acrossFocus": true,
+        "_role": "Archivist Marran Vess, the apparent villain of Act 3 (game-story.md §2). PLACEHOLDER BODY: Mera's, until `vess` is built (issue #264). Her rows read backwards into Acts 1 and 2 where the reveal needs them.",
+        "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/the-orrery",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sky/the-orrery",
+                  "objective": "defeat-choirguard",
+                  "atLeast": 1
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.vess.sky5.done"
+            },
+            "actions": [
+              {
+                "do": "progress.add",
+                "quest": "quest:sky/the-orrery",
+                "objective": "hear-vess-out"
+              },
+              {
+                "do": "quest.complete",
+                "quest": "quest:sky/the-orrery"
+              }
+            ]
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/lanternfall",
+                  "status": "completed"
+                },
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/cinderhelm",
+                  "status": "completed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/the-orrery",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:sky/the-orrery",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.vess.sky5.offer"
+            },
+            "actions": [
+              {
+                "do": "quest.start",
+                "quest": "quest:sky/the-orrery"
+              }
+            ]
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:sky/the-orrery",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.vess.sky5.busy"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "vess-truth"
+            },
+            "line": {
+              "key": "npc.vess.sky5.after"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "knows-the-cities-built-it"
+            },
+            "line": {
+              "key": "npc.vess.record"
+            }
+          },
+          {
+            "line": {
+              "key": "npc.vess.greeting"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "npc:coil/orrery",
+      "schema": 1,
+      "name": {
+        "key": "npc.coil.name"
+      },
+      "tags": [
+        "resident",
+        "act3"
+      ],
+      "data": {
+        "town": "town:orrery",
+        "body": "coil",
+        "homeOffset": 10,
+        "acrossFocus": false,
+        "_role": "The Warden's third placement — an uneasy ally in Act 3 (game-story.md §2). Her Act 4 gate (guardian-sky is Pell's, but Three Roads calls her home) stacks above these later.",
+        "talk": [
+          {
+            "when": {
+              "test": "flag",
+              "flag": "vess-truth"
+            },
+            "line": {
+              "key": "npc.coil.sky5.after"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "knows-the-cities-built-it"
+            },
+            "line": {
+              "key": "npc.coil.sky5.record"
+            }
+          },
+          {
+            "line": {
+              "key": "npc.coil.sky5.greeting"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:choirguard",
+      "schema": 1,
+      "name": {
+        "key": "enemy.choirguard.name"
+      },
+      "tags": [
+        "story",
+        "act3",
+        "boss"
+      ],
+      "data": {
+        "model": "bellwether",
+        "behaviour": "snortle",
+        "flying": false,
+        "hp": 1000,
+        "atk": 18,
+        "speed": 3.8,
+        "xp": 600,
+        "radius": 1.1,
+        "height": 1.5,
+        "aggro": 32,
+        "_model": "PLACEHOLDER: wears the Bellwether's rig in brass until its own is built (issue #263) — the engine's own defence, which Vess does not call off.",
+        "variants": [
+          {
+            "element": "wind",
+            "main": "#8a7a4e",
+            "dark": "#574a2c",
+            "belly": "#d8c48a",
+            "accent": "#c4423c"
+          },
+          {
+            "element": "wind",
+            "main": "#857548",
+            "dark": "#524628",
+            "belly": "#d2be84",
+            "accent": "#c4423c"
+          },
+          {
+            "element": "wind",
+            "main": "#8f7f54",
+            "dark": "#5b4e30",
+            "belly": "#ddc990",
+            "accent": "#c4423c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "quest:sky/the-orrery",
+      "schema": 1,
+      "name": {
+        "key": "quest.sky.theOrrery.name"
+      },
+      "description": {
+        "key": "quest.sky.theOrrery.desc"
+      },
+      "tags": [
+        "story",
+        "act3"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "sky",
+        "giver": "npc:vess",
+        "location": "town:orrery",
+        "prerequisites": [
+          "quest:sky/lanternfall",
+          "quest:sky/cinderhelm"
+        ],
+        "_seam": "THE ACT 3 -> ACT 4 SEAM. Both fork arms required, either order. Act 4's opener (quest:seam/three-roads) names this quest; its guardian-sky fights in this same frame, so nothing seals the Orrery behind Vess. Nothing gates on act-3-complete: that flag is a record.",
+        "objectives": [
+          {
+            "key": "reach-the-orrery",
+            "text": {
+              "key": "quest.sky.theOrrery.obj.reachTheOrrery"
+            },
+            "trigger": {
+              "kind": "town-arrival",
+              "town": "town:orrery"
+            }
+          },
+          {
+            "key": "defeat-choirguard",
+            "text": {
+              "key": "quest.sky.theOrrery.obj.defeatChoirguard"
+            },
+            "trigger": {
+              "kind": "enemy-killed",
+              "enemies": [
+                "enemy:choirguard"
+              ],
+              "town": "town:orrery"
+            }
+          },
+          {
+            "key": "hear-vess-out",
+            "text": {
+              "key": "quest.sky.theOrrery.obj.hearVessOut"
+            },
+            "_hear": "Vess's turn-in row marks it: the fight happens, and then she explains."
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "flag.set",
+            "flag": "vess-truth"
+          },
+          {
+            "do": "flag.set",
+            "flag": "act-3-complete"
+          },
+          {
+            "do": "discover",
+            "id": "town:orrery"
+          }
+        ],
+        "rewards": {
+          "xp": 900,
+          "shard": 250
+        }
       }
     }
   ]

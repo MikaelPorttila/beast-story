@@ -405,7 +405,14 @@ export class CombatSystem {
     return this.pickups.findJob(from, maxDist, want);
   }
 
-  dropSnapshot(): { itemId: string; x: number; z: number; claimed: boolean; age: number }[] {
+  dropSnapshot(): {
+    itemId: string;
+    x: number;
+    y: number;
+    z: number;
+    claimed: boolean;
+    age: number;
+  }[] {
     return this.pickups.snapshot();
   }
 
@@ -1271,7 +1278,8 @@ export class CombatSystem {
   // F3 Debug panel only. Obeys none of `trySpawn`'s rules, which shape a
   // population that appears on its own where this is a person pointing at a
   // spot. Null for an unknown id, because a panel row is user input.
-  spawnOne(id: string, x: number, z: number): Enemy | null {
+  /** `deckY` stands it on a carrier's deck instead of the terrain under it. */
+  spawnOne(id: string, x: number, z: number, deckY?: number): Enemy | null {
     if (!speciesOf(id)) {
       return null;
     }
@@ -1281,6 +1289,7 @@ export class CombatSystem {
       x,
       z,
       this.world,
+      deckY,
     );
     this.scene.add(e.root);
     this.enemies.push(e);

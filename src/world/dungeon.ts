@@ -797,6 +797,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     tamingPen: null,
     /** Nor moors a boat. */
     portOf: () => null,
+    mooringOf: () => null,
     shopPositions: [],
     /**
      * Nobody LIVES in the hold, so its registry is permanently empty. That is a

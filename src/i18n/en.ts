@@ -110,6 +110,14 @@ export const en = {
   "item.componentVane.other": "Vanes",
   "item.componentVane.desc":
     "A balanced sliver of metal off the wrecked balloon. Hang it from a thread and it settles — never north, always UP.",
+  "item.lampOil.one": "Lamp Oil",
+  "item.lampOil.other": "Lamp Oil",
+  "item.lampOil.desc":
+    "A sealed cask of gallery oil, stencilled for a shelf that has been dark a season. Heavy for its size; light for what it does.",
+  "item.theRecord.one": "The Record",
+  "item.theRecord.other": "Records",
+  "item.theRecord.desc":
+    "Bound minutes in a civic hand: motions, votes, a budget line for lamp oil. Page one names the engine. Page forty says it worked.",
 
   // ---- inventory -----------------------------------------------------------
   "inv.title": "Inventory",
@@ -225,6 +233,8 @@ export const en = {
   "site.droveGround.desc": "The open herding flats out past Stonewatch, where the herd is led.",
   "site.holdFloor.name": "The Hold's Floor",
   "site.holdFloor.desc": "The lowest room of the Sunken Hold, furthest in from the gateway.",
+  "site.skyhavenMooring.name": "The Mooring",
+  "site.skyhavenMooring.desc": "Skyhaven's balloon berth beside the gate, where Corwin Vane ties up.",
 
   // ---- the campaign: Act 1, Land (game-story.md §4, issue #143) -------------
   // Keyed by the quest id with the slash dropped and the name camel-cased:
@@ -299,6 +309,28 @@ export const en = {
     "The instrument points up, steadily and stupidly. Corwin Vane says he can get you there and that you will not like it. Coil says she is coming whether you like it or not.",
   "quest.sky.theLongAscent.obj.boardTheBalloon": "Board Corwin Vane's balloon",
   "quest.sky.theLongAscent.obj.reachSkyhaven": "Reach Skyhaven on the Cirran Shelf",
+  "quest.sky.wingbroken.name": "Wingbroken",
+  "quest.sky.wingbroken.desc":
+    "A Galebird with a fouled wing is grounded in Skyhaven's ballast garden, and Mother Pell will not let anyone near it. Gain says the sky is a road like any other, and that this is the animal that walks it.",
+  "quest.sky.wingbroken.obj.freeTheGalebird": "Ask Mother Pell to let you near the Galebird in the ballast garden",
+  "quest.sky.wingbroken.obj.tameGalebird": "Bond the wing-fouled Galebird",
+  "quest.sky.lanternfall.name": "Lanternfall",
+  "quest.sky.lanternfall.desc":
+    "The gallery lamps are the only thing keeping the engine's overflow dim, and they are going out one shelf at a time — nobody has flown oil up since the road stopped. Vane's casks are waiting at Skyhaven's mooring. Tobin Ashgrove is waiting for someone with wings.",
+  "quest.sky.lanternfall.obj.carryOil": "Carry lamp oil from Skyhaven's mooring to Lanternfall",
+  "quest.sky.lanternfall.obj.relightGalleries": "Relight the galleries with Tobin",
+  "quest.sky.cinderhelm.name": "Cinderhelm",
+  "quest.sky.cinderhelm.desc":
+    "What happens when a gallery goes dark: the shelf below is a burnt half-town with the engine's exhaust vented under it, and something down there has been in the red for a century. Mother Pell wants the cities' own record back, and she will not say why until you have read it.",
+  "quest.sky.cinderhelm.obj.descendTheVent": "Fly to Cinderhelm and go down into the vent",
+  "quest.sky.cinderhelm.obj.defeatCinderguard": "Put down the Cinderguard",
+  "quest.sky.cinderhelm.obj.recoverTheRecord": "Recover the record it was keeping",
+  "quest.sky.theOrrery.name": "The Orrery",
+  "quest.sky.theOrrery.desc":
+    "Marran Vess sealed Cinderhelm, stopped the oil flights and hoarded the record, and the Orrery is where she keeps the engine. The lens, the vane and the lantern agree on one thing: whatever the source is, she is standing on it.",
+  "quest.sky.theOrrery.obj.reachTheOrrery": "Fly to the Orrery",
+  "quest.sky.theOrrery.obj.defeatChoirguard": "Defeat the Choirguard in the Orrery's open frame",
+  "quest.sky.theOrrery.obj.hearVessOut": "Hear Vess out",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -367,6 +399,13 @@ export const en = {
    */
   "town.skyhaven.name": "Skyhaven",
   "town.skyhaven.sign": "SKYHAVEN",
+  // Act 3's other three carried towns (issue #145). Signs inside the ten-character budget.
+  "town.lanternfall.name": "Lanternfall",
+  "town.lanternfall.sign": "LANTERNS",
+  "town.cinderhelm.name": "Cinderhelm",
+  "town.cinderhelm.sign": "CINDERHELM",
+  "town.orrery.name": "The Orrery",
+  "town.orrery.sign": "ORRERY",
   /** The fork the road network hangs off — a sign, but not a town. */
   "town.junction.sign": "CROSSWAY",
 
@@ -413,6 +452,19 @@ export const en = {
     "Shallow coves, wet feet, one orb. It will find you before you find it — they always do.",
   "npc.gain.sea2.done":
     "Look at it grinning. That is the whole Reach open to you now — when the dark water takes your feet, that animal will take the rest of you. Try it. On purpose, I mean.",
+
+  // SKYHAVEN — his third placement (issue #158): on the mooring deck with a hot
+  // cup when you landed, and the sky's mount is the animal he has been minding.
+  "npc.gain.sky.greeting":
+    "Thin air, thick tea. Do not ask me how I got up here before you; ask me what I have been doing with the time.",
+  "npc.gain.sky2.offer":
+    "Mother Pell has a Galebird in the ballast garden with its wing fouled in a stay, and she has not let a soul near it in a fortnight — not me, not the lamplighter, not the man who owns the stay. Go and ask her. If she lets you, and I think she might, you know what an orb is for. The sky is a road, and that is what walks it.",
+  "npc.gain.sky2.busy":
+    "Ask Pell first. Then the orb, gently — it has been frightened for a fortnight and it will not have forgotten how.",
+  "npc.gain.sky2.done":
+    "There. Look at the wing — it was never broken, only held. That is the whole Shelf open to you now: every island the wind keeps, and the ones it does not. Ride it. Off the rim, on purpose.",
+  "npc.gain.sky2.after":
+    "Lanterns one way, cinders the other, and I would not tell you which first — that is the point of having wings.",
 
   // Saltrest's boatwright, met minding Kelphold's flooded market (issue #154).
   "npc.brack.name": "Brack Tulley",
@@ -489,8 +541,13 @@ export const en = {
     "Down, dry, and the vane out of the salt. Now the part you carried me for: there are CITIES up there. Well-run, well-lit, and very sure nobody would ever drop in. When your instrument starts pointing up — and it will — I can get you there. You will not like it.",
   "npc.skyPilot.sea4.after":
     "I have flown over the whole Reach and I still could not tell you where the sea ends. Up is simpler. Up has lamps.",
-  // Home on the mooring deck — the receiving half of the Act 2 -> Act 3 seam
-  // (issue #157). Gain is already up here, of course; ask him how yourself.
+  // The Act 2 -> Act 3 seam (issue #157). Offered at the WRECK, patched and
+  // moored on Gullspire — the pad you board from — and closed on Skyhaven's deck.
+  // Gain is already up here, of course; ask him how yourself.
+  "npc.skyPilot.sky1.ground":
+    "She is patched, she is moored, and your instrument has stopped pretending it means anything but UP. Climb in when you are ready. I will say it once more so it is on record: you will not like it.",
+  "npc.skyPilot.sky1.board":
+    "The basket is right there. Step in, hold the stay, and do not look at the ground — it is only going to get further away.",
   "npc.skyPilot.sky1.offer":
     "Told you that you would not like it. Well — you are up, and she held, and that is the whole of the trick. Welcome to the Shelf. Mind the rim, mind the rotas, and mind Gain: he was on the deck with a hot cup when we moored, and I did not carry him.",
   "npc.skyPilot.sky1.done":
@@ -500,9 +557,57 @@ export const en = {
   "npc.skyGardener.name": "Mother Pell",
   "npc.skyGardener.greeting":
     "Soil this thin, and every root has to hold on twice — once for itself, once for the rest of us.",
+  // The garden's bird (issue #158): she allows it, and then she watches.
+  "npc.skyGardener.sky2.allow":
+    "Gain sent you. Of course he did. It is in the garden, in the cable, and it has bitten everyone who was kind to it — so be kinder, and slower. You may go in. If it chooses you, the wing is yours to mend.",
+  "npc.skyGardener.sky2.gently":
+    "Gently. It hears you before it sees you, and it decides on the hearing.",
+  "npc.skyGardener.sky2.after":
+    "It sits your shoulder like it grew there. Good. Something up here should get to leave when it likes.",
+  // Cinderhelm (issue #160): she sends you down for the record, and reads it with you.
+  "npc.skyGardener.sky4.offer":
+    "You have wings now, so I will ask what I could not ask anyone without them. Cinderhelm — the shelf that burned. There is a vent under it and the engine breathes out through it, and something has been keeping the cities' own minutes down there for a hundred years, in the red. Bring me the record. I know what it says. I want you to have read it before I tell you why.",
+  "npc.skyGardener.sky4.busy":
+    "Down the vent, past the guardian, and out with the book. Do not read it in the dark; it is worse in the dark.",
+  "npc.skyGardener.sky4.done":
+    "So. They built it. It worked, and then it did not, and they wrote both down and kept the lamps lit so nobody below would look up. Your thread in the mill, your device on the reef — the same machine, both ends. Now go and ask the archivist why she stopped the oil.",
+  "npc.skyGardener.sky4.after":
+    "You have read the minutes. Then you know as much as the council did, and rather more than they wanted anyone to.",
+  "npc.skyGardener.sky5.after":
+    "Between. Not above, not below. I could have told you that four quests ago, and you would not have believed a gardener. My garden was grown from a cutting of it, child. Go and find Gain; he will want to argue about what comes next.",
   "npc.skyLamplighter.name": "Tobin Ashgrove",
   "npc.skyLamplighter.greeting":
     "Mind the rim after dark. I light the lamps so you can see the edge, not so you can stand on it.",
+  // Lanternfall — his second placement (issue #159): his galleries, his oil, his sister.
+  "npc.skyLamplighter.sky3.offer":
+    "Four galleries dark and the fifth guttering, and every cask I own is sitting at Skyhaven's mooring where Vane put it down, because nothing with wings would carry it further. You would. Six casks — bring them and we light the shelf, and I will tell you what the lamps are FOR, which nobody down there has been told.",
+  "npc.skyLamplighter.sky3.busy":
+    "Skyhaven's mooring, by the gate. Six. I will have the wicks trimmed by the time you are back.",
+  "npc.skyLamplighter.sky3.done":
+    "Six. Watch — there, and there, and the far shelf. That glow is the engine's overflow, dimmed, and the lamps are the only thing dimming it. And you — the mill. Redbriar. You said Ashgrove. MERA Ashgrove? She is alive? I have lit these lamps ten years thinking I was the last of us.",
+  "npc.skyLamplighter.sky3.after":
+    "She is alive. Say it again when you go down; say it to her. Tell her the lamps are lit and her brother is the one lighting them.",
+  // The archivist (issue #161): four quests a villain, one quest the truth.
+  "npc.vess.name": "Archivist Marran Vess",
+  "npc.vess.greeting":
+    "The Orrery is not open to visitors, and you are not a visitor, so you may as well come in. Touch nothing that turns.",
+  "npc.vess.record":
+    "You have the record. Then you have the half of it the council wanted kept, and none of the half I keep. Come back when the lamps are lit; I would rather explain to someone who has done the work.",
+  "npc.vess.sky5.offer":
+    "Lens, vane, lantern. Yes — I stopped the oil, I sealed the vent, and I hoarded the minutes, and I will not apologise for any of it while the engine's guard is awake, because it does not answer to me and it will not answer to you. It is between us and the frame. Go through it. THEN we talk.",
+  "npc.vess.sky5.busy":
+    "It is called the Choirguard because it was built to keep time. Do not let it.",
+  "npc.vess.sky5.done":
+    "Down, then. Now listen, because I have said this to nobody in a hundred years. The engine is not the source. It HOLDS the source — in — and every hand I have taken off it has cost a region below. Your valley. Your reef. I stopped the oil because the lamps were hiding it, and I would rather you looked. It is not above and it is not below. It is between. Ask Pell what it is; her garden knows.",
+  "npc.vess.sky5.after":
+    "Go down to your Encampment. Tell them everything, and tell them I am not sorry — but that I would like to be, and that is more than the council ever managed.",
+  // The Warden's third placement — an uneasy ally in the Orrery (issue #161).
+  "npc.coil.sky5.greeting":
+    "I came up the hard way, on a rope, and I do not intend to discuss it. The archivist and I are... corresponding.",
+  "npc.coil.sky5.record":
+    "So the cities built it. I read your minutes over your shoulder — I read everything over people's shoulders. It worked, once. That is my whole case, and I notice it is also hers.",
+  "npc.coil.sky5.after":
+    "Between. Then it can be reached, and if it can be reached it can be held better than this. Down to the Encampment; we finish this where it started, and this time you hear me out.",
 
   // ---- beast species -------------------------------------------------------
   // Keyed by the species id in src/beasts/species/*.ts. The id is what the roster,
@@ -779,6 +884,9 @@ export const en = {
   "enemy.threadAnchor.name": "Thread Anchor",
   "enemy.bridleHound.name": "Bridle-hound",
   "enemy.brineholder.name": "The Brineholder",
+  // Act 3's two guardians (issues #160, #161): the one that cannot stop, and the one that keeps time.
+  "enemy.cinderguard.name": "The Cinderguard",
+  "enemy.choirguard.name": "The Choirguard",
   // The lead animal of a flock is the one wearing the bell, and the rest follow
   // it wherever it goes — which is the whole of what has gone wrong in the
   // valley, said in one word (issue #151).
@@ -872,6 +980,8 @@ export const en = {
   "hint.zoneEntering": "Entering {zone}…",
   "hint.ferry": "Press {key} to sail to {place}",
   "hint.sailing": "Sailing to {place}…",
+  "hint.balloon": "Press {key} to ride the balloon to {place}",
+  "hint.ballooning": "Riding the balloon to {place}…",
 
   // ---- dialogue ------------------------------------------------------------
   // The talk panel's footer. `{key}` arrives already wrapped in <kbd>, like

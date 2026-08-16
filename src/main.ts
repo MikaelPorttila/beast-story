@@ -37,6 +37,7 @@ import {
   MOUNT_KIND_KEYS,
   MOUNT_KIND_OF,
   type BeastSpecies,
+  type CarrierInfo,
   type CrownContact,
   type NpcInfo,
   type SkillDef,
@@ -101,6 +102,7 @@ import {
 import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./world/nature";
 import { createDungeon, holdFloorSpot } from "./world/dungeon";
 import { Ferry, type FerryStop } from "./world/ferry";
+import { ShardCluster } from "./world/sky-shards";
 import { SURFACE_Y } from "./world/water";
 import { ZoneManager, type ZoneDef } from "./world/zones";
 import { Underwater } from "./world/underwater";
@@ -975,12 +977,29 @@ function escortName(bareId: string): string {
 }
 
 /** The staged sites content may SELECT by name — the same spots `__dbgQuestSites` reads. */
-const QUEST_SITE_NAMES = ["vane-wreck", "maws-rest", "drove-ground", "hold-floor"] as const;
+const QUEST_SITE_NAMES = [
+  "vane-wreck",
+  "maws-rest",
+  "drove-ground",
+  "hold-floor",
+  "skyhaven-mooring",
+] as const;
+
+const _siteW = { x: 0, z: 0 };
 
 function questSite(name: string): { x: number; z: number } | null {
   switch (name) {
     case "vane-wreck":
       return vaneWreck();
+    case "skyhaven-mooring": {
+      // Where the pad is NOW: the island moves, so this is a reading, not a place.
+      const m = world.mooringOf("skyhaven");
+      if (!m) {
+        return null;
+      }
+      m.frame.toWorld(m.x, m.z, _siteW);
+      return { x: _siteW.x, z: _siteW.z };
+    }
     case "maws-rest":
       return mawsRest();
     case "drove-ground":
@@ -995,23 +1014,22 @@ function questSite(name: string): { x: number; z: number } | null {
 // overworld" hook never fires on a fresh game, and quest 4's definitions must be resident in `hold`.
 const contentBoot = await bootstrapContent({
   engineFlags: [],
-  // `story-sea` at boot, not on its act's flag: Act 2 is part of the open world
-  // (issue #144), so its island settlements must exist when `planSettlements`
-  // runs — the geography is always there; `sea-revealed` opens the FERRY.
-  packages: ["story", "story-land", "story-sea"],
+  // `story-sea` and `story-sky` at boot, not on their acts' flags: both acts are
+  // part of the open world (issues #144, #145), so their settlements must exist
+  // when the world is built — the geography is always there; `sea-revealed`
+  // opens the FERRY and `sky-revealed` the BALLOON.
+  packages: ["story", "story-land", "story-sea", "story-sky"],
 });
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
 
 // AN ACT'S PACKAGE LOADS ON THE FLAG THAT OPENS THE ACT (issue #209) — unless the act is part of
 // the open world, in which case its settlements must exist when the world is planned and the
-// package moves to the boot list above (issue #144: `story-sea` did exactly that). The sky CAN
-// arrive late — Skyhaven ships in `core`, so nothing of Act 3 is needed when the world is planned
-// (issue #157). Loaded ONCE and never released mid-session: progress lives in ContentState either
-// way, and `exitToTitle` clears the FACTS, after which nothing gates on the resident definitions.
-const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [
-  { flag: "sky-revealed", pkg: "story-sky" },
-];
+// package moves to the boot list above (issues #144, #145: `story-sea` and `story-sky` both did).
+// The door stays for an act with a zone of its own — the Seam (issue #146). Loaded ONCE and never
+// released mid-session: progress lives in ContentState either way, and `exitToTitle` clears the
+// FACTS, after which nothing gates on the resident definitions.
+const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [];
 const actPackagesLoaded = new Set<string>();
 function syncActPackages(): void {
   for (const act of ACT_PACKAGES) {
@@ -1381,6 +1399,7 @@ const ferry: Ferry | null = (() => {
     [
       {
         id: "pier",
+        nameKey: "zone.overworld.name",
         x: p.x,
         z: p.z,
         y: world.getHeight(p.x, p.z),
@@ -1392,9 +1411,10 @@ const ferry: Ferry | null = (() => {
       (() => {
         const port = world.portOf("saltrest");
         return port
-          ? { id: "saltrest", ...port }
+          ? { id: "saltrest", nameKey: "town.saltrest.name" as const, ...port }
           : {
               id: "saltrest",
+              nameKey: "town.saltrest.name" as const,
               x: saltrest.gateX,
               z: saltrest.gateZ,
               y: world.getHeight(saltrest.gateX, saltrest.gateZ),
@@ -1403,15 +1423,50 @@ const ferry: Ferry | null = (() => {
             };
       })(),
     ],
-    SURFACE_Y,
+    { kind: "boat", waterY: SURFACE_Y },
     () => content.state.flag("sea-revealed"),
   );
 })();
 
-/** Where a sail is headed, from press to fade-in; null when nobody is sailing. */
-let sail: { to: FerryStop; phase: "out" | "wait" | "in"; t: number } | null = null;
+// THE BALLOON (issue #157): the sky is the open world's sky the way the Reach is
+// its sea, so the ascent is the ferry's own mechanism with a second craft — from
+// Corwin Vane's repaired wreck on Gullspire to Skyhaven's mooring, and back, since
+// Act 4 stages out of the Encampment. `sky-revealed` moors it; the flying mount
+// later makes it optional. The Skyhaven end RIDES the island: local coordinates,
+// resolved through the frame every slice.
+/** The wreck: a fixed bearing off Gullspire, away from the gate — the drove-ground rule. Up here because the balloon moors on it. */
+const WRECK_OUT = 26;
+const balloon: Ferry | null = (() => {
+  const wreck = vaneWreck();
+  const mooring = world.mooringOf("skyhaven");
+  const gullspire = world.towns.get("gullspire");
+  if (!wreck || !mooring || !gullspire) {
+    return null;
+  }
+  const away = Math.atan2(wreck.x - gullspire.x, wreck.z - gullspire.z);
+  return new Ferry(
+    engine.scene,
+    [
+      {
+        id: "vane-wreck",
+        nameKey: "town.gullspire.name",
+        x: wreck.x,
+        z: wreck.z,
+        y: wreck.y,
+        boatX: wreck.x + Math.sin(away) * 5,
+        boatZ: wreck.z + Math.cos(away) * 5,
+      },
+      { id: "skyhaven-mooring", nameKey: "town.skyhaven.name", ...mooring },
+    ],
+    { kind: "balloon" },
+    () => content.state.flag("sky-revealed"),
+  );
+})();
 
-// The sail's blackout: a full-screen layer sized from --bs-vw/--bs-vh, opacity
+/** Where a ride is headed, from press to fade-in; null when nobody is riding. */
+let sail: { ride: Ferry; to: FerryStop; phase: "out" | "wait" | "in"; t: number } | null = null;
+
+// The ride's blackout: a full-screen layer sized from --bs-vw/--bs-vh, opacity
 // driven per frame so it follows the sim clock rather than a CSS timeline.
 const sailFade = document.createElement("div");
 sailFade.className = "bs-sail";
@@ -1424,21 +1479,19 @@ const sailCaption = document.createElement("div");
 sailFade.appendChild(sailCaption);
 document.body.appendChild(sailFade);
 
-/** What the sail caption and pier hint call a destination. Looked up per call — live language. */
-function ferryStopName(stop: FerryStop): string {
-  return stop.id === "saltrest" ? t("town.saltrest.name") : t("zone.overworld.name");
-}
-
 const SAIL_OUT_S = 0.5;
 const SAIL_IN_S = 0.7;
 /** The far quay must stream before the fade lifts; this is the give-up, not the norm. */
 const SAIL_WAIT_MAX_S = 15;
 
-function startSail(to: FerryStop): void {
-  sail = { to, phase: "out", t: 0 };
-  sailCaption.textContent = t("hint.sailing", { place: ferryStopName(to) });
+function startSail(ride: Ferry, from: FerryStop, to: FerryStop): void {
+  sail = { ride, to, phase: "out", t: 0 };
+  const caption = ride === balloon ? "hint.ballooning" : "hint.sailing";
+  sailCaption.textContent = t(caption, { place: t(to.nameKey) });
   sailFade.style.opacity = "0";
   sailFade.style.display = "flex";
+  // BOARDING IS THE FACT a travel quest counts: which pad you left from is the id.
+  advanceObjectives({ kind: "ride", id: from.id });
 }
 
 function tickSail(dt: number): void {
@@ -1453,7 +1506,9 @@ function tickSail(dt: number): void {
       if (mount.isMounted) {
         mount.dismount();
       }
-      player.position.set(sail.to.x, sail.to.y + 0.4, sail.to.z);
+      // Resolved NOW, not at the press: a mooring on a carrier has moved since.
+      const at = sail.ride.landing(sail.to);
+      player.position.set(at.x, at.y + 0.4, at.z);
       player.velocity.set(0, 0, 0);
       sail.phase = "wait";
       sail.t = 0;
@@ -1467,9 +1522,9 @@ function tickSail(dt: number): void {
     sailFade.style.opacity = String(Math.max(0, 1 - sail.t / SAIL_IN_S));
     if (sail.t >= SAIL_IN_S) {
       sailFade.style.display = "none";
-      const to = sail.to;
+      const { ride, to } = sail;
       sail = null;
-      ferry?.arrived(to);
+      ride.arrived(to);
       // FIRST LANDFALL IS THE ACT'S DOOR: one discovery, one banner toast. The
       // town-arrival objective fires from syncTownArrival on its own.
       if (to.id === "saltrest" && !content.state.discovered("region:brine")) {
@@ -1480,13 +1535,38 @@ function tickSail(dt: number): void {
   }
 }
 
+/** The ride the hero stands armed on, if any. The pier is asked first; the two never share ground. */
+function rideOffer(): { ride: Ferry; from: FerryStop; to: FerryStop } | null {
+  for (const ride of [ferry, balloon]) {
+    const at = ride?.atPier();
+    if (ride && at) {
+      return { ride, ...at };
+    }
+  }
+  return null;
+}
+
 // Zone-agnostic — the world is only a per-frame "is there water under the lens" answer — so it survives a switch without being in `bound`.
 const underwater = new Underwater(engine.scene, engine.camera, engine.renderer.domElement);
 const player = new Player(engine, world, input, bus);
 // WHERE A FAINT PUTS HIM BACK: the nearest stone this character has lit, or the world's own spawn when
 // he has lit none — which is what it always was. The policy is here and not in Player because "lit" is
 // a content fact and the player may not read one.
-player.respawnAt = (x, z) => world.waypoints?.nearestLit(x, z, waypointLit) ?? null;
+player.respawnAt = (x, z) => {
+  const stone = world.waypoints?.nearestLit(x, z, waypointLit);
+  return stone ? { x: stone.x, z: stone.z, y: stoneLanding(stone) } : null;
+};
+
+/**
+ * Where arriving at a stone puts a hero's feet: the deck it stands on when it
+ * stands on a carrier (a shard's stone hovers with its rock), else the ground.
+ * The stone's OWN y is what says which — a town island passing over a road stone
+ * must not be answered as its deck.
+ */
+function stoneLanding(stone: { x: number; y: number; z: number }): number | undefined {
+  const deck = world.carriers.bodyAt(stone.x, stone.z)?.deckAt(stone.x, stone.z) ?? -Infinity;
+  return Number.isFinite(deck) && Math.abs(deck - stone.y) < 3 ? deck + 0.4 : undefined;
+}
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
 // TAPS THE KEY, as the pad's Start and the touch MENU do; the one reader in `frame()` still decides what it means.
@@ -2269,6 +2349,7 @@ const SITE_TIP_KEYS: Record<string, { name: StringKey; desc: StringKey }> = {
   "maws-rest": { name: "site.mawsRest.name", desc: "site.mawsRest.desc" },
   "drove-ground": { name: "site.droveGround.name", desc: "site.droveGround.desc" },
   "hold-floor": { name: "site.holdFloor.name", desc: "site.holdFloor.desc" },
+  "skyhaven-mooring": { name: "site.skyhavenMooring.name", desc: "site.skyhavenMooring.desc" },
 };
 
 const speciesById = (id: string): BeastSpecies | undefined =>
@@ -2544,7 +2625,7 @@ const map = new MapPanel({
       return;
     }
     map.close("travel");
-    teleportTo(stone.x, stone.z);
+    teleportTo(stone.x, stone.z, stoneLanding(stone));
   },
   onMarker: (spot) => {
     setPlayerMarker(spot);
@@ -2792,6 +2873,9 @@ function questWaypoint(asset: ContentAsset<QuestData>): { x: number; z: number }
 
 /** Chips currently drawn for quests, so a completed one's chip is removed and not left on the rim. */
 let questChipIds: string[] = [];
+/** A chip's target can MOVE — a carried town, its mooring, a walking closer — so the rim is re-read on a slow clock, not only on a state change. */
+const QUEST_CHIP_POLL = 1;
+let questChipPollIn = 0;
 
 function refreshQuestChips(): void {
   const spots = questCompassSpots();
@@ -2869,6 +2953,9 @@ function advanceObjectives(fact: QuestFact): void {
         continue;
       }
       if (fact.kind === "escort" && trigger.npc !== undefined && trigger.npc !== fact.id) {
+        continue;
+      }
+      if (fact.kind === "ride" && trigger.site !== undefined && trigger.site !== fact.id) {
         continue;
       }
       // `zone` ON ANY OTHER KIND IS WHERE IT HAPPENED, not what it identifies — the one filter that is
@@ -2985,6 +3072,7 @@ function syncTownArrival(): void {
   // `radius` is the town's own footprint — the registry's answer to "are you in it". The height band
   // is what keeps a flying hero from arriving in a town he is passing over; generous downward,
   // because the ground under a hamlet on a slope is not the levelled height at its middle.
+  // A CARRIED town is its deck: you have arrived the moment you stand on the rock it rides.
   const now =
     t0 &&
     inReach(
@@ -2994,7 +3082,7 @@ function syncTownArrival(): void {
       player.position.x,
       player.position.y,
       player.position.z,
-      t0.radius,
+      t0.carried ? t0.outerRadius : t0.radius,
       12,
       24,
     )
@@ -3033,6 +3121,8 @@ content.state.onChange((change) => {
   marketStagePollIn = 0;
   rookeryStagePollIn = 0;
   mawsStagePollIn = 0;
+  wingStagePollIn = 0;
+  deckStagePollIn = 0;
   if (status === "active") {
     content.run(asset.data.onStart);
     // "REACH X" IS A STATE, NOT AN EDGE, FOR A QUEST HANDED OUT INSIDE X: the
@@ -3447,8 +3537,6 @@ function tickMarketStage(dt: number): void {
 const ROOKERY_BIRD = "wild-galebird";
 const ROOKERY_FLOCK_N = 3;
 const ROOKERY_COMPONENT = "component-vane";
-/** The wreck: a fixed bearing off the town, away from the gate — the drove-ground rule. */
-const WRECK_OUT = 26;
 const ROOKERY_STAGE_REACH = 60;
 let rookeryStagePollIn = 0;
 
@@ -3599,6 +3687,201 @@ function tickMawsStage(dt: number): void {
     !combat.enemies.some((e) => e.targetable && e.species === MAWS_BOSS)
   ) {
     combat.spawnOne(MAWS_BOSS, ring.x + 4, ring.z);
+  }
+}
+
+// WINGBROKEN — the Galebird in Skyhaven's ballast garden (issue #158). Staged
+// ON THE DECK: an enemy spawned at deck height attaches to the carrier's ride
+// volume and travels with the island. It appears once Mother Pell has let you
+// near it, and only while the bond is still owed — a bond empties the garden.
+const WING_BIRD = "wild-galebird";
+const WING_STAGE_REACH = 60;
+let wingStagePollIn = 0;
+
+function tickWingStage(dt: number): void {
+  wingStagePollIn -= dt;
+  if (wingStagePollIn > 0) {
+    return;
+  }
+  wingStagePollIn = PRACTICE_POLL;
+  const asset = content.get<QuestData>("quest:sky/wingbroken");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  if (
+    content.state.progress(asset.id, "free-the-galebird") < 1 ||
+    content.state.progress(asset.id, "tame-galebird") >= 1
+  ) {
+    return;
+  }
+  const isle = world.carriers.get("carrier:town:skyhaven");
+  const pell = world.npcs?.all.find((n) => n.id === "sky-gardener");
+  if (!isle || !pell) {
+    return;
+  }
+  if (
+    !inReach(
+      isle.x,
+      isle.y,
+      isle.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      isle.radius + WING_STAGE_REACH,
+      60,
+      60,
+    )
+  ) {
+    return;
+  }
+  // The garden's bird, not the Rookery's flock: counted within the island's own rim.
+  const here = combat.enemies.some(
+    (e) =>
+      !e.isDead &&
+      e.species === WING_BIRD &&
+      Math.hypot(e.position.x - isle.x, e.position.z - isle.z) < isle.radius,
+  );
+  if (here) {
+    return;
+  }
+  // Beside Pell, on turf: the first bearing whose column is deck and not a wall.
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    const x = pell.x + Math.sin(a) * 4;
+    const z = pell.z + Math.cos(a) * 4;
+    const deck = isle.topAt(x, z);
+    if (deck > -Infinity && deck < pell.y + 0.6) {
+      combat.spawnOne(WING_BIRD, x, z, deck);
+      return;
+    }
+  }
+}
+
+// THE SKY'S DECK STAGES (issues #159, #160, #161) — Lanternfall's oil, the
+// Cinderguard and its record, the Choirguard. One shape: a quest that is active,
+// a carried town the hero is near, and something stood up ON ITS DECK — a spawn
+// at deck height attaches to the carrier and travels with it, and so does a drop
+// (pickups ride too). Nothing here knows an island by more than its town id.
+const OIL_ITEM = "lamp-oil";
+const OIL_N = 6;
+const RECORD_ITEM = "the-record";
+const DECK_STAGE_REACH = 60;
+let deckStagePollIn = 0;
+
+/** The carrier under a carried town, if the hero is within reach of it. */
+function nearIsland(townId: string): CarrierInfo | null {
+  const isle = world.carriers.get(`carrier:town:${townId}`);
+  if (
+    !isle ||
+    !inReach(
+      isle.x,
+      isle.y,
+      isle.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      isle.radius + DECK_STAGE_REACH,
+      60,
+      60,
+    )
+  ) {
+    return null;
+  }
+  return isle;
+}
+
+const _deckSpot = { x: 0, z: 0, y: 0 };
+/** A bare deck cell at `d` from the island's middle, on the first of eight bearings that is turf and not a wall. */
+function deckSpot(isle: CarrierInfo, d: number, phase: number): typeof _deckSpot | null {
+  for (let k = 0; k < 8; k++) {
+    const a = phase + (k / 8) * Math.PI * 2;
+    const x = isle.x + Math.sin(a) * d;
+    const z = isle.z + Math.cos(a) * d;
+    const top = isle.topAt(x, z);
+    if (top > -Infinity && top < isle.y + 0.6) {
+      _deckSpot.x = x;
+      _deckSpot.z = z;
+      _deckSpot.y = top;
+      return _deckSpot;
+    }
+  }
+  return null;
+}
+
+/** A guardian on a deck: stood up while its defeat is owed, once, and never again after. */
+function stageDeckBoss(isle: CarrierInfo, questId: string, objective: string, boss: string): boolean {
+  const defeated = content.state.progress(questId, objective) >= 1;
+  if (defeated) {
+    return true;
+  }
+  if (!combat.enemies.some((e) => e.targetable && e.species === boss)) {
+    const spot = deckSpot(isle, 14, 0.7);
+    if (spot) {
+      combat.spawnOne(boss, spot.x, spot.z, spot.y);
+    }
+  }
+  return false;
+}
+
+/** Quest drops on a deck: as many as the objective still owes, minus what is in the bag and on the ground. */
+function stageDeckDrops(
+  isle: CarrierInfo,
+  questId: string,
+  objective: string,
+  item: string,
+  want: number,
+  d: number,
+): void {
+  const have = content.state.progress(questId, objective) + bag.count(item);
+  const down = combat.dropSnapshot().filter((x) => x.itemId === item && !x.claimed).length;
+  for (let i = have + down; i < want; i++) {
+    const spot = deckSpot(isle, d, i * 1.3);
+    if (!spot) {
+      return;
+    }
+    combat.spawnDrop(item, spot.x + Math.sin(i) * 1.5, spot.y + 0.6, spot.z + Math.cos(i) * 1.5);
+  }
+}
+
+function tickDeckStages(dt: number): void {
+  deckStagePollIn -= dt;
+  if (deckStagePollIn > 0) {
+    return;
+  }
+  deckStagePollIn = PRACTICE_POLL;
+  // Lanternfall's oil waits at SKYHAVEN's mooring — Vane put it down where he moors.
+  const oil = content.get<QuestData>("quest:sky/lanternfall");
+  if (oil && content.state.questStatus(oil.id) === "active") {
+    const isle = nearIsland("skyhaven");
+    const m = world.mooringOf("skyhaven");
+    if (isle && m && content.state.progress(oil.id, "carry-oil") < OIL_N) {
+      const have = content.state.progress(oil.id, "carry-oil") + bag.count(OIL_ITEM);
+      const down = combat.dropSnapshot().filter((x) => x.itemId === OIL_ITEM && !x.claimed).length;
+      for (let i = have + down; i < OIL_N; i++) {
+        // In a ring on the pad's inboard side, so the casks never sit on the balloon.
+        const a = (i / OIL_N) * Math.PI * 2;
+        m.frame.toWorld(m.x + Math.sin(a) * 2.2, m.z + Math.cos(a) * 2.2, _siteW);
+        combat.spawnDrop(OIL_ITEM, _siteW.x, m.frame.y + m.y + 0.6, _siteW.z);
+      }
+    }
+  }
+  const cinder = content.get<QuestData>("quest:sky/cinderhelm");
+  if (cinder && content.state.questStatus(cinder.id) === "active") {
+    const isle = nearIsland("cinderhelm");
+    if (isle) {
+      const down = stageDeckBoss(isle, cinder.id, "defeat-cinderguard", "cinderguard");
+      // The record is what the guardian was keeping: it appears where it fell.
+      if (down && content.state.progress(cinder.id, "recover-the-record") < 1) {
+        stageDeckDrops(isle, cinder.id, "recover-the-record", RECORD_ITEM, 1, 14);
+      }
+    }
+  }
+  const orrery = content.get<QuestData>("quest:sky/the-orrery");
+  if (orrery && content.state.questStatus(orrery.id) === "active") {
+    const isle = nearIsland("orrery");
+    if (isle) {
+      stageDeckBoss(isle, orrery.id, "defeat-choirguard", "choirguard");
+    }
   }
 }
 
@@ -5790,6 +6073,10 @@ function* warmUpSteps(): Generator<void> {
   // draws them. Otherwise the shared GLOW program and ~100k vertices of buffer upload land on the frame
   // the player first sees the camp. One frame per site is enough: an upload is per GEOMETRY.
   for (const town of world.towns.all) {
+    // A CARRIED town is not on the ground under it: its programs are the first island's, warmed below.
+    if (town.carried) {
+      continue;
+    }
     _warmStage.set(town.x, world.getHeight(town.x, town.z) + 1, town.z);
     warmUpFrame(_warmStage, 0);
     yield;
@@ -5959,6 +6246,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickMarketStage(dt);
   tickRookeryStage(dt);
   tickMawsStage(dt);
+  tickWingStage(dt);
+  tickDeckStages(dt);
   tickWaypoints(dt);
   // Where he has been, for the map's fog: cheap until he crosses a cell.
   exploration.visit(zones.id, player.position.x, player.position.z);
@@ -6114,9 +6403,9 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
         // its own pad — the pier and the arch stand in open country, so they must
         // never take a press meant for a person or a den. The pier is tested first:
         // both refuse by position, and the two never share ground.
-        const atPier = sail === null ? (ferry?.atPier() ?? null) : null;
-        if (atPier) {
-          startSail(atPier.to);
+        const offer = sail === null ? rideOffer() : null;
+        if (offer) {
+          startSail(offer.ride, offer.from, offer.to);
         } else {
           zones.requestCrossing();
         }
@@ -6229,13 +6518,19 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // Streams the zone, runs the gateway rules, builds the preload. It can swap `world` out from under this slice; everything above has finished with it.
   zones.update(player.position, dt, first);
   ferry?.update(player.position, dt);
+  balloon?.update(player.position, dt);
   tickSail(dt);
+  questChipPollIn -= dt;
+  if (questChipPollIn <= 0) {
+    questChipPollIn = QUEST_CHIP_POLL;
+    refreshQuestChips();
+  }
   perf.section("world");
 
   // `t()` with no placeholders is one lookup and no allocation, so hinting per slice is free — never an
   // interpolated `t(key, vars)` here. A gateway countdown outranks both.
   // The pier's offer takes the pill when nothing nearer claims it, mirroring the press order above.
-  const pierOffer = sail === null ? (ferry?.atPier() ?? null) : null;
+  const pierOffer = sail === null ? rideOffer() : null;
   const hint =
     portalHint ??
     (nearNpc
@@ -6243,7 +6538,10 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       : nearShop
         ? skillDenHint
         : pierOffer
-          ? t("hint.ferry", { place: ferryStopName(pierOffer.to), key: hud.interactPrompt })
+          ? t(pierOffer.ride === balloon ? "hint.balloon" : "hint.ferry", {
+              place: t(pierOffer.to.nameKey),
+              key: hud.interactPrompt,
+            })
           : null);
   if (hint) {
     hud.showHint(hint);
@@ -7949,6 +8247,15 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
   present: ferry !== null,
   sailing: sail?.phase ?? null,
   ...(ferry ? (ferry.debug() as object) : {}),
+});
+// THE SHARDS, for tools/test-shards.mjs: every cluster's frame, hover, bridges and wood.
+(window as unknown as { __dbgShards: () => unknown }).__dbgShards = () =>
+  world.carriers.all.filter((c): c is ShardCluster => c instanceof ShardCluster).map((c) => c.debug());
+// THE BALLOON, for tools/test-long-ascent.mjs — the same ride, its own moorings.
+(window as unknown as { __dbgBalloon: () => unknown }).__dbgBalloon = () => ({
+  present: balloon !== null,
+  sailing: sail?.phase ?? null,
+  ...(balloon ? (balloon.debug() as object) : {}),
 });
 
 (window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({

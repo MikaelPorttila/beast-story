@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { FetchJob, World } from "../core/types";
 import { SHARD_ID, itemDef } from "../core/items";
+import { CarrierRide } from "../world/carriers";
 import type { VFX } from "./vfx";
 
 // A drop CLAIMED as a `FetchJob` stops answering the player's magnet, or the
@@ -12,6 +13,14 @@ const COLLECT_DIST_SQ = 0.45;
 const MAX_AGE = 42;
 
 const _v = new THREE.Vector3();
+
+/** Where a drop comes to rest: the terrain, or the deck it is riding, plus its float. */
+function restY(s: Drop, world: World): number {
+  const pos = s.group.position;
+  const g = world.getHeight(pos.x, pos.z);
+  const deck = s.ride.support(pos.x, pos.z);
+  return (deck > g ? deck : g) + 0.34;
+}
 
 interface Drop {
   active: boolean;
@@ -25,6 +34,8 @@ interface Drop {
   age: number;
   seed: number;
   grounded: boolean;
+  /** A drop on a carried deck travels with it, and its ground is that deck (issue #145). */
+  ride: CarrierRide;
   itemId: string;
   claimed: boolean;
   /** False for a thrown-away drop until the player leaves magnet range once. */
@@ -152,6 +163,7 @@ export class Pickups {
       age: 0,
       seed: 0,
       grounded: false,
+      ride: new CarrierRide(),
       itemId: SHARD_ID,
       claimed: false,
       armed: true,
@@ -195,6 +207,7 @@ export class Pickups {
     const def = itemDef(itemId);
     s.active = true;
     s.grounded = false;
+    s.ride.clear();
     s.claimed = false;
     s.armed = true;
     s.gen++;
@@ -249,7 +262,7 @@ export class Pickups {
     return best ? best.job : null;
   }
 
-  snapshot(): { itemId: string; x: number; z: number; claimed: boolean; age: number }[] {
+  snapshot(): { itemId: string; x: number; y: number; z: number; claimed: boolean; age: number }[] {
     const out = [];
     for (const s of this.pool) {
       if (!s.active) {
@@ -258,6 +271,8 @@ export class Pickups {
       out.push({
         itemId: s.itemId,
         x: +s.group.position.x.toFixed(2),
+        // Additive: a probe on a carried deck must know a drop rests on it, not under it.
+        y: +s.group.position.y.toFixed(2),
         z: +s.group.position.z.toFixed(2),
         claimed: s.claimed,
         age: +s.age.toFixed(1),
@@ -300,6 +315,8 @@ export class Pickups {
       }
       s.age += dt;
       const pos = s.group.position;
+      // Move with a deck first, so the magnet and the ground read where it is now.
+      s.ride.carry(world, pos);
 
       _v.set(magnet.x - pos.x, magnet.y + 0.8 - pos.y, magnet.z - pos.z);
       const d2 = _v.lengthSq();
@@ -328,7 +345,7 @@ export class Pickups {
       } else if (!s.grounded) {
         s.vel.y -= 11 * dt;
         pos.addScaledVector(s.vel, dt);
-        const gy = world.getHeight(pos.x, pos.z) + 0.34;
+        const gy = restY(s, world);
         if (pos.y <= gy && s.vel.y <= 0) {
           pos.y = gy;
           s.grounded = true;
@@ -336,7 +353,7 @@ export class Pickups {
           this.vfx.dust(pos.x, pos.y - 0.2, pos.z, 3, 0xbfeee6);
         }
       } else {
-        const gy = world.getHeight(pos.x, pos.z) + 0.34;
+        const gy = restY(s, world);
         pos.y = gy + 0.06 + Math.sin(s.age * 3.4 + s.seed) * 0.09;
       }
 
