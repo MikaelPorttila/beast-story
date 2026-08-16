@@ -123,6 +123,12 @@ const SOLO = new Set([
   // Act 3's opener: rides the balloon up to the island and back down, pressing
   // on pads and landing on a moving deck — a hero, a key edge, and motion.
   "long-ascent",
+  // Act 3's tame quest: talks on a moving deck, stands a bird up on it, throws
+  // an orb — a hero, presses and motion.
+  "wingbroken",
+  // Act 3's fork and closer: oil, two guardians and a record, all on decks the
+  // hero is teleported between — presses, spawns and motion.
+  "orrery",
   // Grants beasts and items, then activates quests through the store and reads
   // what the activation counted — drives state, no hero; SOLO is the default.
   "quest-replay",

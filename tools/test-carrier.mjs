@@ -71,9 +71,13 @@ export const sections = [
   {
     id: "exists",
     run: async (ctx) => {
-      // There is one, and it is going somewhere.
+      // Skyhaven is the first of them (the sky act adds three more, issue #145), and it is going somewhere.
       const first = await carriers(ctx);
-      ctx.check(first.all.length === 1, `expected exactly one carrier, got ${first.all.length}`);
+      ctx.check(first.all.length >= 1, `expected a carrier, got ${first.all.length}`);
+      ctx.check(
+        first.all[0]?.id === "carrier:town:skyhaven",
+        `the first carrier is "${first.all[0]?.id}", not Skyhaven`,
+      );
       island = first.all[0] ?? null;
       ctx.check(!!island, "no carrier in the world at all");
       if (!island) {

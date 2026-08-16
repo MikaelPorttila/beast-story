@@ -30,7 +30,7 @@ import {
   skyWell,
 } from "./sky-parts";
 import { CARRIED_LAYOUT_KIND, content, defineFactory, type TownData } from "../content";
-import { displayKey, reportContentIssue } from "../core/content-bridge";
+import { displayKey } from "../core/content-bridge";
 import type { Terrain } from "./terrain";
 import { WATER_LEVEL } from "./terrain";
 import { createCarriedWaterMaterial } from "./water";
@@ -443,8 +443,14 @@ function planSkyhaven(
   }
 
   // The gate, out on the rim: it breaks the silhouette and says which side is front.
+  // Walked inward until it stands on turf: the outline is not a circle, and one
+  // seed's rim dips under 0.9 R on the gate's own bearing.
   {
-    const [gx, gz] = at(gateAngle, ISLAND_R * 0.9);
+    let gf = 0.9;
+    while (gf > 0.6 && !onDeck(...at(gateAngle, ISLAND_R * gf))) {
+      gf -= 0.03;
+    }
+    const [gx, gz] = at(gateAngle, ISLAND_R * gf);
     buildings.push({ t: parts.gate, x: gx, z: gz, yaw: gateAngle, s: 1.2, light: [1.6, 7.2] });
     claim(gx, gz, 8);
     const [p0x, p0z] = at(gateAngle, PLAZA);
@@ -554,11 +560,12 @@ function planSkyhaven(
       const mz = (z + lz) * 0.5;
       lx = x;
       lz = z;
-      // BOTH ENDS ON GROUND, not just the middle: a panel is a straight chord, so
-      // on a tight inside bend its ends reach further out than its centre.
+      // BOTH ENDS ON GROUND, AND THE MIDDLE: a panel is a straight chord, so on a
+      // tight inside bend its ends reach further out than its centre — and on an
+      // outside bend its centre hangs where the ends do not (a second seed found it).
       const hx = ux * SPACING * 0.5;
       const hz = uz * SPACING * 0.5;
-      if (!onDeck(mx - hx, mz - hz) || !onDeck(mx + hx, mz + hz)) {
+      if (!onDeck(mx - hx, mz - hz) || !onDeck(mx + hx, mz + hz) || !onDeck(mx, mz)) {
         continue;
       }
       if (!free(mx, mz, 1.2)) {
@@ -571,13 +578,18 @@ function planSkyhaven(
   // The stream runs to the rim on the fall's bearing: `buildRock` paints its BED and
   // `buildStream` lays the water over it, so the plan carries a bearing, not a shape.
   const [fx, fz] = at(fallAngle, PLAZA * 0.9);
+  // NOTHING STANDS OVER THE VOID: the outline is not a circle, and every ring above
+  // is a fraction of the radius — one seed puts a bush, a tree or a lamp past the
+  // rim on some bearing, where its collider would be drawn down to the ground.
+  const grounded = <T extends { x: number; z: number }>(list: T[]): T[] =>
+    list.filter((p) => onDeck(p.x, p.z));
   return {
-    buildings,
+    buildings: grounded(buildings),
     paths,
     streets,
-    lamps,
+    lamps: grounded(lamps),
     fences,
-    trees,
+    trees: grounded(trees),
     rocks,
     plots,
     fallAngle,
@@ -728,8 +740,16 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mats: THREE.Material[] = [];
   private nightGlowMat: THREE.MeshStandardMaterial | null = null;
-  /** Four real local lights; emissive windows alone cannot illuminate a wall. */
-  private readonly nightLights: Array<{ light: THREE.PointLight; peak: number }> = [];
+  /**
+   * Where four real local lights would stand; emissive windows alone cannot
+   * illuminate a wall. ANCHORS, not lights: the world owns one set of four and
+   * hands it to the island nearest the camera (`holdNightLights`), because every
+   * forward light is another lighting loop in every standard material's shader —
+   * four islands with four each doubled the shader sweep at boot.
+   */
+  readonly nightLamps: Array<{ x: number; y: number; z: number; peak: number; distance: number }> = [];
+  private heldLights: THREE.PointLight[] = [];
+  private darkness = 0;
   /** The fall off the rim. Null when `water=0`. Disposes its own geometry, so not in `geos`. */
   private readonly fall: Waterfall | null = null;
   /** The water in the channel. Null when `water=0`. Geometry and material are ours; the
@@ -742,10 +762,35 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     if (this.nightGlowMat) {
       this.nightGlowMat.emissiveIntensity = 1.65 * state.night * state.night;
     }
-    const darkness = state.night * state.night;
-    for (const entry of this.nightLights) {
-      entry.light.intensity = entry.peak * darkness;
+    this.darkness = state.night * state.night;
+    this.lightHeldLamps();
+  }
+
+  private lightHeldLamps(): void {
+    for (let i = 0; i < this.heldLights.length; i++) {
+      const lamp = this.nightLamps[i];
+      this.heldLights[i].intensity = lamp ? lamp.peak * this.darkness : 0;
     }
+  }
+
+  /** Take the world's shared night lights: parented here, at the anchors, at tonight's darkness. */
+  holdNightLights(lights: THREE.PointLight[]): void {
+    this.heldLights = lights;
+    for (let i = 0; i < lights.length; i++) {
+      const lamp = this.nightLamps[i];
+      const light = lights[i];
+      light.distance = lamp?.distance ?? 1;
+      light.position.set(lamp?.x ?? 0, lamp?.y ?? 0, lamp?.z ?? 0);
+      this.root.add(light);
+    }
+    this.lightHeldLamps();
+  }
+
+  releaseNightLights(): void {
+    for (const light of this.heldLights) {
+      this.root.remove(light);
+    }
+    this.heldLights = [];
   }
   /** The rock mesh, kept only so `debugFall` can report where `buildRock` put it. */
   private rock: THREE.Mesh | null = null;
@@ -903,26 +948,12 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     this.emit(night, this.nightGlowMat, false, true);
 
     // Emissive voxels identify the fixtures but Three has no GI, so four shadowless,
-    // range-limited lights supply the direct light. Not one per lantern: each forward
-    // light is another lighting loop on every visible standard material.
-    const addNightLight = (
-      x: number,
-      y: number,
-      z: number,
-      peak: number,
-      distance: number,
-    ): void => {
-      const light = new THREE.PointLight(0xffb86a, 0, distance, 2);
-      light.position.set(x, y, z);
-      light.castShadow = false;
-      light.userData.bsNightRole = "skyhaven-local-light";
-      this.root.add(light);
-      this.nightLights.push({ light, peak });
-    };
-    addNightLight(0, 9, 0, 26, 48);
+    // range-limited lights supply the direct light. Not one per lantern, and not
+    // one set per island — see `nightLamps`.
+    this.nightLamps.push({ x: 0, y: 9, z: 0, peak: 26, distance: 48 });
     for (let k = 0; k < Math.min(3, plan.lamps.length); k++) {
       const lamp = plan.lamps[Math.floor((k * plan.lamps.length) / 3)];
-      addNightLight(lamp.x, 5.2, lamp.z, 18, 36);
+      this.nightLamps.push({ x: lamp.x, y: 5.2, z: lamp.z, peak: 18, distance: 36 });
     }
 
     // Every query in the site is in the island's frame, and `this` is the frame. `Npcs`
@@ -1587,9 +1618,16 @@ const buildSkyhaven: CarriedLayout = (solid, parts, plan) => {
   }
 };
 
-/** The carried layouts this build implements. See `TownData.carried`. */
+/**
+ * The carried layouts this build implements. See `TownData.carried`. `gallery` and
+ * `orrery` are PLACEHOLDERS: Skyhaven's stamping under another name, so Act 3's
+ * towns exist, sit their crews and moor a balloon while their own kits are built
+ * (issue #145 — lamp galleries, an observatory full of brass).
+ */
 const CARRIED_LAYOUTS: Readonly<Record<string, CarriedLayout>> = {
   skyhaven: buildSkyhaven,
+  gallery: buildSkyhaven,
+  orrery: buildSkyhaven,
 };
 
 for (const [name, fn] of Object.entries(CARRIED_LAYOUTS)) {
@@ -1609,39 +1647,24 @@ interface SkyTownData {
   color: number;
 }
 
-/** The carried settlement in this content, or null. ONE — the second is a diagnostic,
- * since ignoring it is how content gets authored against a feature that is not there. */
-export function readCarriedTown(): SkyTownData | null {
-  let found: SkyTownData | null = null;
+/** Every carried settlement in this content, in load order — the first is the hub the debug hooks single out. */
+export function readCarriedTowns(): SkyTownData[] {
+  const found: SkyTownData[] = [];
   for (const asset of content.all<TownData>("town")) {
     if (!asset.data.carried) {
-      continue;
-    }
-    if (found) {
-      reportContentIssue({
-        severity: "warn",
-        code: "bad-field",
-        message: `"${asset.id}" is a second carried town; this world builds one`,
-        assetId: asset.id,
-        assetType: asset.type,
-        pkg: asset.pkg,
-        source: asset.source,
-        field: "data.carried",
-        fix: "one carried settlement per zone, for now",
-      });
       continue;
     }
     const nameKey = displayKey(asset);
     if (nameKey === null) {
       continue;
     }
-    found = {
+    found.push({
       id: asset.id.slice(asset.type.length + 1),
       nameKey,
       layout: asset.data.layout,
       radius: asset.data.radius,
       color: asset.data.color,
-    };
+    });
   }
   return found;
 }

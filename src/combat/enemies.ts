@@ -334,7 +334,15 @@ export class Enemy implements Damageable {
 
   // THROWS on an unknown species: an enemy with no stats has nothing to degrade
   // to, and the only callers are the spawner and the lab's `?enemy=`.
-  constructor(species: EnemySpeciesId, variantIdx: number, x: number, z: number, world: World) {
+  /** `deckY`: the walking surface where the terrain is not it — a spawn ON a carrier's deck (issue #158). */
+  constructor(
+    species: EnemySpeciesId,
+    variantIdx: number,
+    x: number,
+    z: number,
+    world: World,
+    deckY?: number,
+  ) {
     this.species = species;
     const spec = speciesOf(species);
     if (!spec) {
@@ -383,7 +391,7 @@ export class Enemy implements Damageable {
       }
     });
 
-    const groundY = world.getHeight(x, z);
+    const groundY = deckY ?? world.getHeight(x, z);
     const startY = spec.flying ? Math.max(groundY, world.waterLevel) + 3.2 : groundY;
     this.root.position.set(x, startY, z);
     this.position = this.root.position;

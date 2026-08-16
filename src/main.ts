@@ -37,6 +37,7 @@ import {
   MOUNT_KIND_KEYS,
   MOUNT_KIND_OF,
   type BeastSpecies,
+  type CarrierInfo,
   type CrownContact,
   type NpcInfo,
   type SkillDef,
@@ -3105,6 +3106,8 @@ content.state.onChange((change) => {
   marketStagePollIn = 0;
   rookeryStagePollIn = 0;
   mawsStagePollIn = 0;
+  wingStagePollIn = 0;
+  deckStagePollIn = 0;
   if (status === "active") {
     content.run(asset.data.onStart);
     // "REACH X" IS A STATE, NOT AN EDGE, FOR A QUEST HANDED OUT INSIDE X: the
@@ -3669,6 +3672,201 @@ function tickMawsStage(dt: number): void {
     !combat.enemies.some((e) => e.targetable && e.species === MAWS_BOSS)
   ) {
     combat.spawnOne(MAWS_BOSS, ring.x + 4, ring.z);
+  }
+}
+
+// WINGBROKEN — the Galebird in Skyhaven's ballast garden (issue #158). Staged
+// ON THE DECK: an enemy spawned at deck height attaches to the carrier's ride
+// volume and travels with the island. It appears once Mother Pell has let you
+// near it, and only while the bond is still owed — a bond empties the garden.
+const WING_BIRD = "wild-galebird";
+const WING_STAGE_REACH = 60;
+let wingStagePollIn = 0;
+
+function tickWingStage(dt: number): void {
+  wingStagePollIn -= dt;
+  if (wingStagePollIn > 0) {
+    return;
+  }
+  wingStagePollIn = PRACTICE_POLL;
+  const asset = content.get<QuestData>("quest:sky/wingbroken");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  if (
+    content.state.progress(asset.id, "free-the-galebird") < 1 ||
+    content.state.progress(asset.id, "tame-galebird") >= 1
+  ) {
+    return;
+  }
+  const isle = world.carriers.get("carrier:town:skyhaven");
+  const pell = world.npcs?.all.find((n) => n.id === "sky-gardener");
+  if (!isle || !pell) {
+    return;
+  }
+  if (
+    !inReach(
+      isle.x,
+      isle.y,
+      isle.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      isle.radius + WING_STAGE_REACH,
+      60,
+      60,
+    )
+  ) {
+    return;
+  }
+  // The garden's bird, not the Rookery's flock: counted within the island's own rim.
+  const here = combat.enemies.some(
+    (e) =>
+      !e.isDead &&
+      e.species === WING_BIRD &&
+      Math.hypot(e.position.x - isle.x, e.position.z - isle.z) < isle.radius,
+  );
+  if (here) {
+    return;
+  }
+  // Beside Pell, on turf: the first bearing whose column is deck and not a wall.
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    const x = pell.x + Math.sin(a) * 4;
+    const z = pell.z + Math.cos(a) * 4;
+    const deck = isle.topAt(x, z);
+    if (deck > -Infinity && deck < pell.y + 0.6) {
+      combat.spawnOne(WING_BIRD, x, z, deck);
+      return;
+    }
+  }
+}
+
+// THE SKY'S DECK STAGES (issues #159, #160, #161) — Lanternfall's oil, the
+// Cinderguard and its record, the Choirguard. One shape: a quest that is active,
+// a carried town the hero is near, and something stood up ON ITS DECK — a spawn
+// at deck height attaches to the carrier and travels with it, and so does a drop
+// (pickups ride too). Nothing here knows an island by more than its town id.
+const OIL_ITEM = "lamp-oil";
+const OIL_N = 6;
+const RECORD_ITEM = "the-record";
+const DECK_STAGE_REACH = 60;
+let deckStagePollIn = 0;
+
+/** The carrier under a carried town, if the hero is within reach of it. */
+function nearIsland(townId: string): CarrierInfo | null {
+  const isle = world.carriers.get(`carrier:town:${townId}`);
+  if (
+    !isle ||
+    !inReach(
+      isle.x,
+      isle.y,
+      isle.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      isle.radius + DECK_STAGE_REACH,
+      60,
+      60,
+    )
+  ) {
+    return null;
+  }
+  return isle;
+}
+
+const _deckSpot = { x: 0, z: 0, y: 0 };
+/** A bare deck cell at `d` from the island's middle, on the first of eight bearings that is turf and not a wall. */
+function deckSpot(isle: CarrierInfo, d: number, phase: number): typeof _deckSpot | null {
+  for (let k = 0; k < 8; k++) {
+    const a = phase + (k / 8) * Math.PI * 2;
+    const x = isle.x + Math.sin(a) * d;
+    const z = isle.z + Math.cos(a) * d;
+    const top = isle.topAt(x, z);
+    if (top > -Infinity && top < isle.y + 0.6) {
+      _deckSpot.x = x;
+      _deckSpot.z = z;
+      _deckSpot.y = top;
+      return _deckSpot;
+    }
+  }
+  return null;
+}
+
+/** A guardian on a deck: stood up while its defeat is owed, once, and never again after. */
+function stageDeckBoss(isle: CarrierInfo, questId: string, objective: string, boss: string): boolean {
+  const defeated = content.state.progress(questId, objective) >= 1;
+  if (defeated) {
+    return true;
+  }
+  if (!combat.enemies.some((e) => e.targetable && e.species === boss)) {
+    const spot = deckSpot(isle, 14, 0.7);
+    if (spot) {
+      combat.spawnOne(boss, spot.x, spot.z, spot.y);
+    }
+  }
+  return false;
+}
+
+/** Quest drops on a deck: as many as the objective still owes, minus what is in the bag and on the ground. */
+function stageDeckDrops(
+  isle: CarrierInfo,
+  questId: string,
+  objective: string,
+  item: string,
+  want: number,
+  d: number,
+): void {
+  const have = content.state.progress(questId, objective) + bag.count(item);
+  const down = combat.dropSnapshot().filter((x) => x.itemId === item && !x.claimed).length;
+  for (let i = have + down; i < want; i++) {
+    const spot = deckSpot(isle, d, i * 1.3);
+    if (!spot) {
+      return;
+    }
+    combat.spawnDrop(item, spot.x + Math.sin(i) * 1.5, spot.y + 0.6, spot.z + Math.cos(i) * 1.5);
+  }
+}
+
+function tickDeckStages(dt: number): void {
+  deckStagePollIn -= dt;
+  if (deckStagePollIn > 0) {
+    return;
+  }
+  deckStagePollIn = PRACTICE_POLL;
+  // Lanternfall's oil waits at SKYHAVEN's mooring — Vane put it down where he moors.
+  const oil = content.get<QuestData>("quest:sky/lanternfall");
+  if (oil && content.state.questStatus(oil.id) === "active") {
+    const isle = nearIsland("skyhaven");
+    const m = world.mooringOf("skyhaven");
+    if (isle && m && content.state.progress(oil.id, "carry-oil") < OIL_N) {
+      const have = content.state.progress(oil.id, "carry-oil") + bag.count(OIL_ITEM);
+      const down = combat.dropSnapshot().filter((x) => x.itemId === OIL_ITEM && !x.claimed).length;
+      for (let i = have + down; i < OIL_N; i++) {
+        // In a ring on the pad's inboard side, so the casks never sit on the balloon.
+        const a = (i / OIL_N) * Math.PI * 2;
+        m.frame.toWorld(m.x + Math.sin(a) * 2.2, m.z + Math.cos(a) * 2.2, _siteW);
+        combat.spawnDrop(OIL_ITEM, _siteW.x, m.frame.y + m.y + 0.6, _siteW.z);
+      }
+    }
+  }
+  const cinder = content.get<QuestData>("quest:sky/cinderhelm");
+  if (cinder && content.state.questStatus(cinder.id) === "active") {
+    const isle = nearIsland("cinderhelm");
+    if (isle) {
+      const down = stageDeckBoss(isle, cinder.id, "defeat-cinderguard", "cinderguard");
+      // The record is what the guardian was keeping: it appears where it fell.
+      if (down && content.state.progress(cinder.id, "recover-the-record") < 1) {
+        stageDeckDrops(isle, cinder.id, "recover-the-record", RECORD_ITEM, 1, 14);
+      }
+    }
+  }
+  const orrery = content.get<QuestData>("quest:sky/the-orrery");
+  if (orrery && content.state.questStatus(orrery.id) === "active") {
+    const isle = nearIsland("orrery");
+    if (isle) {
+      stageDeckBoss(isle, orrery.id, "defeat-choirguard", "choirguard");
+    }
   }
 }
 
@@ -5860,6 +6058,10 @@ function* warmUpSteps(): Generator<void> {
   // draws them. Otherwise the shared GLOW program and ~100k vertices of buffer upload land on the frame
   // the player first sees the camp. One frame per site is enough: an upload is per GEOMETRY.
   for (const town of world.towns.all) {
+    // A CARRIED town is not on the ground under it: its programs are the first island's, warmed below.
+    if (town.carried) {
+      continue;
+    }
     _warmStage.set(town.x, world.getHeight(town.x, town.z) + 1, town.z);
     warmUpFrame(_warmStage, 0);
     yield;
@@ -6029,6 +6231,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickMarketStage(dt);
   tickRookeryStage(dt);
   tickMawsStage(dt);
+  tickWingStage(dt);
+  tickDeckStages(dt);
   tickWaypoints(dt);
   // Where he has been, for the map's fog: cheap until he crosses a cell.
   exploration.visit(zones.id, player.position.x, player.position.z);
