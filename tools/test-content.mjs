@@ -578,7 +578,8 @@ async function consoleClosed(tries = 40) {
       // `enemy:penned-sproutle`, the Encampment's practice animal (issue #178).
       enemy: 8 + WILD_BEASTS.length,
       quest: BOOT_QUESTS,
-      music: 2,
+      // 2 -> 3: `music:brine`, the Reach's own score, shipped in `story-sea`.
+      music: 3,
     },
     "assets by type",
   );

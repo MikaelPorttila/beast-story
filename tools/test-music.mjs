@@ -1,6 +1,6 @@
 // The music guard: what is loaded, what is NOT, and what a fade actually does.
 //
-// Seven claims, and the first is the one that keeps every other probe in this
+// Eight claims, and the first is the one that keeps every other probe in this
 // directory quiet:
 //
 //   1. A DEBUG BOOT IS SILENT. `menu=0`, `photo=1`, `fs=0` and `fps=` are the
@@ -22,6 +22,8 @@
 //   7. AN AREA'S PLAYLIST IS CONTENT, and an area nobody scored gets the
 //      fallback one rather than silence. The second half is the only claim in
 //      this file that the arrangement it replaced could not have satisfied.
+//   8. THE REACH IS A SCENE WITHOUT BEING A ZONE: seaward of the coastline
+//      blend the hero's position alone swaps the score, and back again.
 //
 // It cannot assert on SOUND — headless has no speakers, and reading the
 // element's own `volume` back is the only honest signal there is. What that
@@ -278,6 +280,43 @@ const out = {};
   out.silent = await music(page);
   check(out.silent?.loaded === false, "a null scene unloads — the hook really moves things");
   check(out.silent?.playlist?.length === 0, "and reports an empty playlist");
+  await ctx.close();
+}
+
+// ---- 8. the Reach is a SCENE without being a zone ---------------------------
+//
+// Act 2 is part of the open world (issue #144): no gateway, no `onArrive`, so
+// the score changes on the hero's POSITION alone. Seaward of the coastline
+// blend `music:brine` plays; back over it the overworld's returns. Both halves,
+// so a resolver stuck on either answer fails.
+{
+  const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
+  logPageErrors(page);
+  await page.goto(`${HOST}/?fps=30&menu=0&fs=0&vol=0.5`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
+  await booted(page);
+  await page.mouse.click(500, 350);
+  await wait(1200);
+  out.coast = await music(page);
+  check(out.coast?.scene === "overworld", "on the coast the scene is the overworld");
+
+  // Well past SEA_FULL down SEA_DIR (0.404, 0.915) — the archipelago proper.
+  await page.evaluate(() => window.__dbgTp(0.404 * 900, 0.915 * 900));
+  await page.waitForFunction(() => window.__dbgMusic()?.scene === "brine", { timeout: 8000 });
+  await page.waitForFunction(() => /brine/.test(window.__dbgMusic()?.playlist?.[0] ?? ""), {
+    timeout: 8000,
+  });
+  out.reach = await music(page);
+  check(out.reach?.scene === "brine", "seaward the scene is the Reach");
+  check(out.reach?.playlist?.length === 1, `one track in it, got ${out.reach?.playlist?.length}`);
+  check(/brine/.test(out.reach?.playlist?.[0] ?? ""), "and it is the Reach's song");
+
+  await page.evaluate(() => window.__dbgTp(0, 0));
+  await page.waitForFunction(() => /overworld/.test(window.__dbgMusic()?.playlist?.[0] ?? ""), {
+    timeout: 8000,
+  });
+  out.back = await music(page);
+  check(out.back?.scene === "overworld", "back over the coast the overworld's returns");
   await ctx.close();
 }
 

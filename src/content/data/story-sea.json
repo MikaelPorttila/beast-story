@@ -739,6 +739,15 @@
         "_mount-water": "Action and flag both, per §6: the action does the unlocking, the flag is the testable fact quest:seam/guardian-sea gates on in Act 4. Campaign-lifetime — never cleared.",
         "rewards": { "xp": 300, "shard": 80 }
       }
+    },
+    {
+      "id": "music:brine",
+      "schema": 1,
+      "tags": ["area", "act2"],
+      "data": {
+        "tracks": ["brine"],
+        "fallback": false
+      }
     }
   ]
 }

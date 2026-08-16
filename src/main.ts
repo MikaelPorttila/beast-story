@@ -86,7 +86,7 @@ import { BundledProvider } from "./content/storage/bundled";
 import { contentIssues, reportContentIssue } from "./core/content-bridge";
 import { ColliderView } from "./core/collider-view";
 import { createWorld, type LandmarkProbe } from "./world/index";
-import { SEA_DIR, SEA_FULL } from "./world/terrain";
+import { SEA_DIR, SEA_FULL, SEA_START } from "./world/terrain";
 import { NPC_TALK_RANGE } from "./world/npc";
 import { QuestMarkers, type QuestMarkerKind, type QuestMarkerSpot } from "./world/quest-markers";
 import { TRAIL_PROFILE } from "./world/path-profile";
@@ -309,7 +309,8 @@ function beginPlay(): void {
   input.endFrame();
   loading?.finish();
   // New Game is also the gesture that makes audio legal at all: a title track the autoplay policy refused is dropped rather than faded.
-  music.setScene("overworld");
+  // Below the save so a character left in the Reach wakes to its score, not a fade out of Embervale's.
+  syncMusicScene();
   // Pushes the STORED gfx values (fps cap among them), not the URL/default cap.
   gfx.applyAll();
   if (staged) {
@@ -379,6 +380,7 @@ function exitToTitle(): void {
   input.releaseLock();
   // Back to the splash track; the zone's is faded and UNLOADED, not left decoding.
   music.setScene("title");
+  musicScene = null;
 
   // Overworld first: the reset below places the hero at `world.spawnPoint`, and the switch rebinds every `bound` subsystem against the right heightfield.
   if (zones.id !== "overworld") {
@@ -1325,9 +1327,6 @@ const zones = new ZoneManager({
   onArrive: (w, def) => {
     world = w;
     world.applyCelestial(dayNight);
-    // A ZONE ID IS A SCENE NAME: `musicPlaylist` looks for `music:<id>` and takes the fallback
-    // otherwise, so a zone added later brings its music and this line never grows a branch.
-    music.setScene(def.id);
     // A saddle pose is computed against one world's heightfield — the teleport-into-rock case.
     if (mount.isMounted) {
       mount.dismount();
@@ -1335,6 +1334,9 @@ const zones = new ZoneManager({
     player.position.copy(w.spawnPoint);
     player.position.y = Math.max(w.getHeight(w.spawnPoint.x, w.spawnPoint.z), w.waterLevel);
     player.velocity.set(0, 0, 0);
+    // A ZONE ID IS A SCENE NAME: `musicPlaylist` looks for `music:<id>` and takes the fallback
+    // otherwise, so a zone added later brings its music and this line never grows a branch.
+    syncMusicScene();
     // No placement needed: follow-update teleports any beast further than TELEPORT_DIST away.
     bus.emit({ type: "toast", text: t("toast.enteredZone", { zone: def.name }) });
     // The stones are the zone's, and a new zone's are dark until they are asked.
@@ -1499,6 +1501,35 @@ player.onAttack = (origin, dir) => {
     combat.meleeStrike(origin, dir, player.attackStat, player.position.y);
   }
 };
+
+// WHERE THE REACH'S SCORE BEGINS: mid-way through the coastline blend, with a band either side so a hero
+// swimming along the line does not fade the music back and forth. A scene, not a zone (issue #144).
+const BRINE_MUSIC_D = (SEA_START + SEA_FULL) / 2;
+const BRINE_MUSIC_BAND = 40;
+let inBrineScore = false;
+/** What this file last asked for; on a CHANGE only, so `__dbgMusicScene` keeps what it names. */
+let musicScene: string | null = null;
+/** The music scene the hero stands in: the zone's id, or `brine` seaward of the coast. */
+function syncMusicScene(): void {
+  // The warm-up slice runs under the title screen, whose track is the menu's to keep.
+  if (!playing) {
+    return;
+  }
+  let scene = zones.id;
+  if (scene === "overworld") {
+    const d = player.position.x * SEA_DIR.x + player.position.z * SEA_DIR.z;
+    if (inBrineScore ? d < BRINE_MUSIC_D - BRINE_MUSIC_BAND : d > BRINE_MUSIC_D + BRINE_MUSIC_BAND) {
+      inBrineScore = !inBrineScore;
+    }
+    if (inBrineScore) {
+      scene = "brine";
+    }
+  }
+  if (scene !== musicScene) {
+    musicScene = scene;
+    music.setScene(scene);
+  }
+}
 
 // Cos of the half-angle, ~75 degrees each side.
 const AIM_ASSIST_CONE_COS = Math.cos((75 * Math.PI) / 180);
@@ -5931,6 +5962,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickWaypoints(dt);
   // Where he has been, for the map's fog: cheap until he crosses a cell.
   exploration.visit(zones.id, player.position.x, player.position.z);
+  // Whose score he stands in: the ferry and the water mount cross the coast without a zone switch.
+  syncMusicScene();
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
   // deliberately: that runs at the END of a slice, so riders would spend the delta a slice late. Above the
