@@ -514,6 +514,171 @@ function buildBrineholder(root: THREE.Group, v: Variant): EnemyBody {
   return { parts };
 }
 
+/**
+ * THE CINDERGUARD — what a century in the red does to something that was set to
+ * guard a vent and never told to stop (issues #160, #263).
+ *
+ * Slag, not an animal: a burnt mass with the fire still in its cracks, three
+ * exhaust stacks fused along its spine, and a head carried too low because it
+ * has been walking the same circuit since the shelf burned. The accent is the
+ * engine's own exhaust and it only ever shows in the FISSURES — a coat of it
+ * would read as a lava beast, and this thing is cold rock with a fire inside.
+ */
+function buildCinderguard(root: THREE.Group, v: Variant): EnemyBody {
+  const bm = new VoxelModel();
+  bm.ellipsoid(0, 5.4, 0, 7.0, 4.4, 9.0, v.main);
+  bm.ellipsoid(0, 3.6, 0.4, 5.8, 2.8, 7.4, v.belly);
+  // The crust: a darker plate over the back, cracked along the spine.
+  bm.ellipsoid(0, 8.2, -0.8, 5.4, 3.0, 7.0, v.dark);
+  // ...and the fire in the cracks. A line, broken, never a field.
+  for (const z of [-6, -4, -1, 1, 4, 6]) {
+    bm.set(0, 11, z, v.accent);
+    bm.set(1, 10, z + 1, shade(v.accent, 0.7));
+  }
+  // Three exhaust stacks, lit at the throat. Fused INTO the crust, so they are
+  // part of the same mass rather than chimneys standing on it.
+  for (const [sx, sz] of [
+    [-3, -3],
+    [3, -3],
+    [0, 3],
+  ] as const) {
+    bm.box(sx - 1, 10, sz - 1, sx + 1, 12, sz + 1, shade(v.dark, 0.85));
+    bm.set(sx, 13, sz, v.accent);
+  }
+  // Cooled spatter down the flanks — it has been vented on for a hundred years.
+  for (const [fx, fy, fz] of [
+    [-6, 4, 3],
+    [6, 3, -2],
+    [-5, 2, -5],
+    [6, 5, 2],
+  ] as const) {
+    bm.set(fx, fy, fz, shade(v.dark, 0.6));
+  }
+  const bodyMesh = bm.build(0.1);
+  const body = new THREE.Group();
+  body.position.y = 0.6;
+  body.add(bodyMesh);
+  root.add(body);
+
+  const hm = new VoxelModel();
+  // A blunt wedge with no jaw to speak of: it does not eat, it walks.
+  hm.box(0, -2, 0, 3, 2, 5, v.main);
+  hm.box(0, -3, 4, 2, 0, 7, v.dark);
+  // The eyes are vents too — the same fire, seen end-on.
+  hm.set(3, 1, 4, v.accent);
+  hm.set(3, 0, 5, shade(v.accent, 0.6));
+  // The red thread, worn as tack: the collar is what is holding it to the engine.
+  hm.box(0, -1, -1, 3, -1, -1, 0xc4423c);
+  hm.mirrorX();
+  const headMesh = hm.build(0.1);
+  // 0.02 parts the head's grid from the body's at the neck — the Bellwether's rule.
+  headMesh.position.set(0, -0.24 + 0.02, 0.3);
+  const head = new THREE.Group();
+  head.position.set(0, 0.82, 1.02);
+  head.add(headMesh);
+  root.add(head);
+
+  const parts: Record<string, THREE.Object3D> = { body, head };
+  // Pillars, not limbs: it is held up rather than carried.
+  for (const [key, lx, lz] of [
+    ["legFL", -0.5, 0.56],
+    ["legFR", 0.5, 0.56],
+    ["legBL", -0.5, -0.58],
+    ["legBR", 0.5, -0.58],
+  ] as Array<[string, number, number]>) {
+    const lm = new VoxelModel();
+    lm.box(-1, 2, -1, 1, 5, 1, v.main);
+    lm.box(-2, 0, -2, 2, 1, 2, v.dark);
+    // One ember at the ankle, where the crust has split under the weight.
+    lm.set(0, 2, 2, shade(v.accent, 0.8));
+    const legMesh = lm.build(0.1);
+    legMesh.position.y = -0.62;
+    const leg = new THREE.Group();
+    leg.position.set(lx + Math.sign(lx) * 0.02, 0.62, lz);
+    leg.add(legMesh);
+    root.add(leg);
+    parts[key] = leg;
+  }
+  return { parts };
+}
+
+/**
+ * THE CHOIRGUARD — the Bond Engine's own defence, built to keep time (issues
+ * #161, #263), and the reason Vess cannot simply hand the Orrery over.
+ *
+ * Brass and made, where the Cinderguard is burnt and worn: a ribbed drum of a
+ * body carrying a ring of tuned bars, a head that is mostly an armature, and
+ * the red thread through the middle of it. Nothing here is organic — the
+ * silhouette is an instrument that happens to walk.
+ */
+function buildChoirguard(root: THREE.Group, v: Variant): EnemyBody {
+  const bm = new VoxelModel();
+  bm.ellipsoid(0, 5.6, 0, 6.6, 4.6, 8.6, v.main);
+  bm.ellipsoid(0, 3.8, 0.4, 5.4, 3.0, 7.0, v.belly);
+  // Ribs: the drum is banded, and the bands are what it rings with.
+  for (const z of [-6, -3, 0, 3, 6]) {
+    bm.box(-6, 9, z, 6, 9, z, shade(v.dark, 1.2));
+  }
+  // THE RING OF BARS over the back — tuned lengths, tallest at the shoulder.
+  const bars: ReadonlyArray<readonly [number, number, number]> = [
+    [-4, 3, -4],
+    [-2, 4, -1],
+    [0, 5, 1],
+    [2, 4, -1],
+    [4, 3, -4],
+  ];
+  for (const [bx, h, bz] of bars) {
+    bm.box(bx, 10, bz, bx, 10 + h, bz, shade(v.main, 1.25));
+    bm.set(bx, 11 + h, bz, v.dark);
+  }
+  // The thread runs THROUGH it, not over it: the engine holds this one too.
+  for (let z = -5; z <= 5; z += 2) {
+    bm.set(0, 12, z, v.accent);
+  }
+  const bodyMesh = bm.build(0.1);
+  const body = new THREE.Group();
+  body.position.y = 0.62;
+  body.add(bodyMesh);
+  root.add(body);
+
+  const hm = new VoxelModel();
+  // An armature rather than a skull: two arcs and the lens between them.
+  hm.box(0, -2, 0, 2, 2, 3, v.dark);
+  hm.box(2, -1, 1, 3, 3, 2, shade(v.main, 1.2));
+  hm.box(2, 3, 2, 3, 3, 5, shade(v.main, 1.2));
+  hm.set(0, 1, 5, v.accent);
+  hm.set(1, 1, 5, shade(v.accent, 0.7));
+  hm.mirrorX();
+  const headMesh = hm.build(0.1);
+  headMesh.position.set(0, -0.2 + 0.02, 0.28);
+  const head = new THREE.Group();
+  head.position.set(0, 1.0, 1.0);
+  head.add(headMesh);
+  root.add(head);
+
+  const parts: Record<string, THREE.Object3D> = { body, head };
+  // Jointed brass legs: a stand under an instrument, and it steps like one.
+  for (const [key, lx, lz] of [
+    ["legFL", -0.48, 0.54],
+    ["legFR", 0.48, 0.54],
+    ["legBL", -0.48, -0.56],
+    ["legBR", 0.48, -0.56],
+  ] as Array<[string, number, number]>) {
+    const lm = new VoxelModel();
+    lm.box(-1, 2, -1, 1, 5, 1, shade(v.main, 1.1));
+    lm.box(-1, 4, -1, 1, 4, 1, v.dark); // the joint collar
+    lm.box(-2, 0, -2, 2, 1, 2, v.dark);
+    const legMesh = lm.build(0.1);
+    legMesh.position.y = -0.62;
+    const leg = new THREE.Group();
+    leg.position.set(lx + Math.sign(lx) * 0.02, 0.62, lz);
+    leg.add(legMesh);
+    root.add(leg);
+    parts[key] = leg;
+  }
+  return { parts };
+}
+
 export const ENEMY_MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
   ["gloopling", buildGloopling],
   ["snortle", buildSnortle],
@@ -522,4 +687,6 @@ export const ENEMY_MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, Ene
   ["thread-anchor", buildThreadAnchor],
   ["bridle-hound", buildBridleHound],
   ["brineholder", buildBrineholder],
+  ["cinderguard", buildCinderguard],
+  ["choirguard", buildChoirguard],
 ]);
