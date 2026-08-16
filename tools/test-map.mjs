@@ -284,6 +284,77 @@ const dark = (p) => p && p[0] < 40 && p[1] < 50 && p[2] < 60;
   }
 }
 
+// ---------- 5. untouched fog chunks cover cached coarse terrain ------------
+{
+  const origin = await page.evaluate(() => window.__dbgPlayerPos());
+  const destination = { x: origin.x + 10000, z: origin.z + 10000 };
+  await page.evaluate((p) => window.__dbgTp(p.x, p.z), destination);
+  await wait(500);
+  await page.keyboard.press("KeyM");
+  await wait(300);
+  await page.evaluate(() => {
+    for (let i = 0; i < 20; i++) {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "-" }));
+    }
+  });
+  await wait(1200);
+
+  const gap = await page.evaluate(
+    ({ origin: start, destination: end }) => {
+      const map = window.__dbgMap();
+      const canvas = document.querySelector(".bs-map .mc");
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      const level = Math.min(
+        5,
+        Math.max(0, Math.floor(Math.log2(16 * map.view.scale * window.devicePixelRatio))),
+      );
+      const tileWidth = (128 * 16) / (1 << level);
+      const tx = Math.floor(end.x / tileWidth);
+      const tz = Math.floor(end.z / tileWidth);
+      const candidates = [];
+      for (
+        let z = Math.floor((tz * tileWidth) / 512);
+        z <= Math.floor(((tz + 1) * tileWidth - 1) / 512);
+        z++
+      ) {
+        for (
+          let x = Math.floor((tx * tileWidth) / 512);
+          x <= Math.floor(((tx + 1) * tileWidth - 1) / 512);
+          x++
+        ) {
+          const wx = (x + 0.5) * 512;
+          const wz = (z + 0.5) * 512;
+          const sx = w / 2 + (wx - map.view.cx) * map.view.scale;
+          const sy = h / 2 + (wz - map.view.cz) * map.view.scale;
+          const nearest = Math.min(
+            Math.hypot(wx - start.x, wz - start.z),
+            Math.hypot(wx - end.x, wz - end.z),
+          );
+          if (sx > 2 && sx < w - 2 && sy > 2 && sy < h - 2 && nearest > 300) {
+            candidates.push({ wx, wz, sx, sy, nearest });
+          }
+        }
+      }
+      candidates.sort((a, b) => b.nearest - a.nearest);
+      const sample = candidates[0] ?? null;
+      return {
+        level,
+        tileWidth,
+        sample,
+        pixel: sample ? window.__dbgMapPixel(sample.sx, sample.sy) : null,
+      };
+    },
+    { origin, destination },
+  );
+  out.untouchedChunk = gap;
+  check(
+    gap.sample !== null,
+    `no untouched fog chunk was visible in the ${gap.tileWidth}-unit terrain tile`,
+  );
+  check(dark(gap.pixel), `an untouched fog chunk exposed cached terrain: ${JSON.stringify(gap)}`);
+}
+
 console.log(JSON.stringify(out, null, 2));
 if (fails.length) {
   console.error(`\n${fails.length} failure(s):`);
