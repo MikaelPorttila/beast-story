@@ -4550,6 +4550,25 @@ const degShortest = (r: number): number => deg(shortest(r));
   y: +player.position.y.toFixed(2),
   /** The ANIMAL's altitude — what the flight and dive clamps act on. See `bodyY`. */
   bodyY: mount.isMounted ? +mount.bodyY.toFixed(2) : null,
+  /** And its COLUMN, with the surfaces under THAT: the rider sits behind the animal
+   * (`seatHero`), so a probe pairing `bodyY` with the hero's column is reading two
+   * places at once — which is how issue #268 hid. */
+  body: mount.isMounted
+    ? {
+        x: +mount.bodyX.toFixed(2),
+        z: +mount.bodyZ.toFixed(2),
+        keel: ((): number | null => {
+          const c = world.carriers.bodyAt(mount.bodyX, mount.bodyZ);
+          const b = c?.bottomAt(mount.bodyX, mount.bodyZ) ?? Infinity;
+          return Number.isFinite(b) ? +b.toFixed(2) : null;
+        })(),
+        deck: ((): number | null => {
+          const c = world.carriers.bodyAt(mount.bodyX, mount.bodyZ);
+          const d = c?.deckAt(mount.bodyX, mount.bodyZ) ?? -Infinity;
+          return Number.isFinite(d) ? +d.toFixed(2) : null;
+        })(),
+      }
+    : null,
   // The dive (issue #103): the two things `bodyY` cannot give — the swim gait, and depth under the float line without a probe restating WADE_DEPTH.
   swimming: mount.isSwimming,
   diveDepth: +mount.diveDepth.toFixed(2),

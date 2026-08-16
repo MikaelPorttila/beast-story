@@ -355,10 +355,16 @@ export const sections = [
         await ctx.adv(0.5);
         const c = await carriers(ctx);
         const mm = await ctx.ev(() => window.__dbgMount());
+        // THE ANIMAL'S OWN COLUMN, not the hero's (issue #268). `bodyY` is where
+        // the ANIMAL is and every flight clamp acts on it, while `__dbgCarriers`
+        // reads the surfaces under the HERO — and `seatHero` sets the rider behind
+        // the animal, so pairing the two is reading two places at once. Measured
+        // that way this section reported the flyer inside the rock on one sample
+        // in twenty-four, and measured at the animal's column it never is.
         samples.push({
           y: mm.bodyY,
-          keel: c.all[0].keel,
-          surface: c.all[0].surface,
+          keel: mm.body?.keel ?? null,
+          surface: mm.body?.deck ?? null,
           deck: c.all[0].deckTop,
           riding: c.riding,
         });
@@ -370,7 +376,9 @@ export const sections = [
       // Between the KEEL and the TURF — `surface`, not `deckTop`, which is the
       // top of whatever is standing in the column. The animal is inside the rock,
       // which is the bug.
-      const inside = under.filter((s) => s.y > s.keel + 0.5 && s.y < s.surface - 0.5);
+      const inside = under.filter(
+        (s) => s.surface !== null && s.y > s.keel + 0.5 && s.y < s.surface - 0.5,
+      );
       const climbed = samples[samples.length - 1].y - samples[0].y;
       const last = samples[samples.length - 1];
       ctx.res.keel = {
