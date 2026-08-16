@@ -34,6 +34,8 @@ export const flags = {
   shadows: on("shadows"),
   shadowCache: on("shadowcache"),
   towns: on("towns"),
+  /** The hovering shard clusters over the whole world (world/sky-shards.ts). */
+  shards: on("shards"),
   solids: on("solids"),
   sway: on("sway"),
   aimAssist: on("aim"),

@@ -129,6 +129,9 @@ const SOLO = new Set([
   // Act 3's fork and closer: oil, two guardians and a record, all on decks the
   // hero is teleported between — presses, spawns and motion.
   "orrery",
+  // The hovering shard clusters: rides one, walks a bridge, faints and revives on
+  // a shard's stone — a hero, held keys and motion.
+  "shards",
   // Grants beasts and items, then activates quests through the store and reads
   // what the activation counted — drives state, no hero; SOLO is the default.
   "quest-replay",

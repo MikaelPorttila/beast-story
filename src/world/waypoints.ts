@@ -18,7 +18,7 @@
  */
 import * as THREE from "three";
 import { VoxelModel } from "../core/voxel";
-import { inRise } from "../core/types";
+import { inRise, type LocalFrame } from "../core/types";
 import { relight, type SolidBox } from "./props";
 import { measureFootprint, StructureField } from "./structures";
 import { nearRoadFurniture, roadIntrusion } from "./placement";
@@ -284,8 +284,10 @@ export interface WaypointInfo {
  * position, and neither a probe nor a save can carry one.
  */
 interface Stone {
-  /** The SITE, `from` and all — `sensing` walks the approach line (issue #250). */
-  readonly info: WaypointSite;
+  /** The SITE, `from` and all — `sensing` walks the approach line (issue #250). WORLD coordinates, republished from `local` each update on a frame. */
+  readonly info: { -readonly [K in keyof WaypointSite]: WaypointSite[K] };
+  /** The site as authored, in the frame's own coordinates when there is one. */
+  readonly local: WaypointSite;
   group: THREE.Group;
   column: THREE.Mesh;
   light: THREE.PointLight;
@@ -582,6 +584,8 @@ export function waypointSites(
   return out;
 }
 
+const _pub = { x: 0, z: 0 };
+
 export class Waypoints {
   readonly group = new THREE.Group();
   /** The sited stones, `from` and all: the trail cutter reads it after construction. */
@@ -597,6 +601,12 @@ export class Waypoints {
     sites: readonly WaypointSite[],
     /** The detailed ring: a stone dies on it like the trees beside it. */
     ringBand: RingBand,
+    /**
+     * A MOVING piece of world the stones stand on: every site is then in its
+     * coordinates, `group` belongs under its root, and `all` is republished in
+     * world coordinates each update — the same split `Npcs` makes for a crew.
+     */
+    private readonly frame: LocalFrame | null = null,
   ) {
     this.ring = ringBand;
     for (const site of sites) {
@@ -624,8 +634,9 @@ export class Waypoints {
       light.visible = false;
       this.group.add(light);
 
-      this.all.push(site);
-      this.stones.push({ info: site, group: rig.group, column: rig.column, light, lit: false });
+      const info = { ...site };
+      this.all.push(info);
+      this.stones.push({ info, local: site, group: rig.group, column: rig.column, light, lit: false });
       this.solids.add({ solid: rig.solid }, site.x, site.y + rig.baseY, site.z, 0, 1, 1);
       this.disposables.push(rig.column.geometry, rig.column.material as THREE.Material);
       for (const sign of rig.signs.children as THREE.Mesh[]) {
@@ -635,12 +646,28 @@ export class Waypoints {
     // Freeze and index, once, after the last stamp — a field that is never built
     // answers -Infinity everywhere and the plate is scenery you fall through.
     this.solids.build();
+    this.publish();
+  }
+
+  /** Where each stone is NOW, in world coordinates. A no-op on the ground. */
+  private publish(): void {
+    const f = this.frame;
+    if (!f) {
+      return;
+    }
+    for (const stone of this.stones) {
+      f.toWorld(stone.local.x, stone.local.z, _pub);
+      stone.info.x = _pub.x;
+      stone.info.z = _pub.z;
+      stone.info.y = f.y + stone.local.y;
+    }
   }
 
   /** Hard cull past the ring, where the alpha fade has already zeroed a stone:
    *  it removes the far stones from the AO G-buffer too, whose override pass
    *  knows nothing of the fade and would stamp them onto the fog (issue #39). */
   update(focus: Readonly<THREE.Vector3>): void {
+    this.publish();
     const cut = this.ring.end.value + 8;
     for (const stone of this.stones) {
       stone.group.visible = Math.hypot(stone.info.x - focus.x, stone.info.z - focus.z) < cut;

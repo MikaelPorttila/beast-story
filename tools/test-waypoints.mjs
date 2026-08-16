@@ -46,7 +46,14 @@ await page.waitForFunction(
 await wait(400);
 
 const dbg = (fn, ...args) => page.evaluate(fn, ...args);
-const stones = () => dbg(() => window.__dbgWaypoints());
+// THE ROAD'S stones only: a shard cluster's stone (world/sky-shards.ts) is in the
+// same field but stands on a hovering deck with no trail — tools/test-shards.mjs
+// is its guard, and this probe's every claim is about the road.
+const stones = () =>
+  dbg(() => {
+    const w = window.__dbgWaypoints();
+    return { ...w, all: w.all.filter((s) => !s.id.startsWith("waypoint:shard-")) };
+  });
 const pos = () => dbg(() => window.__dbgPlayerPos());
 const adv = (s) => dbg((n) => window.__dbgAdvance(n), s);
 const tp = (x, z) => dbg((p) => window.__dbgTp(p.x, p.z), { x, z });

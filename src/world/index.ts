@@ -12,12 +12,15 @@ import type {
   PlayerStart,
   TownInfo,
   TownRegistry,
+  WaypointField,
+  WaypointSpot,
   World,
   WorldLayer,
 } from "../core/types";
 import { excludeFromAO } from "../core/types";
 import { CarrierField } from "./carriers";
-import { ISLAND_KEEL, SkyIsland, readCarriedTowns } from "./sky-island";
+import { ISLAND_KEEL, ROAM_R, SkyIsland, readCarriedTowns } from "./sky-island";
+import { ShardCluster, planShardClusters } from "./sky-shards";
 import { CHUNK_SIZE, DEEP_WATER_TOP, Terrain, WATER_LEVEL, makeScratch } from "./terrain";
 import { buildTerrainMesh, buildTerrainMeshSteps } from "./chunk";
 import { DistantTerrain, makeHorizonFade } from "./distant-terrain";
@@ -428,12 +431,67 @@ const SKY_FAN: ReadonlyArray<readonly [dAngle: number, dist: number]> = [
   [-0.9, 900],
   [0, 1500],
 ];
+/** Shard clusters seeded over the world. Each is one carrier of one to four rocks. */
+const SHARD_CLUSTERS = 14;
 
 /**
  * Two NPC fields behind one, for people on the ground AND people on something
  * that moves. A COMPOSITE rather than a wider `Npcs` because the two crews
  * differ in the one thing `Npcs` is built around: their coordinate frame.
  */
+/** The stones of several fields as one — the ground's and each shard cluster's. */
+class WaypointFields implements WaypointField {
+  constructor(private readonly parts: readonly WaypointField[]) {}
+
+  get all(): readonly WaypointSpot[] {
+    // Allocates; the map and a load ask, never a frame path.
+    return this.parts.flatMap((p) => p.all as WaypointSpot[]);
+  }
+
+  touching(x: number, z: number): WaypointSpot | null {
+    for (const p of this.parts) {
+      const w = p.touching(x, z);
+      if (w) {
+        return w;
+      }
+    }
+    return null;
+  }
+
+  sensing(x: number, y: number, z: number): WaypointSpot | null {
+    for (const p of this.parts) {
+      const w = p.sensing(x, y, z);
+      if (w) {
+        return w;
+      }
+    }
+    return null;
+  }
+
+  nearestLit(x: number, z: number, isLit: (id: string) => boolean): WaypointSpot | null {
+    let best: WaypointSpot | null = null;
+    let bd = Infinity;
+    for (const p of this.parts) {
+      const w = p.nearestLit(x, z, isLit);
+      if (!w) {
+        continue;
+      }
+      const d = (w.x - x) ** 2 + (w.z - z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = w;
+      }
+    }
+    return best;
+  }
+
+  setLit(isLit: (id: string) => boolean): void {
+    for (const p of this.parts) {
+      p.setLit(isLit);
+    }
+  }
+}
+
 class NpcFields implements NpcField {
   constructor(private readonly parts: readonly NpcField[]) {}
 
@@ -854,6 +912,26 @@ export function createWorld(
       scene.add(isle.root);
     });
   }
+  // THE SHARDS (world/sky-shards.ts): open-world rock scattered over the whole map,
+  // hovering where it was seeded. After the towns, so a probe's `carriers.all[0]` is
+  // still Skyhaven, and clear of every town island's roam disc.
+  const shards: ShardCluster[] = [];
+  if (flags.towns && flags.shards) {
+    const avoid = skies.map((s, i) => {
+      const [dAngle, dist] = SKY_FAN[Math.min(i, SKY_FAN.length - 1)];
+      return {
+        x: spawnPoint.x + Math.sin(SKY_HOME_ANGLE + dAngle) * dist,
+        z: spawnPoint.z + Math.cos(SKY_HOME_ANGLE + dAngle) * dist,
+        r: ROAM_R + s.radius,
+      };
+    });
+    for (const spec of planShardClusters(seed, spawnPoint, avoid, SHARD_CLUSTERS)) {
+      const cluster = new ShardCluster(spec, propLib, ringBand);
+      shards.push(cluster);
+      carriers.add(cluster);
+      scene.add(cluster.root);
+    }
+  }
   // ONE set of night lights for every island (see `SkyIsland.nightLamps`): held by
   // the island nearest the camera, so the light count — and every compiled shader —
   // never changes with how many towns fly.
@@ -1236,7 +1314,13 @@ export function createWorld(
     spawnPoint,
     playerStart,
     // Null when `towns=0` switched the road network off: no roads, no stones.
-    waypoints,
+    // Every standing stone: the roads' and the shards'. One field, so a load lights all of them.
+    waypoints: ((): WaypointField | null => {
+      const parts = [waypoints, ...shards.map((c) => c.waypoints)].filter(
+        (f): f is Waypoints => f !== null,
+      );
+      return parts.length > 1 ? new WaypointFields(parts) : (parts[0] ?? null);
+    })(),
     // The start town's pen — the camp layout's own answer, never rederived
     // (issue #178). `y` is read here so the caller stands things ON the ground.
     tamingPen: ((): { x: number; y: number; z: number; r: number } | null => {
@@ -1671,6 +1755,9 @@ export function createWorld(
       for (const s of skies) {
         s.debugStructures(out);
       }
+      for (const c of shards) {
+        c.debugStructures(out);
+      }
       shops.solids.debugBoxes(out);
       npcs?.solids.debugBoxes(out);
       spawned.debugBoxes(out);
@@ -1763,6 +1850,9 @@ export function createWorld(
       sway?.update(focus, time, dt);
       // WHERE the island is was decided by `carriers.advance` at the top of the
       // slice; this is only the people standing on it.
+      for (const c of shards) {
+        c.update(focus);
+      }
       let nearest: SkyIsland | null = null;
       let nearestD = Infinity;
       for (const s of skies) {
@@ -2070,6 +2160,10 @@ export function createWorld(
       for (const s of skies) {
         scene.remove(s.root);
         s.dispose();
+      }
+      for (const c of shards) {
+        scene.remove(c.root);
+        c.dispose();
       }
       if (clouds) {
         scene.remove(clouds.group);

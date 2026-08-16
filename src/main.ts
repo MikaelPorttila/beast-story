@@ -102,6 +102,7 @@ import {
 import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./world/nature";
 import { createDungeon, holdFloorSpot } from "./world/dungeon";
 import { Ferry, type FerryStop } from "./world/ferry";
+import { ShardCluster } from "./world/sky-shards";
 import { SURFACE_Y } from "./world/water";
 import { ZoneManager, type ZoneDef } from "./world/zones";
 import { Underwater } from "./world/underwater";
@@ -1551,7 +1552,21 @@ const player = new Player(engine, world, input, bus);
 // WHERE A FAINT PUTS HIM BACK: the nearest stone this character has lit, or the world's own spawn when
 // he has lit none — which is what it always was. The policy is here and not in Player because "lit" is
 // a content fact and the player may not read one.
-player.respawnAt = (x, z) => world.waypoints?.nearestLit(x, z, waypointLit) ?? null;
+player.respawnAt = (x, z) => {
+  const stone = world.waypoints?.nearestLit(x, z, waypointLit);
+  return stone ? { x: stone.x, z: stone.z, y: stoneLanding(stone) } : null;
+};
+
+/**
+ * Where arriving at a stone puts a hero's feet: the deck it stands on when it
+ * stands on a carrier (a shard's stone hovers with its rock), else the ground.
+ * The stone's OWN y is what says which — a town island passing over a road stone
+ * must not be answered as its deck.
+ */
+function stoneLanding(stone: { x: number; y: number; z: number }): number | undefined {
+  const deck = world.carriers.bodyAt(stone.x, stone.z)?.deckAt(stone.x, stone.z) ?? -Infinity;
+  return Number.isFinite(deck) && Math.abs(deck - stone.y) < 3 ? deck + 0.4 : undefined;
+}
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
 // TAPS THE KEY, as the pad's Start and the touch MENU do; the one reader in `frame()` still decides what it means.
@@ -2610,7 +2625,7 @@ const map = new MapPanel({
       return;
     }
     map.close("travel");
-    teleportTo(stone.x, stone.z);
+    teleportTo(stone.x, stone.z, stoneLanding(stone));
   },
   onMarker: (spot) => {
     setPlayerMarker(spot);
@@ -8233,6 +8248,9 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
   sailing: sail?.phase ?? null,
   ...(ferry ? (ferry.debug() as object) : {}),
 });
+// THE SHARDS, for tools/test-shards.mjs: every cluster's frame, hover, bridges and wood.
+(window as unknown as { __dbgShards: () => unknown }).__dbgShards = () =>
+  world.carriers.all.filter((c): c is ShardCluster => c instanceof ShardCluster).map((c) => c.debug());
 // THE BALLOON, for tools/test-long-ascent.mjs — the same ride, its own moorings.
 (window as unknown as { __dbgBalloon: () => unknown }).__dbgBalloon = () => ({
   present: balloon !== null,
