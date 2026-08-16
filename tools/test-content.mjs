@@ -211,6 +211,7 @@ const GAIN = {
  */
 const ACT1_QUESTS = [
   "quest:land/first-light",
+  "quest:land/the-blue-road",
   "quest:land/the-first-bond",
   "quest:land/the-mill-road",
   "quest:land/the-red-thread",

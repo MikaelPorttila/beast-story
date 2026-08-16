@@ -249,6 +249,10 @@ export const en = {
   // player is being asked for, and the verb here is taming — the orb is how you
   // tame, so the orb is what the line says.
   "quest.land.firstLight.obj.bondPractice": "Throw taming orbs at the penned Sproutle",
+  "quest.land.theBlueRoad.name": "The Blue Road",
+  "quest.land.theBlueRoad.desc":
+    "A dark waystone stands just beyond the Encampment gate. Gain says its blue symbols are an invitation: pass close enough to wake it, and the road will remember you.",
+  "quest.land.theBlueRoad.obj.wakeWaystone": "Wake the waystone outside the Encampment",
   "quest.land.theFirstBond.name": "The First Bond",
   "quest.land.theFirstBond.desc":
     "A penned animal has already agreed. Gain wants you to go past the wall and ask one that has not.",
@@ -428,6 +432,12 @@ export const en = {
   "npc.gain.q1.busy": "Three orbs, at the Sproutle. It will not bite, and I will not laugh. Much.",
   "npc.gain.q1.done":
     "There. That is the whole trick — the orb does nothing an animal has not already agreed to.",
+  "npc.gain.waystone.offer":
+    "Before you go hunting, take the road through the gate. The dark waystone outside carries blue marks — pass close and it will wake for you. Wake another later, then open the map and select either lit waystone to travel between them.",
+  "npc.gain.waystone.busy":
+    "Through the gate, beside the road. Follow the blue symbols and pass close enough to wake the stone.",
+  "npc.gain.waystone.done":
+    "Now the road knows you. Once a second waystone is lit, open the map and select either one to travel there. Useful when your feet have learned enough for the day.",
   "npc.gain.q2.offer":
     "Penned is not the same as willing. Go past the wall and find one that can say no to you, and see if it does.",
   "npc.gain.q2.busy": "Out there. Not in here. It has to be one that chose you.",

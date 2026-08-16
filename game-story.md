@@ -1,7 +1,7 @@
 # Beast Story: Bonds of Red — story design
 
 Issue #72. This is the campaign written down so it can be **authored as content**:
-the acts, the towns they happen in, the people who carry them, and the twenty main
+the acts, the towns they happen in, the people who carry them, and the twenty-one main
 quests, each already shaped like a `quest:` asset. Nothing here is code. The target
 is a set of packages under [src/content/data/](src/content/data/) that the runtime in
 [src/content/](src/content/) loads — see [src/content/types.ts](src/content/types.ts)
@@ -115,21 +115,22 @@ a fixed slot and dialogue reacting to it — needs engine support that does not 
 Seven shapes, chosen so that no act is five of the same thing. ✓ means the engine can
 already produce the trigger; ⚙ means [§7](#7-what-the-engine-still-needs) has an entry.
 
-| Type        | What the player does                                 | Objective counted by            |
-| ----------- | ---------------------------------------------------- | ------------------------------- |
-| **talk**    | Reach a person and hear them out                     | `NpcTalk` action ✓              |
-| **travel**  | Cross to a place that is far, or gated on a mount    | `discover` on arrival ⚙         |
-| **tame**    | Bond a named species in the wild                     | taming trigger ⚙                |
-| **collect** | Bring back N of a thing (drops, salvage, components) | `progress.add` on pickup ⚙      |
-| **cull**    | Put down N beasts — of a species, or any at all      | `progress.add` on enemy death ⚙ |
-| **dungeon** | Enter a zone, reach its floor, come back out         | zone arrival ⚙ + `discover`     |
-| **boss**    | One named enemy, one arena, usually mount-gated      | enemy death ⚙                   |
+| Type         | What the player does                                 | Objective counted by            |
+| ------------ | ---------------------------------------------------- | ------------------------------- |
+| **talk**     | Reach a person and hear them out                     | `NpcTalk` action ✓              |
+| **discover** | Wake a waystone or reveal a place                    | `waypoint-lit` / arrival ✓      |
+| **travel**   | Cross to a place that is far, or gated on a mount    | `discover` on arrival ⚙         |
+| **tame**     | Bond a named species in the wild                     | taming trigger ⚙                |
+| **collect**  | Bring back N of a thing (drops, salvage, components) | `progress.add` on pickup ⚙      |
+| **cull**     | Put down N beasts — of a species, or any at all      | `progress.add` on enemy death ⚙ |
+| **dungeon**  | Enter a zone, reach its floor, come back out         | zone arrival ⚙ + `discover`     |
+| **boss**     | One named enemy, one arena, usually mount-gated      | enemy death ⚙                   |
 
 Two rules about the mix, both learned from what this world is good at. **A travel quest
 is only interesting the moment before a mount is unlocked** — it is what makes the
 mount land — so each act spends its travel quest early and never again. And **a tame
-quest is the act's mount tutorial**, not a side errand: the animal you bond in quest 2
-of each act is the animal you ride for the rest of it.
+quest is the act's mount tutorial**, not a side errand: the animal you bond early in
+each act is the animal you ride for the rest of it.
 
 ---
 
@@ -174,22 +175,29 @@ is used as-is.
 | #   | Id                          | Type          | Giver                 | Location          | Prerequisites |
 | --- | --------------------------- | ------------- | --------------------- | ----------------- | ------------- |
 | 1   | `quest:land/first-light`    | talk          | `npc:gain`            | `town:encampment` | —             |
-| 2   | `quest:land/the-first-bond` | tame          | `npc:gain`            | `town:encampment` | 1             |
-| 3   | `quest:land/the-mill-road`  | travel + cull | `npc:gain`            | `town:redbriar`   | 2             |
-| 4   | `quest:land/the-red-thread` | dungeon       | `npc:mera`            | `town:redbriar`   | 3             |
-| 5   | `quest:land/the-bellwether` | boss          | `npc:coil/stonewatch` | `town:stonewatch` | 4             |
+| 2   | `quest:land/the-blue-road`  | discover      | `npc:gain`            | `town:encampment` | 1             |
+| 3   | `quest:land/the-first-bond` | tame          | `npc:gain`            | `town:encampment` | 2             |
+| 4   | `quest:land/the-mill-road`  | travel + cull | `npc:gain`            | `town:redbriar`   | 3             |
+| 5   | `quest:land/the-red-thread` | dungeon       | `npc:mera`            | `town:redbriar`   | 4             |
+| 6   | `quest:land/the-bellwether` | boss          | `npc:coil/stonewatch` | `town:stonewatch` | 5             |
 
 **1 · First Light.** Gain has been waiting at the fire since before the player woke up
 beside it. Objectives: `talk-to-gain`, then `bond-practice` (three casts on a docile
 Sproutle he has penned). `onComplete`: `flag.set taming-learned`, `flag.set met-gain`,
 `discover town:encampment`. Rewards 25 xp, 10 shard.
 
-**2 · The First Bond.** Leave the walls and bond a beast that has not been penned for
+**2 · The Blue Road.** Gain points out the dark waystone beside the road just outside
+the Encampment gate. Its blue symbols remain visible while it sleeps; passing close
+wakes it and records `waypoint:town-encampment` as discovered. Objective:
+`wake-waystone`. Gain explains that once two waystones are lit, the player can open the
+map and select either one to travel there. Rewards 35 xp, 10 shard.
+
+**3 · The First Bond.** Leave the walls and bond a beast that has not been penned for
 you. Objective: `tame-wild` ×1, any ground species. This is the taming tutorial's real
 half — the first animal that can refuse. `onComplete`: `flag.set first-bond`.
 Rewards 60 xp, 25 shard.
 
-**3 · The Mill Road.** Mera has sent word that her oxen have turned and the drove road
+**4 · The Mill Road.** Mera has sent word that her oxen have turned and the drove road
 is not safe. Objectives: `reach-redbriar` (travel — deliberately on foot and
 deliberately long), `cull-corrupted` ×6 along the way — any beast put down counts. `onComplete`:
 `mount.unlock ground` ⚙, `flag.set mount-ground`, `discover town:redbriar`.
@@ -197,14 +205,14 @@ deliberately long), `cull-corrupted` ×6 along the way — any beast put down co
 walking**, which is the only arrangement in which the player feels it. Rewards 120 xp,
 40 shard.
 
-**4 · The Red Thread.** What turned the oxen came up out of the millrace. The Sunken
+**5 · The Red Thread.** What turned the oxen came up out of the millrace. The Sunken
 Hold, entered through the existing gateway; at its floor a penned Sproutle with a red
 thread wound through its bond, and a shard of something manufactured. Objectives:
 `enter-the-hold`, `free-the-sproutle`, `recover-shard` ×1. `onComplete`:
 `flag.set red-thread-seen`, `discover zone:hold`. Rewards 200 xp, 60 shard.
 _(If Kettle ships, this is where Kettle joins.)_
 
-**5 · The Bellwether.** Stonewatch's drove herd has one animal leading it and the rest
+**6 · The Bellwether.** Stonewatch's drove herd has one animal leading it and the rest
 of the valley is following that one. Warden Sela Coil is already at the tower, already
 holds three shards like the player's, and wants the fourth. The boss is
 `enemy:bellwether`, a corrupted herd-beast, fought across open drove ground where the
@@ -499,7 +507,7 @@ loader refusing what this section described.
 - **`story` and `story-land` load at boot, not at the zone edge.** `overworld` is the
   zone the game boots into and `ZoneManager` builds its starting zone directly, so an
   arrival hook would never fire on a fresh game — the only time it matters. The dungeon
-  makes the point from the other side: quest 4 runs inside `hold`, and the objective
+  makes the point from the other side: quest 5 runs inside `hold`, and the objective
   router reads the active quest's own objectives, so the definitions have to be
   resident there too. `BootstrapOptions.packages` loads them under the `boot` lease and
   inside the cross-asset validation pass. Acts 2–4 are genuinely lazy and keep the

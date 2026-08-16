@@ -2892,6 +2892,12 @@ function questWaypoint(asset: ContentAsset<QuestData>): { x: number; z: number }
         return { x: town.gateX, z: town.gateZ };
       }
     }
+    if (trigger.waypoint !== undefined && trigger.waypoint !== "") {
+      const stone = world.waypoints?.all.find((w) => w.id === trigger.waypoint);
+      if (stone) {
+        return { x: stone.x, z: stone.z };
+      }
+    }
     // ANOTHER ZONE IS A DOOR, not a place: the only thing this world can point
     // at is the way out of it — the arch for THAT zone, where there is one.
     if (trigger.zone !== undefined && trigger.zone !== zones.id) {
@@ -2990,6 +2996,13 @@ function advanceObjectives(fact: QuestFact): void {
       if (fact.kind === "zone-arrival" && trigger.zone !== undefined && trigger.zone !== fact.id) {
         continue;
       }
+      if (
+        fact.kind === "waypoint-lit" &&
+        trigger.waypoint !== undefined &&
+        trigger.waypoint !== fact.id
+      ) {
+        continue;
+      }
       if (fact.kind === "escort" && trigger.npc !== undefined && trigger.npc !== fact.id) {
         continue;
       }
@@ -3038,6 +3051,8 @@ function replayObjectivesFromState(asset: ContentAsset<QuestData>): void {
       ).length;
     } else if (trigger.kind === "item-picked" && trigger.item !== undefined) {
       met = bag.count(trigger.item);
+    } else if (trigger.kind === "waypoint-lit" && trigger.waypoint !== undefined) {
+      met = content.state.discovered(trigger.waypoint) ? 1 : 0;
     }
     const have = content.state.progress(asset.id, objective.key);
     const n = Math.min(objective.count ?? 1, met);
@@ -3288,6 +3303,7 @@ function tickWaypoints(dt: number): void {
     return;
   }
   content.state.discover(at.id);
+  advanceObjectives({ kind: "waypoint-lit", id: at.id });
   field.setLit(waypointLit);
   bus.emit({ type: "toast", text: t("toast.waypointLit") });
 }
