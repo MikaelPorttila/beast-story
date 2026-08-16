@@ -1622,7 +1622,7 @@ const buildSkyhaven: CarriedLayout = (solid, parts, plan) => {
  * The carried layouts this build implements. See `TownData.carried`. `gallery` and
  * `orrery` are PLACEHOLDERS: Skyhaven's stamping under another name, so Act 3's
  * towns exist, sit their crews and moor a balloon while their own kits are built
- * (issue #145 — lamp galleries, an observatory full of brass).
+ * (issue #262 — lamp galleries, an observatory full of brass).
  */
 const CARRIED_LAYOUTS: Readonly<Record<string, CarriedLayout>> = {
   skyhaven: buildSkyhaven,

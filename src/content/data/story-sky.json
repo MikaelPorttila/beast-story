@@ -10,7 +10,7 @@
     "note": "The five main quests of Act 3 (game-story.md §4, issue #145). Act 3 is PART OF THE OPEN WORLD, the way Act 2 is (issue #144): the Shelf is the open world's sky, its towns are CARRIERS that roam above it, and there is no `cirrus` zone. What `sky-revealed` opens is the BALLOON — the means of getting up — not the geography.",
     "loading": "Boot-loaded (see bootstrapContent in main.ts), for the same reason story-sea is: a carried town must exist when the world is built, because the island that carries it is built with the world. The flag-gated load recorded in issue #261 was the zone-era answer and went with the zone.",
     "the-seam": "The ascent is offered at the WRECK on Gullspire by Corwin Vane's sea placement (story-sea.json — the same man, the balloon he patched) and closed by his Skyhaven placement (core.json). Boarding is a `ride` fact the balloon emits, `reach-skyhaven` the arrival replay every town-arrival objective gets. The balloon runs both ways from the first day it is moored: Act 4 stages out of the Encampment.",
-    "the-stub": "Quests 3-5 ship as DATA over placeholders (issue #145 §7): `gallery`/`orrery` are Skyhaven's stamping, the Cinderguard and Choirguard wear borrowed rigs, Vess wears Mera's body, the vent under Cinderhelm is the town itself, and Tobin relights the galleries in one breath. Each placeholder names its issue beside it. No cargo weight, and no music:cirrus yet."
+    "the-stub": "Quests 3-5 ship as DATA over placeholders (issues #262-#267): `gallery`/`orrery` are Skyhaven's stamping, the Cinderguard and Choirguard wear borrowed rigs, Vess wears Mera's body, the vent under Cinderhelm is the town itself, and Tobin relights the galleries in one breath. Each placeholder names its issue beside it. No cargo weight (decided), and no music:cirrus yet (#267)."
   },
   "assets": [
     {
@@ -88,8 +88,8 @@
       "data": {
         "town": "town:skyhaven",
         "body": "gain",
-        "homeOffset": 8,
-        "acrossFocus": true,
+        "homeOffset": 15,
+        "acrossFocus": false,
         "_role": "The THIRD PLACEMENT of the Encampment's Gain (game-story.md §2): one body, one name key, and the joke — he was on the mooring deck with a hot cup when you landed, and Vane did not carry him. His rows are this act's tame quest, the mount tutorial for the sky.",
         "talk": [
           {
@@ -176,7 +176,8 @@
               "key": "npc.gain.sky.greeting"
             }
           }
-        ]
+        ],
+        "_spot": "Off the square rather than across it: Pell (11, across) and he (8, across) stood three units apart, and E talks to the nearest."
       }
     },
     {
@@ -260,7 +261,7 @@
         "order": 7,
         "start": false,
         "carried": true,
-        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #145 §7). Carried, so the road planner never sees it (game-story.md §1.4)."
+        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #262). Carried, so the road planner never sees it (game-story.md §1.4)."
       }
     },
     {
@@ -312,7 +313,7 @@
                 "quest": "quest:sky/lanternfall"
               }
             ],
-            "_relight": "PLACEHOLDER for a real relighting: there is no interactable a player can carry oil TO yet (issue filed under #159), so the six casks handed over are the four galleries relit, in one breath."
+            "_relight": "PLACEHOLDER for a real relighting: there is no interactable a player can carry oil TO yet (issue #266), so the six casks handed over are the four galleries relit, in one breath."
           },
           {
             "when": {
@@ -462,7 +463,7 @@
         "order": 8,
         "start": false,
         "carried": true,
-        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #145 §7). Carried, so the road planner never sees it (game-story.md §1.4)."
+        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #262). Carried, so the road planner never sees it (game-story.md §1.4)."
       }
     },
     {
@@ -487,7 +488,7 @@
         "radius": 1.1,
         "height": 1.4,
         "aggro": 30,
-        "_model": "PLACEHOLDER: wears the Brineholder's rig in ember colours until its own is built (issue #160 ⚙) — a guardian beast that is not hostile so much as unable to stop.",
+        "_model": "PLACEHOLDER: wears the Brineholder's rig in ember colours until its own is built (issue #263) — a guardian beast that is not hostile so much as unable to stop.",
         "variants": [
           {
             "element": "fire",
@@ -545,7 +546,7 @@
               "kind": "town-arrival",
               "town": "town:cinderhelm"
             },
-            "_vent": "PLACEHOLDER: the vent is a dungeon under the shelf (issue #160 ⚙); until it exists, reaching the burnt half-town is the descent."
+            "_vent": "PLACEHOLDER: the vent is a dungeon under the shelf (issue #265); until it exists, reaching the burnt half-town is the descent."
           },
           {
             "key": "defeat-cinderguard",
@@ -611,7 +612,7 @@
         "order": 9,
         "start": false,
         "carried": true,
-        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #145 §7). Carried, so the road planner never sees it (game-story.md §1.4)."
+        "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #262). Carried, so the road planner never sees it (game-story.md §1.4)."
       }
     },
     {
@@ -630,7 +631,7 @@
         "body": "mera",
         "homeOffset": 6,
         "acrossFocus": true,
-        "_role": "Archivist Marran Vess, the apparent villain of Act 3 (game-story.md §2). PLACEHOLDER BODY: Mera's, until `vess` is built (issue #161 ⚙). Her rows read backwards into Acts 1 and 2 where the reveal needs them.",
+        "_role": "Archivist Marran Vess, the apparent villain of Act 3 (game-story.md §2). PLACEHOLDER BODY: Mera's, until `vess` is built (issue #264). Her rows read backwards into Acts 1 and 2 where the reveal needs them.",
         "talk": [
           {
             "when": {
@@ -803,7 +804,7 @@
         "radius": 1.1,
         "height": 1.5,
         "aggro": 32,
-        "_model": "PLACEHOLDER: wears the Bellwether's rig in brass until its own is built (issue #161 ⚙) — the engine's own defence, which Vess does not call off.",
+        "_model": "PLACEHOLDER: wears the Bellwether's rig in brass until its own is built (issue #263) — the engine's own defence, which Vess does not call off.",
         "variants": [
           {
             "element": "wind",
