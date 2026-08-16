@@ -533,11 +533,26 @@ export const sections = [
       // which is the only one there is, and what has to happen is the ordinary
       // one — `carry` attaches him and `floorFor` puts him down on the turf.
       const a = (await carriers(ctx)).all[0];
-      // Over open grass rather than the middle: the tower is in the middle, and a
-      // flyer landing on a roof is a different (and correct) outcome that would
-      // make the height assertion below mean nothing. Ten units up, inside
-      // RIDE_CEILING.
-      await ctx.tp(a.x + a.radius * 0.5, a.z, a.y + 10);
+      // OVER OPEN GRASS, AND IT IS SEARCHED FOR RATHER THAN ASSUMED: a flyer
+      // landing on a roof is a different (and correct) outcome that would make the
+      // height assertion below mean nothing, and a fixed offset is only clear until
+      // somebody re-lays the town — which issue #262 did. A column is clear when
+      // what you would stand on IS the turf, i.e. `deckTop === surface`. Ten units
+      // up, inside RIDE_CEILING.
+      let clear = null;
+      for (let k = 0; k < 10 && clear === null; k++) {
+        const ang = (k / 10) * Math.PI * 2;
+        const x = a.x + Math.sin(ang) * a.radius * 0.5;
+        const z = a.z + Math.cos(ang) * a.radius * 0.5;
+        await ctx.tp(x, z, a.y + 10);
+        await ctx.adv(0.2);
+        const at = (await carriers(ctx)).all[0];
+        if (at.deckTop !== null && at.surface !== null && Math.abs(at.deckTop - at.surface) < 0.01) {
+          clear = { x, z };
+        }
+      }
+      ctx.check(clear !== null, "no clear column on the deck to land a flyer in");
+      await ctx.tp(clear?.x ?? a.x + a.radius * 0.5, clear?.z ?? a.z, a.y + 10);
       await ctx.adv(1.2);
       const attached = await carriers(ctx);
       // A FLYER HOLDS ITS ALTITUDE — there is no gravity in `integrateFlying`, C
