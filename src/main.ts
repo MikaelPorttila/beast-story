@@ -1587,6 +1587,23 @@ player.onAttack = (origin, dir) => {
 const BRINE_MUSIC_D = (SEA_START + SEA_FULL) / 2;
 const BRINE_MUSIC_BAND = 40;
 let inBrineScore = false;
+
+/**
+ * WHERE THE SHELF'S SCORE BEGINS: near one of the sky's CARRIED TOWNS, which is
+ * what "being on the Cirran Shelf" amounts to in a world with no `cirrus` zone
+ * (issue #145). Reach from the town's own middle, so it follows the island
+ * rather than a line drawn on the map, with a band either side for the same
+ * reason the Reach has one — a hero circling the rim must not strobe the music.
+ *
+ * NOT the shard clusters (world/sky-shards.ts), which are carriers too: those
+ * are open-world rock over the meadow and the sea, and this is the ACT's score,
+ * not a score for being off the ground.
+ */
+const CIRRUS_MUSIC_NEAR = 70;
+const CIRRUS_MUSIC_BAND = 40;
+/** Height band about the deck. Generous downward: the approach is from below. */
+const CIRRUS_MUSIC_RISE = 90;
+let inCirrusScore = false;
 /** What this file last asked for; on a CHANGE only, so `__dbgMusicScene` keeps what it names. */
 let musicScene: string | null = null;
 /** The music scene the hero stands in: the zone's id, or `brine` seaward of the coast. */
@@ -1603,6 +1620,27 @@ function syncMusicScene(): void {
     }
     if (inBrineScore) {
       scene = "brine";
+    }
+    // ...and the Shelf over the top of it: a sky town rides above ground and sea
+    // alike, so this is asked last and wins.
+    const reach = inCirrusScore ? CIRRUS_MUSIC_NEAR + CIRRUS_MUSIC_BAND : CIRRUS_MUSIC_NEAR;
+    inCirrusScore = world.towns.all.some(
+      (town) =>
+        town.carried &&
+        inReach(
+          town.x,
+          town.y,
+          town.z,
+          player.position.x,
+          player.position.y,
+          player.position.z,
+          town.outerRadius + reach,
+          CIRRUS_MUSIC_RISE,
+          CIRRUS_MUSIC_RISE,
+        ),
+    );
+    if (inCirrusScore) {
+      scene = "cirrus";
     }
   }
   if (scene !== musicScene) {

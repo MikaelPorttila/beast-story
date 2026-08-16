@@ -1,6 +1,7 @@
 import titleUrl from "./title.webm";
 import overworldUrl from "./overworld.webm";
 import brineUrl from "./brine.webm";
+import cirrusUrl from "./cirrus.webm";
 
 /**
  * THE MUSIC — one track at a time, faded at both ends, unloaded on the way out.
@@ -108,6 +109,7 @@ export const MUSIC_TRACKS: Readonly<Record<string, string>> = {
   title: titleUrl,
   overworld: overworldUrl,
   brine: brineUrl,
+  cirrus: cirrusUrl,
 };
 
 /**
