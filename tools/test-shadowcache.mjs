@@ -257,6 +257,9 @@ async function frame(page, box, dim) {
   await page.goto(PLAY, { waitUntil: "load" });
   await page.waitForSelector("canvas");
   await wait(9000);
+  // The overlay is where `draws` is read; `debug=1` no longer opens it at boot.
+  await page.focus("canvas").catch(() => {});
+  await page.keyboard.press("F2");
 
   // ---------- it is on, and it is caching something worth caching -----------
   const s = await shadows(page);

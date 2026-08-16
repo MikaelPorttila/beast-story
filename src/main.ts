@@ -4667,9 +4667,6 @@ const DEFAULT_FPS_CAP = 120;
 const fpsCap = Number(params.get("fps") ?? DEFAULT_FPS_CAP);
 engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
-if (flags.debug) {
-  debug.toggle();
-}
 
 // Composition-root policy: gfx.ts knows bloom is a boolean, this file knows what a bloom pass and a chunk mesh are.
 const gfx = new Gfx({

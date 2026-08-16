@@ -188,8 +188,8 @@ const out = {};
   // NO fps= here, deliberately. The claim being tested is that the title screen
   // stands the renderer DOWN while it covers the game and hands it back on the
   // way out, and an explicit cap would flatten both halves of that into one
-  // number. `debug=1` opens the F2 overlay, which is where the measured rate is
-  // published.
+  // number. The F2 overlay is where the measured rate is published; it is
+  // opened by hand once the game is up.
   // fs=0 because this run CLICKS New Game, and the game now takes fullscreen
   // from that gesture â€” which resizes the viewport out from under the walk
   // being measured two lines later. The override never writes the preference
@@ -413,6 +413,7 @@ const out = {};
   // was ever imposed, so there is nothing to have failed to restore. The number
   // is still reported because it is the only proof the loop is alive at all,
   // and it must be paired with `playingBehindMenu: false` above.
+  await page.keyboard.press("F2");
   await wait(1500); // the readout averages over ~120 frames
   out.fpsAfterStart = await renderedFps(page);
   out.playingAfterStart = (await boot(page))?.playing ?? null;

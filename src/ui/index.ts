@@ -108,15 +108,6 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-/** The version plate is a dev affordance: opt in with `?debug=1`. */
-function isDebugMode(): boolean {
-  try {
-    return new URLSearchParams(window.location.search).get("debug") === "1";
-  } catch {
-    return false;
-  }
-}
-
 const LOCK_ICON =
   '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
   '<path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" ' +
@@ -369,10 +360,6 @@ export class HUD {
     injectStyles();
 
     this.root = div("bs-root");
-
-    if (isDebugMode()) {
-      this.root.appendChild(div("bs-title bs-glass", "<b>BEAST STORY</b><span>v1.0</span>"));
-    }
 
     // Empty until a quest is tracked in the journal; placement is a :has() rule.
     this.questsEl = div("bs-quests");

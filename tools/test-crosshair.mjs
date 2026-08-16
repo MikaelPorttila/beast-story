@@ -33,7 +33,7 @@ for (const [name, viewport] of [
     canvas{display:none!important}
     html,body{background:#000!important}
     .bs-root>*:not(.bs-cross){display:none!important}
-    .bs-touch,.bs-left,.bs-title,.bs-shards,.bs-toasts{display:none!important}
+    .bs-touch,.bs-left,.bs-shards,.bs-toasts{display:none!important}
   `,
   });
   // The stylesheet has APPLIED when the canvas it hides has gone; one presented

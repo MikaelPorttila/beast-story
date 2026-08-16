@@ -63,6 +63,8 @@ async function measure() {
   await page.waitForSelector("canvas");
   await wait(8000);
   await page.focus("canvas").catch(() => {});
+  // The overlay is where draws/scene are read; `debug=1` no longer opens it at boot.
+  await page.keyboard.press("F2");
 
   const gl = await glRenderer(page);
 

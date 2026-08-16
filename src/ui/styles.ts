@@ -53,14 +53,6 @@ const CSS = `
 .bs-inv .pane,.bs-journal .pane,.bs-shop,.bs-keys{background:var(--pane);
   backdrop-filter:none;-webkit-backdrop-filter:none}
 
-/* ---- title chip -------------------------------------------------------- */
-.bs-title{position:absolute;top:14px;left:16px;display:flex;align-items:baseline;gap:8px;
-  padding:8px 14px 9px;border-radius:12px}
-.bs-title b{font-weight:900;font-size:17px;letter-spacing:.18em;
-  background:linear-gradient(92deg,#ffd23f 10%,#ff8b4a 55%,#ff6b35 90%);
-  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
-.bs-title span{font-size:16px;font-weight:600;color:rgba(238,242,248,.5);letter-spacing:.05em}
-
 /* ---- menu button -------------------------------------------------------- */
 /* The only element in .bs-root that opts back into pointer events — every other
    clickable thing lives inside a panel that turns the layer on. Hidden on a
@@ -73,8 +65,6 @@ const CSS = `
 .bs-menubtn .cap{display:flex;gap:4px}
 .bs-menubtn:hover{filter:brightness(1.22)}
 .bs-menubtn:active{transform:translateY(1px)}
-/* The debug title chip owns this corner when it is up. */
-.bs-root:has(.bs-title) .bs-menubtn{top:58px}
 
 /* ---- currency counter --------------------------------------------------- */
 .bs-shards{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:8px;
@@ -1595,7 +1585,6 @@ const CSS = `
 /* Respect notches/rounded corners on phones. */
 .bs-left{left:max(16px,env(safe-area-inset-left))}
 .bs-quests{right:max(16px,env(safe-area-inset-right))}
-.bs-title{left:max(16px,env(safe-area-inset-left));top:max(14px,env(safe-area-inset-top))}
 .bs-shards{right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top))}
 .bs-compass{top:max(10px,env(safe-area-inset-top))}
 .bs-bag{right:max(16px,env(safe-area-inset-right));top:calc(max(14px,env(safe-area-inset-top)) + 44px)}
@@ -1685,13 +1674,6 @@ const CSS = `
   .bs-hp .lbl{letter-spacing:.06em;font-size:16px}
   .bs-hp .val{font-size:16px}
   .bs-hp .track{height:12px;border-radius:7px}
-  .bs-title{padding:5px 10px 6px;border-radius:9px}
-  .bs-title b{font-size:16px;letter-spacing:.1em}
-  /* The tagline goes. It is the one purely decorative string in the HUD, and at
-     393 CSS px the chip and the currency pill share the top band with nothing
-     between them — so the choice is a legible title without a subtitle, or both
-     at a size the issue rules out. */
-  .bs-title span{display:none}
   .bs-shards{padding:5px 10px;gap:6px}
   .bs-shards .ic{width:16px;height:16px}
   .bs-shards .num{font-size:17px}
