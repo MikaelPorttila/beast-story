@@ -87,6 +87,10 @@ const LEATHER = 0x6b4a2e;
 const SACK = 0xbda878; // undyed hessian
 const SACK_D = 0x9a8659;
 const FLOUR = 0xece4d2;
+/** The archivist's ledger: oxblood board, and the thread she keeps her page with. */
+const LEDGER = 0x6d3b34;
+const LEDGER_D = 0x4e2823;
+const RED_THREAD = 0xc4423c;
 
 /** Everything one of these three differs by. */
 interface Skin {
@@ -240,6 +244,26 @@ function buildOar(): VoxelModel {
   v.box(-1, -6, -1, 0, 6, 0, BELT);
   v.box(-1, -9, -1, 0, -6, 1, IRON_L);
   v.set(-1, 6, 0, LEATHER);
+  return v;
+}
+
+/**
+ * THE MINUTES — a bound ledger, held closed against the chest with a finger in
+ * it (issue #264). Brass corners because everything in the Orrery is brass; the
+ * red mark on the fore-edge is the page she keeps returning to, which is the
+ * whole of her character said in one voxel.
+ */
+function buildLedger(): VoxelModel {
+  const v = new VoxelModel();
+  // The block of pages, then the board that closes over it, a course proud.
+  v.box(-2, -3, -1, 1, 3, 0, FLOUR);
+  v.box(-3, -4, -1, 2, 4, -1, LEDGER);
+  v.box(-3, -4, 1, 2, 4, 1, LEDGER);
+  v.box(-3, -4, -1, -3, 4, 1, LEDGER_D);
+  // Brass at the corners, and the marked edge.
+  v.set(2, 4, -1, BUCKLE);
+  v.set(2, -4, -1, BUCKLE);
+  v.set(2, 0, 0, RED_THREAD);
   return v;
 }
 
@@ -482,6 +506,34 @@ export const SKY_LAMPLIGHTER_BODY = bodyFor({
   reach: 0.75,
   scan: 0.24,
   gaze: -0.04,
+});
+
+/**
+ * ARCHIVIST MARRAN VESS — the Orrery's keeper (issue #264, quest #161), and the
+ * apparent villain of Act 3 until the last minute of it.
+ *
+ * A civic register, not a wizard's: slate-blue archivist's coat over brass-warm
+ * trim, iron-grey hair pinned, and the minutes held closed in one hand. The
+ * SLOWEST period and the SHORTEST reach of anyone in the game — she is reading,
+ * not working, and her gaze is down on the page rather than out at the horizon.
+ * A hundred years of holding one thing in place looks like stillness.
+ */
+export const VESS_BODY = bodyFor({
+  cloth: 0x3f4a63,
+  clothD: 0x2c3448,
+  legs: 0x413a44,
+  hair: 0x9a9ca6,
+  hairD: 0x6e7079,
+  prop: buildLedger,
+  propZ: 0.12,
+  // The ledger is a wide block held IN, and at the shared 0.07 its board scraped
+  // the coat through the bottom of the sweep. Found with tools/test-zfight.mjs;
+  // see the note on `propX` above before changing it.
+  propX: 0.1,
+  period: 6.4,
+  reach: 0.28,
+  scan: 0.1,
+  gaze: 0.26,
 });
 
 /**

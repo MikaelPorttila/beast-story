@@ -58,6 +58,7 @@ import {
   BOATWRIGHT_BODY,
   COIL_BODY,
   MERA_BODY,
+  VESS_BODY,
   SKY_GARDENER_BODY,
   SKY_LAMPLIGHTER_BODY,
   SKY_PILOT_BODY,
@@ -169,6 +170,7 @@ export const NPC_BODIES: Readonly<Record<string, NpcBody>> = {
   "sky-gardener": SKY_GARDENER_BODY,
   "sky-lamplighter": SKY_LAMPLIGHTER_BODY,
   mera: MERA_BODY,
+  vess: VESS_BODY,
   coil: COIL_BODY,
   // Saltrest's boatwright, met in Kelphold's drowned market (issue #154).
   boatwright: BOATWRIGHT_BODY,
@@ -497,13 +499,15 @@ export class Npcs implements NpcField {
     private readonly frame: NpcFrame | null = null,
   ) {
     const infos: NpcInfo[] = [];
+    /** Everyone already standing, so the next one is not placed on top of them. */
+    const placed: Array<{ x: number; z: number; r: number }> = [];
     for (const char of readCharacters()) {
       const town = site.towns.get(char.townId);
       if (!town) {
         continue;
       } // a zone without his town simply has no him
       const rig = char.body.build();
-      let spot = findSpot(site, town.x, town.z, char.homeOffset, rig.radius);
+      let spot = findSpot(site, town.x, town.z, char.homeOffset, rig.radius, null, placed);
       // ACROSS THE FIRE from wherever the plain search put him.
       //
       // Two passes and not one, because the mirror is defined against the spot
@@ -524,8 +528,10 @@ export class Npcs implements NpcField {
           char.homeOffset,
           rig.radius,
           Math.atan2(mx - town.x, mz - town.z),
+          placed,
         );
       }
+      placed.push({ x: spot.x, z: spot.z, r: rig.radius });
       const y = site.getHeight(spot.x, spot.z);
       // Facing the GATE, so the first thing a visitor walking in off the road
       // sees is his face rather than the back of his mantle.
@@ -897,6 +903,17 @@ function approachAngle(cur: number, target: number, rate: number, dt: number): n
  * half inside a barrel is still inside a barrel, and its own centre is clear.
  * A spot the hero may stand on and a spot an NPC may stand on are the same spot.
  */
+/**
+ * Elbow room between two residents, on top of both their body radii. A crew is
+ * placed one after another and `structureTopAt` cannot see the ones already
+ * standing — their collision field is not built until the last of them is down —
+ * so two characters whose `homeOffset` puts them on the same ring landed half a
+ * unit apart, and `Npcs.nearest` gave the interact key to whichever was nearer:
+ * one of them could not be spoken to at all. Skyhaven's deck is where that bit
+ * (issue #262 made it four residents), and it is a rule every town wants.
+ */
+const NPC_APART = 1.6;
+
 export function spotIsFree(site: NpcSite, x: number, z: number, radius: number): boolean {
   const clearOf = radius + 0.35;
   // The BUILT query: a person standing on a settlement's beaten track is
@@ -924,8 +941,12 @@ function findSpot(
   offset: number,
   radius: number,
   preferBearing: number | null = null,
+  /** Where the crew already placed are standing: a spot inside one is not free. */
+  taken: ReadonlyArray<{ x: number; z: number; r: number }> = [],
 ): { x: number; z: number } {
-  const free = (x: number, z: number): boolean => spotIsFree(site, x, z, radius);
+  const free = (x: number, z: number): boolean =>
+    spotIsFree(site, x, z, radius) &&
+    !taken.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < (t.r + radius + NPC_APART) ** 2);
   /** How much furniture is within arm's reach and a step beyond it. */
   const crowding = (x: number, z: number): number => {
     let n = 0;

@@ -151,17 +151,27 @@ export class DayNightCycle implements CelestialState {
     return this.debugPhase ?? this.questPhase;
   }
 
+  /**
+   * An override that is IN EFFECT says so at once. `derive` is where `source` and
+   * `quest` are written, and it otherwise only runs on a frame — so who owns the
+   * clock was a frame stale, and a reader between a quest activating and the next
+   * frame was told "auto" (issue #269: two of test-daynight's checks, on a loaded
+   * host where a whole wall-clock second held no frame). The phase itself still
+   * takes the transition; only the ANSWER to "whose clock is this" is immediate.
+   */
   private retarget(): void {
     const target = this.pinTarget();
     if (target === null) {
       this.runningPhase = this.phase;
       this.transitionT = TRANSITION_SECONDS;
+      this.derive();
       return;
     }
     this.transitionFrom = this.phase;
     this.transitionTo = target;
     this.transitionT = 0;
     this.runningPhase = target;
+    this.derive();
   }
 
   private derive(): void {

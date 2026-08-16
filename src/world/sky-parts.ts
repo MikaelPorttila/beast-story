@@ -28,6 +28,10 @@ const SHINGLE_D = 0x63472a;
 const SHINGLE_L = 0xa88055;
 const LAMP = 0xffc561;
 const IRON = 0x4b4b53;
+/** Brass: the Orrery's whole palette, and nothing else on the Shelf uses it. */
+const BRASS = 0xb08a3c;
+const BRASS_D = 0x84652a;
+const BRASS_L = 0xd8b45e;
 const FLAG_C = 0x3f5bb5;
 const FLAG_W = 0xe8e4d8;
 
@@ -360,6 +364,161 @@ export function skyGate(): Template {
   for (const px of [-4, 4] as const) {
     v.setEmissive(px, 12, 2, LAMP, 2.0);
   }
+  return bakeSolid(v, SV);
+}
+
+/**
+ * A LAMP GALLERY — Lanternfall's and Cinderhelm's working piece (issue #262).
+ *
+ * A stone stair up to a timber deck carrying a rank of four cased lamps behind a
+ * rail. It is the reason the town exists: the light is what keeps the Bond
+ * Engine's overflow dim, so the flames read from a long way off — four emissive
+ * voxels rather than one, in a line, which is what makes a gallery legible as a
+ * gallery from the air.
+ */
+export function skyGallery(): Template {
+  const v = new VoxelModel();
+  // The plinth, and the stair up its front face.
+  for (let x = -5; x <= 5; x++) {
+    for (let z = -2; z <= 2; z++) {
+      for (let y = 0; y <= 2; y++) {
+        v.set(x, y, z, shade((x + z) % 2 ? STONE : STONE_D, 0.95));
+      }
+    }
+  }
+  for (let k = 0; k < 3; k++) {
+    v.box(-2, k, 3 - k, 2, k, 3 - k, shade(STONE_L, 1.0));
+  }
+  // The deck, and the posts under its front edge.
+  for (let x = -5; x <= 5; x++) {
+    for (let z = -2; z <= 2; z++) {
+      v.set(x, 3, z, shade((x + z) % 2 ? WOOD : WOOD_D, 1.0));
+    }
+  }
+  // The rank: four cased lamps on their own standards, lit.
+  for (const x of [-4, -1.5, 1.5, 4]) {
+    const cx = Math.round(x);
+    v.box(cx, 4, 0, cx, 6, 0, shade(IRON, 1.0));
+    v.box(cx - 1, 7, -1, cx + 1, 8, 1, shade(IRON, 0.85));
+    v.setEmissive(cx, 7, 0, LAMP, 2.4);
+  }
+  // The rail along the front, so the deck reads as somewhere you stand.
+  for (let x = -5; x <= 5; x++) {
+    v.set(x, 5, 2, shade(WOOD_D, 1.05));
+  }
+  v.set(-5, 4, 2, shade(WOOD_D, 0.9));
+  v.set(5, 4, 2, shade(WOOD_D, 0.9));
+  return bakeSolid(v, SV);
+}
+
+/** An oil butt: a banded barrel, because a gallery burns what somebody flew up. */
+export function skyOilButt(): Template {
+  const v = new VoxelModel();
+  for (let y = 0; y <= 4; y++) {
+    const band = y === 1 || y === 3;
+    for (let x = -1; x <= 1; x++) {
+      for (let z = -1; z <= 1; z++) {
+        if (Math.abs(x) === 1 && Math.abs(z) === 1) {
+          continue;
+        }
+        v.set(x, y, z, shade(band ? IRON : WOOD, band ? 1.0 : 0.95));
+      }
+    }
+  }
+  v.set(0, 5, 0, shade(IRON, 1.1));
+  return bakeSolid(v, SV);
+}
+
+/**
+ * THE OIL STORE — the gallery town's middle: a long shed with a wide door and a
+ * hoist over it, which is how the casks get off a balloon and under a roof.
+ */
+export function skyOilStore(): Template {
+  const v = new VoxelModel();
+  v.box(-6, 0, -4, 6, 5, 4, PLASTER);
+  // Timber framing at the corners and along the eave.
+  for (const x of [-6, 6]) {
+    for (const z of [-4, 4]) {
+      v.box(x, 0, z, x, 5, z, TIMBER_D);
+    }
+  }
+  v.box(-6, 5, -4, 6, 5, 4, TIMBER);
+  // The door, and the hoist beam out over it.
+  v.box(-2, 0, 4, 2, 3, 4, shade(TIMBER_D, 0.9));
+  v.box(0, 6, 4, 0, 6, 7, TIMBER);
+  v.set(0, 5, 7, shade(IRON, 1.0));
+  // A slate roof, ridged. Bracketed so its collider is a ridge, not a slab.
+  v.region(() => {
+    for (let k = 0; k <= 4; k++) {
+      for (let x = -6 + k; x <= 6 - k; x++) {
+        v.set(x, 6 + k, -4 + k, shade(ROOF_D, 1.0));
+        v.set(x, 6 + k, 4 - k, shade(ROOF, 1.0));
+      }
+    }
+    for (let x = -6; x <= 6; x++) {
+      v.set(x, 10, 0, shade(ROOF_L, 1.0));
+    }
+  });
+  return bakeSolid(v, SV);
+}
+
+/**
+ * A PYLON of the Bond Engine's open frame (issue #262) — four of these carry the
+ * ring and there is NOTHING between them, because the middle is the arena. Brass
+ * over a stone footing, with an arc of the ring springing inward off the top.
+ */
+export function skyPylon(): Template {
+  const v = new VoxelModel();
+  for (let x = -2; x <= 2; x++) {
+    for (let z = -2; z <= 2; z++) {
+      v.box(x, 0, z, x, 1, z, shade((x + z) % 2 ? STONE : STONE_D, 0.95));
+    }
+  }
+  // The shaft: brass, banded, tapering by a voxel at the shoulder.
+  for (let y = 2; y <= 13; y++) {
+    const r = y > 10 ? 0 : 1;
+    for (let x = -r; x <= r; x++) {
+      for (let z = -r; z <= r; z++) {
+        v.set(x, y, z, shade(y % 4 === 0 ? BRASS_D : BRASS, 1.0));
+      }
+    }
+  }
+  // The arc, springing INWARD (local -z) so four of them read as one ring.
+  for (let k = 0; k <= 4; k++) {
+    v.set(0, 14 + (k < 2 ? k : 3 - Math.floor(k / 2)), -1 - k, shade(BRASS_L, 1.0));
+  }
+  v.setEmissive(0, 14, 0, LAMP, 1.6);
+  return bakeSolid(v, SV);
+}
+
+/**
+ * AN ARCHIVE HOUSE — the Orrery's ring: a squat stone reading room with a tall
+ * shuttered window and a brass finial. Where the minutes were kept before Vess
+ * started keeping them herself.
+ */
+export function skyArchive(): Template {
+  const v = new VoxelModel();
+  v.box(-5, 0, -4, 5, 6, 4, STONE);
+  for (const x of [-5, 5]) {
+    v.box(x, 0, -4, x, 6, 4, shade(STONE_D, 1.0));
+  }
+  // The tall window on the front, shuttered in timber.
+  v.box(-1, 2, 4, 1, 5, 4, shade(TIMBER_D, 1.0));
+  v.box(-2, 1, 4, 2, 1, 4, shade(STONE_L, 1.05));
+  // A flat lead roof with a parapet, then the finial.
+  v.region(() => {
+    for (let x = -5; x <= 5; x++) {
+      for (let z = -4; z <= 4; z++) {
+        v.set(x, 7, z, shade(ROOF_D, 1.0));
+      }
+    }
+    for (let x = -5; x <= 5; x++) {
+      v.set(x, 8, -4, shade(STONE_L, 1.0));
+      v.set(x, 8, 4, shade(STONE_L, 1.0));
+    }
+  });
+  v.box(0, 8, 0, 0, 10, 0, BRASS);
+  v.setEmissive(0, 11, 0, LAMP, 1.8);
   return bakeSolid(v, SV);
 }
 

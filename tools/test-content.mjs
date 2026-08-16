@@ -223,10 +223,23 @@ const ACT1_QUESTS = [
  * `planSettlements` runs — and holds the act's entry quest beside it.
  */
 const SEA_QUESTS = ["quest:sea/salt-and-rope", "quest:sea/dark-water", "quest:sea/the-drowned-market", "quest:sea/the-rookery", "quest:sea/what-the-tide-kept"];
-const BOOT_QUESTS = ACT1_QUESTS.length + SEA_QUESTS.length;
+/**
+ * ...and Act 3's, for the same reason one act further up (issue #145): the Shelf
+ * is the open world's SKY, its four towns are carriers, and a carried town's
+ * island is built with the world — so `story-sky` boots too. What `sky-revealed`
+ * opens is the BALLOON, not the geography.
+ */
+const SKY_QUESTS = [
+  "quest:sky/the-long-ascent",
+  "quest:sky/wingbroken",
+  "quest:sky/lanternfall",
+  "quest:sky/cinderhelm",
+  "quest:sky/the-orrery",
+];
+const BOOT_QUESTS = ACT1_QUESTS.length + SEA_QUESTS.length + SKY_QUESTS.length;
 
 /** What a boot holds: the world, then the campaigns that are set in it. */
-const BOOT_PACKAGES = ["core", "story", "story-land", "story-sea"];
+const BOOT_PACKAGES = ["core", "story", "story-land", "story-sea", "story-sky"];
 
 /**
  * The WILD BEASTS (issue #4) — ids and order only, deliberately.
@@ -532,12 +545,14 @@ async function consoleClosed(tries = 40) {
   eq(core.requires, [], "core package dependencies");
   eq(
     c.packages.map((p) => p.requires),
-    [[], ["core"], ["story"], ["story"]],
+    // `story-sky` requires `story-sea` too: its opener is given at Vane's wreck,
+    // which is that package's placement of him (issue #157).
+    [[], ["core"], ["story"], ["story"], ["story", "story-sea"]],
     "the campaigns' dependency chain",
   );
   eq(
     c.packages.map((p) => p.leases),
-    [["boot"], ["boot"], ["boot"], ["boot"]],
+    [["boot"], ["boot"], ["boot"], ["boot"], ["boot"]],
     "every boot package is held by the boot lease, which is never released",
   );
   // RE-BASELINED TWICE, and each time the re-baseline IS the claim.
@@ -568,15 +583,20 @@ async function consoleClosed(tries = 40) {
       // 4 -> 5: `town:saltrest`, the sea region's island harbour (issue #144).
       // An ISLAND town takes no hub slot, so the road planner's three-ground-town
       // rule still holds beside it.
-      town: 7,
+      // 7 -> 10: Act 3's three other carried towns (issue #145). A CARRIED town
+      // takes no hub slot either, so the road planner's rule is untouched again.
+      town: 10,
       // 6 -> 7: `npc:gain/saltrest` (issue #152), the trainer's second placement
       // — one body factory, one name key, a new stand on the harbour (§2).
-      npc: 10,
+      // 10 -> 14: the Act 3 cast — Gain's third placement, Tobin's second, Vess
+      // and Coil's third (issues #158-#161).
+      npc: 14,
       biome: 8,
       // +2: `enemy:thread-anchor` (issue #150) and `enemy:bellwether` (issue
       // #151), the two enemies `story-land` brings with it. +1 again for
       // `enemy:penned-sproutle`, the Encampment's practice animal (issue #178).
-      enemy: 8 + WILD_BEASTS.length,
+      // +2 again: the two Act 3 guardians (issue #263).
+      enemy: 10 + WILD_BEASTS.length,
       quest: BOOT_QUESTS,
       // 2 -> 3: `music:brine`, the Reach's own score, shipped in `story-sea`.
       music: 3,
@@ -591,14 +611,38 @@ async function consoleClosed(tries = 40) {
     c.resolved.towns,
     // Saltrest after the hub towns (the island placer runs after the roads) and
     // before the carried settlement, which the registry folds in last.
-    [...TOWNS.map((t) => t.id), "saltrest", "kelphold", "gullspire", SKYHAVEN.id],
+    [
+      ...TOWNS.map((t) => t.id),
+      "saltrest",
+      "kelphold",
+      "gullspire",
+      SKYHAVEN.id,
+      // ...and the sky's other three, carried like it (issue #145).
+      "lanternfall",
+      "cinderhelm",
+      "orrery",
+    ],
     "towns that reached the world",
   );
   eq(
     c.resolved.npcs,
     // Saltrest's Gain lands between core's residents and the sky folk — package
     // load order, which is what the registry iterates.
-    [GAIN.id, MERA, COIL, "gain/saltrest", "brack", "coil/kelphold", "sky-pilot/gullspire", ...SKYFOLK],
+    [
+      GAIN.id,
+      MERA,
+      COIL,
+      "gain/saltrest",
+      "brack",
+      "coil/kelphold",
+      "sky-pilot/gullspire",
+      ...SKYFOLK,
+      // The Act 3 cast, in `story-sky`'s own declaration order.
+      "gain/skyhaven",
+      "sky-lamplighter/lanternfall",
+      "vess",
+      "coil/orrery",
+    ],
     "npcs that reached the world",
   );
   // The pre-migration three FIRST and in their old order, then the wild beasts.
@@ -618,6 +662,9 @@ async function consoleClosed(tries = 40) {
       "thread-anchor",
       "brineholder",
       "bridle-hound",
+      // Act 3's two guardians (issue #263), added with the act.
+      "cinderguard",
+      "choirguard",
     ],
     "enemy species that reached the world",
   );
@@ -633,6 +680,9 @@ async function consoleClosed(tries = 40) {
       "/src/content/data/core.json?import",
       "/src/content/data/story-land.json?import",
       "/src/content/data/story-sea.json?import",
+      // The sky boots too (issue #145): its towns are carriers, and a carried
+      // town's island is built with the world.
+      "/src/content/data/story-sky.json?import",
       "/src/content/data/story.json?import",
     ],
     "content data files requested at boot",

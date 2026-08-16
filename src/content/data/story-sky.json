@@ -478,7 +478,7 @@
         "boss"
       ],
       "data": {
-        "model": "brineholder",
+        "model": "cinderguard",
         "behaviour": "snortle",
         "flying": false,
         "hp": 800,
@@ -488,7 +488,7 @@
         "radius": 1.1,
         "height": 1.4,
         "aggro": 30,
-        "_model": "PLACEHOLDER: wears the Brineholder's rig in ember colours until its own is built (issue #263) — a guardian beast that is not hostile so much as unable to stop.",
+        "_model": "Slag with the fire still in its cracks and the vent stacks fused along its spine (enemy-models.ts): a guardian that is not hostile so much as unable to stop. The red thread is worn as tack, the way the Bridle-hound wears its collar.",
         "variants": [
           {
             "element": "fire",
@@ -628,10 +628,10 @@
       ],
       "data": {
         "town": "town:orrery",
-        "body": "mera",
+        "body": "vess",
         "homeOffset": 6,
         "acrossFocus": true,
-        "_role": "Archivist Marran Vess, the apparent villain of Act 3 (game-story.md §2). PLACEHOLDER BODY: Mera's, until `vess` is built (issue #264). Her rows read backwards into Acts 1 and 2 where the reveal needs them.",
+        "_role": "Archivist Marran Vess, the apparent villain of Act 3 (game-story.md §2): a civic register, not a wizard's — the minutes held closed, and the slowest, stillest of the cast. Her rows read backwards into Acts 1 and 2 where the reveal needs them.",
         "talk": [
           {
             "when": {
@@ -794,7 +794,7 @@
         "boss"
       ],
       "data": {
-        "model": "bellwether",
+        "model": "choirguard",
         "behaviour": "snortle",
         "flying": false,
         "hp": 1000,
@@ -804,7 +804,7 @@
         "radius": 1.1,
         "height": 1.5,
         "aggro": 32,
-        "_model": "PLACEHOLDER: wears the Bellwether's rig in brass until its own is built (issue #263) — the engine's own defence, which Vess does not call off.",
+        "_model": "Brass, and made rather than grown (enemy-models.ts): a ribbed drum carrying a ring of tuned bars, an armature for a head, and the engine's thread running through it. It was built to keep time.",
         "variants": [
           {
             "element": "wind",

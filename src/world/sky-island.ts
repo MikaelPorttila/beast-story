@@ -19,8 +19,13 @@ import { mulberry32 } from "./noise";
 import { flags } from "../core/flags";
 import { Waterfall } from "./waterfall";
 import {
+  skyArchive,
   skyBush,
   skyCottage,
+  skyGallery,
+  skyOilButt,
+  skyOilStore,
+  skyPylon,
   skyFence,
   skyGate,
   skyLamp,
@@ -195,12 +200,53 @@ const HOUSE_R = 7.2;
 /** A point at a bearing and distance from the island's centre. */
 const at = (a: number, d: number): [number, number] => [Math.sin(a) * d, Math.cos(a) * d];
 
-function planSkyhaven(
+/**
+ * WHAT A LAYOUT PUTS ON THE ISLAND. Everything about the rock is the island's —
+ * the fall and its stream, the gate, the mooring, the rim rail, the wood — and
+ * every carried town shares it, because they are all the same rock. What differs
+ * is what is BUILT on it, which is two calls: the middle, and the band around it.
+ */
+export interface SettleCtx {
+  readonly rng: () => number;
+  readonly parts: SkyParts;
+  readonly lib: PropLib;
+  /** A point at a bearing and distance from the middle. */
+  at(a: number, d: number): [number, number];
+  free(x: number, z: number, r: number): boolean;
+  claim(x: number, z: number, r: number): void;
+  onDeck(x: number, z: number): boolean;
+  readonly buildings: Array<{
+    t: Template;
+    x: number;
+    z: number;
+    yaw: number;
+    s?: number;
+    light?: readonly [front: number, height: number];
+  }>;
+  readonly paths: Array<readonly [number, number, number, number]>;
+  readonly lamps: Array<{ x: number; z: number; yaw: number }>;
+  readonly plots: Array<{ x: number; z: number; r: number }>;
+  /** The paved square's radius, and the bearing the gate went out on. */
+  readonly plaza: number;
+  readonly gateAngle: number;
+  /** The island's own radius, so a settlement can reach for the rim. */
+  readonly islandR: number;
+}
+
+export interface CarriedSettlement {
+  /** The middle. A town whose middle is an ARENA leaves it empty on purpose. */
+  centre(ctx: SettleCtx): void;
+  /** The band around it: dwellings, galleries, whatever this town is made of. */
+  ring(ctx: SettleCtx): void;
+}
+
+function planIsland(
   seed: number,
   parts: SkyParts,
   lib: PropLib,
   onDeck: (x: number, z: number) => boolean,
   rimAt: (bearing: number) => number,
+  settle: CarriedSettlement,
 ): SkyPlan {
   const rng = mulberry32(seed ^ 0x5c17);
   const buildings: Array<{
@@ -225,23 +271,9 @@ function planSkyhaven(
     taken.push({ x, z, r });
   };
 
-  buildings.push({ t: parts.tower, x: 0, z: 0, yaw: rng() * 6.28, s: 1.25, light: [3.8, 4.5] });
-  claim(0, 0, 7);
-
-  {
-    const a = rng() * 6.28;
-    const [wx, wz] = at(a, PLAZA * 0.68);
-    buildings.push({ t: parts.well, x: wx, z: wz, yaw: rng() * 6.28 });
-    claim(wx, wz, 3);
-    for (const off of [2.2, 4.3]) {
-      const [sx, sz] = at(a + off, PLAZA * 0.72);
-      buildings.push({ t: parts.stall, x: sx, z: sz, yaw: a + off + Math.PI, light: [2.1, 2.4] });
-      claim(sx, sz, 4);
-    }
-  }
-
   // Both rim bearings are decided BEFORE anything is planted (issue #89): the stream's
-  // used to be last, so nothing placed above could be asked about the water.
+  // used to be last, so nothing placed above could be asked about the water. Above the
+  // settlement too, so `ctx.gateAngle` is a bearing the town can build against.
   const a0 = rng() * 6.28;
   const gateAngle = a0 + Math.PI * 1.28;
   // The fall is on the front quarter, beside the gate, so both frame together.
@@ -289,57 +321,28 @@ function planSkyhaven(
     }
   }
 
-  let houses = 0;
-  for (let c = 0; c < CLUSTERS; c++) {
-    const centre = a0 + (c / CLUSTERS) * Math.PI * 2 + (rng() - 0.5) * 0.5;
-    const dist = ISLAND_R * (HOUSE_IN + rng() * (HOUSE_OUT - HOUSE_IN));
-    // ONE AXIS PER KNOT, quantised to an eighth turn, so every roof in a knot runs
-    // the same way and only two or three axes appear on the island.
-    const axis = Math.round((centre + Math.PI) / (Math.PI / 4)) * (Math.PI / 4);
-    const count = 3 + Math.floor(rng() * 4);
-    for (let k = 0; k < count; k++) {
-      const along = (k - (count - 1) / 2) * (HOUSE_R * 2.1 + rng() * 4);
-      const px = Math.sin(centre) * dist + Math.cos(centre) * along;
-      const pz = Math.cos(centre) * dist - Math.sin(centre) * along;
-      if (!free(px, pz, HOUSE_R)) {
-        continue;
-      }
-      const kind = (houses % 3) as 0 | 1 | 2;
-      // Alternating slate and shingle makes a knot read as separate buildings.
-      buildings.push({
-        // Stamped at 1.2: scaling the stamp keeps `SV`'s gauge and takes the collider.
-        t: parts.cottages[kind + (houses % 2 === 0 ? 0 : 3)],
-        x: px,
-        z: pz,
-        yaw: axis + (rng() - 0.5) * 0.12,
-        s: 1.2,
-        light: [3.7, 2.2],
-      });
-      claim(px, pz, HOUSE_R);
-      houses++;
-      const bx = px + Math.sin(centre) * (HOUSE_R + 1.6);
-      const bz = pz + Math.cos(centre) * (HOUSE_R + 1.6);
-      if (free(bx, bz, 2)) {
-        buildings.push({ t: parts.bushes[houses % 2], x: bx, z: bz, yaw: rng() * 6.28 });
-        claim(bx, bz, 2);
-      }
-      // No smoke: `skySmoke` at this gauge read as a pillar beside the cottage. Kept.
-    }
-    const [px0, pz0] = at(centre, PLAZA);
-    const [px1, pz1] = at(centre, dist - 6);
-    paths.push([px0, pz0, px1, pz1]);
-    const [lx, lz] = at(centre + 0.12, (PLAZA + dist) * 0.5);
-    if (free(lx, lz, 2)) {
-      lamps.push({ x: lx, z: lz, yaw: centre });
-      claim(lx, lz, 2);
-    }
-    // A garden plot in the gap after the knot, so the ground looks used.
-    const [gx, gz] = at(centre + Math.PI / CLUSTERS, dist * 0.92);
-    if (free(gx, gz, 6)) {
-      plots.push({ x: gx, z: gz, r: 5.5 });
-      claim(gx, gz, 6);
-    }
-  }
+  const ctx: SettleCtx = {
+    // ITS OWN STREAM. The island's `rng` draws the fall, the gate, the stream
+    // stones, the wood and the rail; a settlement drawing from the same one means
+    // adding a town moves another town's trees. Separate, so the ROCK is the same
+    // rock whatever is built on it.
+    rng: mulberry32(seed ^ 0x71e5),
+    parts,
+    lib,
+    at,
+    free,
+    claim,
+    onDeck,
+    buildings,
+    paths,
+    lamps,
+    plots,
+    plaza: PLAZA,
+    gateAngle,
+    islandR: ISLAND_R,
+  };
+  settle.centre(ctx);
+  settle.ring(ctx);
 
   // A ring road round the square, so the streets meet something.
   for (let k = 0; k < 16; k++) {
@@ -587,6 +590,13 @@ interface SkyParts {
   readonly gate: Template;
   readonly bushes: readonly Template[];
   readonly smoke: Template;
+  /** The gallery towns' kit (issue #262): the rank, its butts, and the store. */
+  readonly gallery: Template;
+  readonly oilButt: Template;
+  readonly oilStore: Template;
+  /** The Orrery's: a pylon of the open frame, and an archive house. */
+  readonly pylon: Template;
+  readonly archive: Template;
 }
 
 /**
@@ -773,14 +783,21 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       gate: skyGate(),
       bushes: [skyBush(false), skyBush(true)],
       smoke: skySmoke(),
+      gallery: skyGallery(),
+      oilButt: skyOilButt(),
+      oilStore: skyOilStore(),
+      pylon: skyPylon(),
+      archive: skyArchive(),
     };
-    const plan = planSkyhaven(
+    const settlement = content.factory<CarriedSettlement>(CARRIED_LAYOUT_KIND, data.layout);
+    const plan = planIsland(
       seed,
       parts,
       props,
       // The deck's own answer, so the plan and the rock cannot disagree about ground.
       (x, z) => this.localDeck(x, z) > -Infinity,
       (a) => outlineAt(a, this.phase) * CELL,
+      settlement ?? SETTLEMENTS.skyhaven,
     );
     this.streets = plan.streets;
     this.mooring = { ...plan.mooring, y: 0, frame: this };
@@ -810,8 +827,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     }
 
     const stamp = new SolidStamp(this.solids);
-    const layout = content.factory<CarriedLayout>(CARRIED_LAYOUT_KIND, data.layout);
-    layout?.(stamp, parts, plan);
+    stampPlan(stamp, parts, plan);
     this.solids.build();
     this.emit(stamp.acc, props.solidMat, true, false);
 
@@ -1347,17 +1363,11 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 }
 
 /**
- * What a CARRIED town's layout is handed: a stamp that draws and blocks, the parts bin,
- * and the plan. EVERY COORDINATE IS LOCAL. It gets a plan rather than a road network
- * and a height field, because the plan had to exist before the ground did.
+ * EVERY CARRIED TOWN IS STAMPED THE SAME WAY — the plan says what and where, and
+ * this puts it down. What differs between towns is the PLAN (see `CarriedSettlement`),
+ * never the stamping, so a new sky town is two callbacks and no new stamp code.
  */
-export type CarriedLayout = (solid: SolidStamp, parts: SkyParts, plan: SkyPlan) => void;
-
-/**
- * Skyhaven: a tower on a square, cottages facing it, trees at the rim, a rail that
- * marks the edge without closing it. Where is `planSkyhaven`; this is only stamping.
- */
-const buildSkyhaven: CarriedLayout = (solid, parts, plan) => {
+function stampPlan(solid: SolidStamp, parts: SkyParts, plan: SkyPlan): void {
   for (const b of plan.buildings) {
     solid.add(b.t, b.x, 0, b.z, b.yaw, b.s ?? 1);
   }
@@ -1377,22 +1387,248 @@ const buildSkyhaven: CarriedLayout = (solid, parts, plan) => {
   for (const r of plan.rocks) {
     solid.add(r.t, r.x, 0, r.z, r.yaw, r.s);
   }
+}
+
+/**
+ * SKYHAVEN — a tower on a square, cottages facing it, a well and two stalls.
+ * The hub, and the only carried town anybody lives in comfortably.
+ */
+const skyhavenSettlement: CarriedSettlement = {
+  centre: ({ rng, parts, at: pt, buildings, claim, plaza }) => {
+    buildings.push({ t: parts.tower, x: 0, z: 0, yaw: rng() * 6.28, s: 1.25, light: [3.8, 4.5] });
+    claim(0, 0, 7);
+    const a = rng() * 6.28;
+    const [wx, wz] = pt(a, plaza * 0.68);
+    buildings.push({ t: parts.well, x: wx, z: wz, yaw: rng() * 6.28 });
+    claim(wx, wz, 3);
+    for (const off of [2.2, 4.3]) {
+      const [sx, sz] = pt(a + off, plaza * 0.72);
+      buildings.push({ t: parts.stall, x: sx, z: sz, yaw: a + off + Math.PI, light: [2.1, 2.4] });
+      claim(sx, sz, 4);
+    }
+  },
+  ring: (ctx) => {
+    const { rng, parts, at: pt, free, claim, buildings, paths, lamps, plots, plaza, islandR } = ctx;
+    // The knots' own start bearing. It was the island's `a0` when this lived inside
+    // the planner; a settlement gets its own, so the wood's bearing is not its business.
+    const a0 = rng() * 6.28;
+  let houses = 0;
+  for (let c = 0; c < CLUSTERS; c++) {
+    const centre = a0 + (c / CLUSTERS) * Math.PI * 2 + (rng() - 0.5) * 0.5;
+    const dist = islandR * (HOUSE_IN + rng() * (HOUSE_OUT - HOUSE_IN));
+    // ONE AXIS PER KNOT, quantised to an eighth turn, so every roof in a knot runs
+    // the same way and only two or three axes appear on the island.
+    const axis = Math.round((centre + Math.PI) / (Math.PI / 4)) * (Math.PI / 4);
+    const count = 3 + Math.floor(rng() * 4);
+    for (let k = 0; k < count; k++) {
+      const along = (k - (count - 1) / 2) * (HOUSE_R * 2.1 + rng() * 4);
+      const px = Math.sin(centre) * dist + Math.cos(centre) * along;
+      const pz = Math.cos(centre) * dist - Math.sin(centre) * along;
+      if (!free(px, pz, HOUSE_R)) {
+        continue;
+      }
+      const kind = (houses % 3) as 0 | 1 | 2;
+      // Alternating slate and shingle makes a knot read as separate buildings.
+      buildings.push({
+        // Stamped at 1.2: scaling the stamp keeps `SV`'s gauge and takes the collider.
+        t: parts.cottages[kind + (houses % 2 === 0 ? 0 : 3)],
+        x: px,
+        z: pz,
+        yaw: axis + (rng() - 0.5) * 0.12,
+        s: 1.2,
+        light: [3.7, 2.2],
+      });
+      claim(px, pz, HOUSE_R);
+      houses++;
+      const bx = px + Math.sin(centre) * (HOUSE_R + 1.6);
+      const bz = pz + Math.cos(centre) * (HOUSE_R + 1.6);
+      if (free(bx, bz, 2)) {
+        buildings.push({ t: parts.bushes[houses % 2], x: bx, z: bz, yaw: rng() * 6.28 });
+        claim(bx, bz, 2);
+      }
+      // No smoke: `skySmoke` at this gauge read as a pillar beside the cottage. Kept.
+    }
+    const [px0, pz0] = pt(centre, plaza);
+    const [px1, pz1] = pt(centre, dist - 6);
+    paths.push([px0, pz0, px1, pz1]);
+    const [lx, lz] = pt(centre + 0.12, (plaza + dist) * 0.5);
+    if (free(lx, lz, 2)) {
+      lamps.push({ x: lx, z: lz, yaw: centre });
+      claim(lx, lz, 2);
+    }
+    // A garden plot in the gap after the knot, so the ground looks used.
+    const [gx, gz] = pt(centre + Math.PI / CLUSTERS, dist * 0.92);
+    if (free(gx, gz, 6)) {
+      plots.push({ x: gx, z: gz, r: 5.5 });
+      claim(gx, gz, 6);
+    }
+  }
+  },
 };
 
 /**
- * The carried layouts this build implements. See `TownData.carried`. `gallery` and
- * `orrery` are PLACEHOLDERS: Skyhaven's stamping under another name, so Act 3's
- * towns exist, sit their crews and moor a balloon while their own kits are built
- * (issue #262 — lamp galleries, an observatory full of brass).
+ * THE GALLERY — Lanternfall and Cinderhelm (issue #262). A working shelf, not a
+ * village: ranks of lamp galleries on their own terraces, oil butts behind them,
+ * and one keeper's cottage per rank. The lamps are the point — their light is
+ * what keeps the Bond Engine's overflow dim — so they are laid in READABLE ROWS
+ * along the bearing of the rank rather than scattered as street furniture.
  */
-const CARRIED_LAYOUTS: Readonly<Record<string, CarriedLayout>> = {
-  skyhaven: buildSkyhaven,
-  gallery: buildSkyhaven,
-  orrery: buildSkyhaven,
+const gallerySettlement: CarriedSettlement = {
+  // A keeper's yard at the middle: the oil store, and the well that serves it.
+  centre: ({ rng, parts, at: pt, buildings, claim, plaza, lamps }) => {
+    buildings.push({ t: parts.oilStore, x: 0, z: 0, yaw: rng() * 6.28, s: 1.15, light: [3.2, 2.6] });
+    claim(0, 0, 6.5);
+    const a = rng() * 6.28;
+    const [wx, wz] = pt(a, plaza * 0.66);
+    buildings.push({ t: parts.well, x: wx, z: wz, yaw: rng() * 6.28 });
+    claim(wx, wz, 3);
+    // Four lamps on the square itself, so the middle is lit before the ranks are.
+    for (let k = 0; k < 4; k++) {
+      const [lx, lz] = pt(a + (k / 4) * Math.PI * 2 + 0.4, plaza * 0.85);
+      lamps.push({ x: lx, z: lz, yaw: 0 });
+      claim(lx, lz, 2);
+    }
+  },
+  ring: ({ rng, parts, at: pt, free, claim, buildings, paths, lamps, plots, plaza, islandR }) => {
+    const RANKS = 7;
+    const a0 = rng() * 6.28;
+    for (let r = 0; r < RANKS; r++) {
+      const bearing = a0 + (r / RANKS) * Math.PI * 2 + (rng() - 0.5) * 0.22;
+      const dist = islandR * (0.36 + rng() * 0.24);
+      // The rank runs ACROSS the bearing, so it reads as a row seen from the street.
+      const across = bearing + Math.PI / 2;
+      const n = 3 + Math.floor(rng() * 3);
+      let placed = 0;
+      for (let k = 0; k < n; k++) {
+        const along = (k - (n - 1) / 2) * 7.2;
+        const [bx, bz] = pt(bearing, dist);
+        const gx = bx + Math.sin(across) * along;
+        const gz = bz + Math.cos(across) * along;
+        if (!free(gx, gz, 4.2)) {
+          continue;
+        }
+        buildings.push({
+          t: parts.gallery,
+          x: gx,
+          z: gz,
+          yaw: bearing + Math.PI,
+          s: 1.1,
+          light: [2.4, 5.4],
+        });
+        claim(gx, gz, 4.2);
+        placed++;
+      }
+      if (placed === 0) {
+        continue;
+      }
+      // The street up to the rank, and a lamp halfway along it.
+      const [p0x, p0z] = pt(bearing, plaza);
+      const [p1x, p1z] = pt(bearing, dist - 5);
+      paths.push([p0x, p0z, p1x, p1z]);
+      const [lx, lz] = pt(bearing + 0.1, (plaza + dist) * 0.5);
+      if (free(lx, lz, 2)) {
+        lamps.push({ x: lx, z: lz, yaw: bearing });
+        claim(lx, lz, 2);
+      }
+      // The keeper's cottage behind the rank, and the butts it draws from.
+      const [cx, cz] = pt(bearing - 0.16, dist + 9);
+      if (free(cx, cz, HOUSE_R)) {
+        buildings.push({
+          t: parts.cottages[r % 3],
+          x: cx,
+          z: cz,
+          yaw: bearing,
+          s: 1.15,
+          light: [3.7, 2.2],
+        });
+        claim(cx, cz, HOUSE_R);
+      }
+      for (const off of [-2.6, 2.6]) {
+        const [ox, oz] = pt(bearing + off * 0.06, dist + 4.4);
+        if (free(ox + off, oz, 1.6)) {
+          buildings.push({ t: parts.oilButt, x: ox + off, z: oz, yaw: rng() * 6.28 });
+          claim(ox + off, oz, 1.6);
+        }
+      }
+      // A cutting bed in the gap: even a working shelf grows its own wicks.
+      const [px, pz] = pt(bearing + Math.PI / RANKS, dist * 0.94);
+      if (free(px, pz, 5)) {
+        plots.push({ x: px, z: pz, r: 4.5 });
+        claim(px, pz, 5);
+      }
+    }
+  },
 };
 
-for (const [name, fn] of Object.entries(CARRIED_LAYOUTS)) {
-  defineFactory(CARRIED_LAYOUT_KIND, name, fn);
+/**
+ * THE ORRERY — the Bond Engine itself (issue #262, quest #161).
+ *
+ * ITS MIDDLE IS AN ARENA AND STAYS EMPTY. The engine is an OPEN FRAME: four
+ * brass pylons on the square's rim carrying the ring, with nothing between them,
+ * because `quest:sky/the-orrery` fights the Choirguard in it and Act 4 fights
+ * `enemy:guardian/sky` on the same ground. A tower here — which is what this
+ * town borrowed while it was a placeholder — is a boss spawned inside a
+ * building and a hero who falls through the deck he teleported onto.
+ */
+const orrerySettlement: CarriedSettlement = {
+  centre: ({ parts, at: pt, buildings, claim, plaza, lamps }) => {
+    // The pylons stand OFF the square, on its rim, at the quarters.
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+      const [px, pz] = pt(a, plaza * 0.92);
+      buildings.push({ t: parts.pylon, x: px, z: pz, yaw: a, s: 1.2, light: [1.4, 9.5] });
+      claim(px, pz, 4);
+      const [lx, lz] = pt(a + Math.PI / 4, plaza * 0.95);
+      lamps.push({ x: lx, z: lz, yaw: a });
+      claim(lx, lz, 2);
+    }
+    // ...and nothing at all in the middle. `claim` it anyway, so the ring's own
+    // placement cannot wander in and neither can a tree.
+    claim(0, 0, plaza * 0.8);
+  },
+  ring: ({ rng, parts, at: pt, free, claim, buildings, paths, lamps, plaza, islandR }) => {
+    // The archive around the arena: reading rooms and instrument houses, all
+    // facing in, with a colonnade street round the square joining them.
+    const HOUSES = 8;
+    const a0 = rng() * 6.28;
+    for (let k = 0; k < HOUSES; k++) {
+      const bearing = a0 + (k / HOUSES) * Math.PI * 2;
+      const dist = islandR * (0.4 + rng() * 0.16);
+      const [hx, hz] = pt(bearing, dist);
+      if (!free(hx, hz, HOUSE_R)) {
+        continue;
+      }
+      // Every second one is an instrument house rather than a reading room.
+      buildings.push({
+        t: k % 2 === 0 ? parts.archive : parts.cottages[k % 3 + 3],
+        x: hx,
+        z: hz,
+        yaw: bearing + Math.PI,
+        s: 1.2,
+        light: [3.6, 2.6],
+      });
+      claim(hx, hz, HOUSE_R);
+      const [p0x, p0z] = pt(bearing, plaza);
+      const [p1x, p1z] = pt(bearing, dist - 5);
+      paths.push([p0x, p0z, p1x, p1z]);
+      const [lx, lz] = pt(bearing + 0.12, (plaza + dist) * 0.5);
+      if (free(lx, lz, 2)) {
+        lamps.push({ x: lx, z: lz, yaw: bearing });
+        claim(lx, lz, 2);
+      }
+    }
+  },
+};
+
+/** The carried settlements this build implements. See `TownData.carried`. */
+const SETTLEMENTS: Readonly<Record<string, CarriedSettlement>> = {
+  skyhaven: skyhavenSettlement,
+  gallery: gallerySettlement,
+  orrery: orrerySettlement,
+};
+
+for (const [name, settlement] of Object.entries(SETTLEMENTS)) {
+  defineFactory(CARRIED_LAYOUT_KIND, name, settlement);
 }
 
 /** `TownInfo` with the fields a moving town rewrites every slice. */
