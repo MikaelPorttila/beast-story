@@ -58,6 +58,7 @@ import {
   BOATWRIGHT_BODY,
   COIL_BODY,
   MERA_BODY,
+  VESS_BODY,
   SKY_GARDENER_BODY,
   SKY_LAMPLIGHTER_BODY,
   SKY_PILOT_BODY,
@@ -169,6 +170,7 @@ export const NPC_BODIES: Readonly<Record<string, NpcBody>> = {
   "sky-gardener": SKY_GARDENER_BODY,
   "sky-lamplighter": SKY_LAMPLIGHTER_BODY,
   mera: MERA_BODY,
+  vess: VESS_BODY,
   coil: COIL_BODY,
   // Saltrest's boatwright, met in Kelphold's drowned market (issue #154).
   boatwright: BOATWRIGHT_BODY,
