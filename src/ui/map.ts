@@ -135,6 +135,8 @@ interface ZoneMap {
   extent: { minX: number; minZ: number; maxX: number; maxZ: number } | null;
   /** How many explored cells the fog canvas already has holes for. */
   fogPainted: number;
+  /** The explored set being mirrored; restore replaces its identity and invalidates every cached hole. */
+  fogSource: ReadonlySet<number> | null;
   /** `bx,bz` of every SEEN_BLOCK an explored cell touches — the painter's "is any of this tile visible" test. */
   seen: Set<string>;
 }
@@ -504,7 +506,8 @@ export class MapPanel {
       tiles: new Map(),
       fog: new Map(),
       extent: null,
-      fogPainted: -1,
+      fogPainted: 0,
+      fogSource: null,
       seen: new Set(),
     };
     this.cache.set(ter.zoneId, made);
@@ -699,15 +702,16 @@ export class MapPanel {
 
   /** Punch a soft hole per explored cell, only for the cells added since last time. */
   private paintFog(zm: ZoneMap, cells: ReadonlySet<number>): void {
-    if (cells.size === zm.fogPainted) {
-      return;
-    }
-    if (cells.size < zm.fogPainted || zm.fogPainted < 0) {
-      // Fewer than before means a load or a new game: start the sheets over.
+    if (cells !== zm.fogSource || cells.size < zm.fogPainted) {
+      // Exploration only appends in play; a new set is a restore or session reset and must not inherit old holes.
       zm.fog.clear();
       zm.extent = null;
       zm.fogPainted = 0;
+      zm.fogSource = cells;
       zm.seen.clear();
+    }
+    if (cells.size === zm.fogPainted) {
+      return;
     }
     const brush = this.fogBrush ?? (this.fogBrush = makeFogBrush());
     const r = brush.width / 2;
@@ -902,19 +906,25 @@ export class MapPanel {
     if (zm && ter) {
       this.paintFog(zm, ter.explored());
       this.drawTiles(ctx, zm, dpr, w, h);
-      // Fog sheets over the tiles; a chunk with no sheet is the untouched fog-coloured ground already painted.
+      // Fog sheets cover explored chunks; an absent sheet is untouched and must cover terrain tiles explicitly.
       const v0 = this.toWorld(0, 0);
       const v1 = this.toWorld(w, h);
       const snap = (v: number): number => Math.round(v * dpr) / dpr;
+      ctx.fillStyle = FOG_COLOUR;
       for (let gz = Math.floor(v0.z / FOG_CHUNK); gz <= Math.floor(v1.z / FOG_CHUNK); gz++) {
         for (let gx = Math.floor(v0.x / FOG_CHUNK); gx <= Math.floor(v1.x / FOG_CHUNK); gx++) {
           const sheet = zm.fog.get(`${gx},${gz}`);
-          if (!sheet) {
-            continue;
-          }
           const a = this.toScreen(gx * FOG_CHUNK, gz * FOG_CHUNK);
           const e = this.toScreen((gx + 1) * FOG_CHUNK, (gz + 1) * FOG_CHUNK);
-          ctx.drawImage(sheet, snap(a.x), snap(a.y), snap(e.x) - snap(a.x), snap(e.y) - snap(a.y));
+          const x = snap(a.x);
+          const y = snap(a.y);
+          const width = snap(e.x) - x;
+          const height = snap(e.y) - y;
+          if (sheet) {
+            ctx.drawImage(sheet, x, y, width, height);
+          } else {
+            ctx.fillRect(x, y, width, height);
+          }
         }
       }
     }
