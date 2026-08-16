@@ -44,7 +44,7 @@ import { DebugOverlay } from "../core/debug-overlay";
 import { EventBus, type BeastAction, type Damageable } from "../core/types";
 import { BeastActor, registerSkillDefs } from "../beasts/framework";
 import { ALL_SPECIES, SKILLS, getSkill } from "../beasts/registry";
-import { Enemy, type EnemyCtx } from "../combat/enemies";
+import { Enemy, type EnemyCtx, speciesOf } from "../combat/enemies";
 import { VFX } from "../combat/vfx";
 import { CombatSystem } from "../combat/index";
 import { tameOrbMesh, ORB_RADIUS } from "../combat/tame-orb";
@@ -84,7 +84,11 @@ import { BundledProvider } from "../content/storage/bundled";
 // bundled JSON parsed out of the main chunk, and a lab that loaded content only
 // on some URLs would be a lab whose boot order depends on the query string.
 content.addProvider(new BundledProvider());
-await bootstrapContent();
+// The STORY packages too, not just `core`: the acts are where the named enemies
+// live (the two Act 3 guardians are in `story-sky`), and a lab that cannot stage
+// them is a lab nobody checks a new rig in (issue #263). Cheap — bundled JSON,
+// no world is built here.
+await bootstrapContent({ packages: ["story", "story-land", "story-sea", "story-sky"] });
 
 const params = new URLSearchParams(location.search);
 const num = (k: string, d: number): number => {
@@ -161,7 +165,11 @@ if (beastsParam) {
 
 const enemyParam = params.get("enemy");
 const vfx = new VFX(engine.scene);
-if (enemyParam === "gloopling" || enemyParam === "snortle" || enemyParam === "peckit") {
+// ANY enemy the loaded content knows, not a list of three: a new rig that cannot
+// be staged is a new rig nobody looks at before it ships (issue #263). `speciesOf`
+// is the same lookup `CombatSystem.spawnOne` makes, and an id it does not know
+// simply stages nothing.
+if (enemyParam !== null && speciesOf(enemyParam) !== undefined) {
   enemies.push(new Enemy(enemyParam, num("variant", 0), 0, 0, world));
   for (const e of enemies) {
     engine.scene.add(e.root);
