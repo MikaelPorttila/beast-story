@@ -170,6 +170,14 @@ export class MountController {
   get bodyY(): number {
     return this.pos.y;
   }
+  /** ...and its COLUMN, which `seatHero` sets the rider behind: what is under the
+   * animal is not what is under the hero, and every clamp here asks about this one. */
+  get bodyX(): number {
+    return this.pos.x;
+  }
+  get bodyZ(): number {
+    return this.pos.z;
+  }
   private vel = new THREE.Vector3();
   private vy = 0;
   private grounded = true;
