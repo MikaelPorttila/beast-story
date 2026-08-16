@@ -450,6 +450,10 @@ const out = {};
   await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: "load" });
   await page.waitForSelector("canvas");
   out.loaderOff = await loader(page);
+  // The unstaged boot drains the whole shader sweep on the module's own top-level
+  // await, and `load` does not always wait for it on a slow host — the hooks are
+  // simply not there yet. Bounded, and `playingWithMenuOff` still records the claim.
+  await page.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 90000 });
   out.playingWithMenuOff = (await boot(page))?.playing ?? null;
   out.menuOff = await state(page);
   out.walkedWithMenuOff = await walk(page, HOLD);
