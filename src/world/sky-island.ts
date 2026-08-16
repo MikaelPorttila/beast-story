@@ -6,7 +6,7 @@
  * Altitude, not avoidance, keeps it out of peaks — see `steer`.
  */
 import * as THREE from "three";
-import type { CelestialState, TownInfo, TownRegistry } from "../core/types";
+import type { CelestialState, Mooring, TownInfo, TownRegistry } from "../core/types";
 import { CarrierBody } from "./carriers";
 import type { PropLib } from "./props";
 import { Accum, bakeProp, type Template } from "./props";
@@ -211,6 +211,8 @@ interface SkyPlan {
   readonly fallAngle: number;
   /** The town square — what an NPC stands across from. */
   readonly focus: { x: number; z: number };
+  /** The balloon's berth: the pad the hero boards from and where the craft waits. */
+  readonly mooring: { x: number; z: number; boatX: number; boatZ: number };
 }
 
 /** The paved square. Nothing inside it but the tower and the market. */
@@ -449,6 +451,22 @@ function planSkyhaven(
     paths.push([p0x, p0z, gx, gz]);
   }
 
+  // The mooring, beside the gate and off its street: where the balloon waits and
+  // where the hero stands to board (issue #157). Walked inward until both the pad
+  // and the craft stand on turf, since the outline is not a circle.
+  const mooringAngle = gateAngle - 0.22;
+  let mooring = { x: 0, z: 0, boatX: 0, boatZ: 0 };
+  for (let f = 0.8; f > 0.4; f -= 0.04) {
+    const [px, pz] = at(mooringAngle, ISLAND_R * f);
+    const [bx, bz] = at(mooringAngle, ISLAND_R * (f + 0.07));
+    if (onDeck(px, pz) && onDeck(bx, bz) && free(px, pz, 3) && free(bx, bz, 4)) {
+      mooring = { x: px, z: pz, boatX: bx, boatZ: bz };
+      claim(px, pz, 3);
+      claim(bx, bz, 4);
+      break;
+    }
+  }
+
   // Every street is planned by here, and must be before anything is PLANTED:
   // `free`/`claim` knows radii and a street is a line (issue #142 §1).
   const streets = streetNetwork(paths);
@@ -564,6 +582,7 @@ function planSkyhaven(
     plots,
     fallAngle,
     focus: { x: fx * 0.4, z: fz * 0.4 },
+    mooring,
   };
 }
 
@@ -746,6 +765,8 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   private pavedCells = 0;
   /** The outline's phase, so two seeds are two different islands. */
   private readonly phase: number;
+  /** The balloon's berth, LOCAL: the deck is y = 0, and `this` is the frame. */
+  readonly mooring: Mooring;
 
   constructor(
     private readonly terrain: Terrain,
@@ -817,6 +838,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       (a) => outlineAt(a, this.phase) * CELL,
     );
     this.streets = plan.streets;
+    this.mooring = { ...plan.mooring, y: 0, frame: this };
     this.buildRock(plan);
     for (const t of plan.trees) {
       this.treeSpots.push(t.x, t.z);

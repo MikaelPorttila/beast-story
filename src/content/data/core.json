@@ -382,7 +382,8 @@
                 "quest": "quest:sky/the-long-ascent",
                 "objective": "board-the-balloon"
               }
-            ]
+            ],
+            "_fallback": "The wreck on Gullspire is the door (story-sea.json's Vane), and the balloon's own `ride` fact marks boarding. This row is for whoever rode up WITHOUT asking first — the balloon is moored on the flag, not on the quest — so he marks the boarding he watched."
           },
           {
             "when": {

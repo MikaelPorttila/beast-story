@@ -254,12 +254,14 @@ export const sections = [
       // The residents travel with it.
       const a = (await carriers(ctx)).all[0];
       const npcs = await ctx.ev(() => window.__dbgNpcs());
-      const crew = npcs.all.filter((n) => n.id.startsWith("sky-"));
+      // By TOWN, not by id prefix: Corwin Vane's wreck placement is a "sky-" id
+      // standing on Gullspire's ground, and the crew will grow (issue #145).
+      const crew = npcs.all.filter((n) => n.town === "skyhaven");
       const offsets = crew.map((n) => +Math.hypot(n.x - a.x, n.z - a.z).toFixed(2));
       await ctx.adv(5);
       const b = (await carriers(ctx)).all[0];
       const npcs2 = await ctx.ev(() => window.__dbgNpcs());
-      const crew2 = npcs2.all.filter((n) => n.id.startsWith("sky-"));
+      const crew2 = npcs2.all.filter((n) => n.town === "skyhaven");
       const offsets2 = crew2.map((n) => +Math.hypot(n.x - b.x, n.z - b.z).toFixed(2));
       ctx.res.residents = {
         count: crew.length,
@@ -268,7 +270,7 @@ export const sections = [
         offsetsAfter: offsets2,
         heights: crew2.map((n) => +n.y.toFixed(2)),
       };
-      ctx.check(crew.length === 3, `expected 3 skyfolk, found ${crew.length}`);
+      ctx.check(crew.length >= 3, `expected at least 3 skyfolk, found ${crew.length}`);
       // They are placed in the island's frame and republished in world
       // coordinates every slice, so their distance FROM THE ISLAND is the
       // invariant — it is a placement, and it must not change while the world

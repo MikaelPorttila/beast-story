@@ -120,6 +120,9 @@ const SOLO = new Set([
   // The act's closer: drives the fork both orders, stands the boss up in the
   // reef ring and fells it, and closes the Act 2 -> Act 3 seam.
   "tide-kept",
+  // Act 3's opener: rides the balloon up to the island and back down, pressing
+  // on pads and landing on a moving deck — a hero, a key edge, and motion.
+  "long-ascent",
   // Grants beasts and items, then activates quests through the store and reads
   // what the activation counted — drives state, no hero; SOLO is the default.
   "quest-replay",

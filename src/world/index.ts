@@ -1216,6 +1216,7 @@ export function createWorld(
     })(),
     // The pier head's y is the DECK, which the layout knew and the height field never will.
     portOf: (townId) => towns?.portOf(townId) ?? null,
+    mooringOf: (townId) => (sky && sky.town.id === townId ? sky.mooring : null),
     shopPositions: shops.positions,
     towns: withCarriedTowns(townReg, sky ? [sky.town] : []),
     safeZones,

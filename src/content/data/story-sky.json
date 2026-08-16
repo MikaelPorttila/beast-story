@@ -1,12 +1,12 @@
 {
   "id": "story-sky",
-  "version": "0.1.0",
-  "requires": ["story"],
+  "version": "0.2.0",
+  "requires": ["story", "story-sea"],
   "meta": {
     "title": "Act 3 — Sky: The Cirran Shelf",
-    "note": "The five main quests of Act 3 (game-story.md §4, issue #145). Only the entry ships today: the RECEIVING HALF of the Act 2 -> Act 3 seam (issue #157), the same shape #214 gave the sea act — the ordering is final, the geography is not.",
-    "loading": "Loaded on `sky-revealed` (ACT_PACKAGES in main.ts), the flag Act 2's closer sets — not at boot, because nothing of the sky needs to exist when the world is planned: Skyhaven and its residents ship in `core` and stay there. Loaded once and never released mid-session; progress lives in ContentState.",
-    "the-stub": "The quest names its giver and its town by reference and Corwin Vane's rows in core.json (Gain's precedent, see story.json) offer and close it. What is NOT here is the balloon: the transition between two balloon models is engine work under #157, and boarding it is what should mark `board-the-balloon` on the way up. Until then Vane's offer row marks it in the same breath — you rode up with him — and `reach-skyhaven` is the arrival replay every town-arrival objective gets on activation."
+    "note": "The five main quests of Act 3 (game-story.md §4, issue #145). Act 3 is PART OF THE OPEN WORLD, the way Act 2 is (issue #144): the Shelf is the open world's sky, its towns are CARRIERS that roam above it, and there is no `cirrus` zone. What `sky-revealed` opens is the BALLOON — the means of getting up — not the geography.",
+    "loading": "Boot-loaded (see bootstrapContent in main.ts), for the same reason story-sea is: a carried town must exist when the world is built, because the island that carries it is built with the world. The flag-gated load recorded in issue #261 was the zone-era answer and went with the zone.",
+    "the-seam": "The ascent is offered at the WRECK on Gullspire by Corwin Vane's sea placement (story-sea.json — the same man, the balloon he patched) and closed by his Skyhaven placement (core.json). Boarding is a `ride` fact the balloon emits, `reach-skyhaven` the arrival replay every town-arrival objective gets. The balloon runs both ways from the first day it is moored: Act 4 stages out of the Encampment."
   },
   "assets": [
     {
@@ -18,14 +18,16 @@
       "data": {
         "category": "main",
         "arc": "sky",
-        "giver": "npc:sky-pilot",
+        "giver": "npc:sky-pilot/gullspire",
+        "turnIn": "npc:sky-pilot",
         "location": "town:skyhaven",
         "prerequisites": ["quest:sea/what-the-tide-kept"],
-        "_seam": "THE ACT 2 -> ACT 3 SEAM, receiving half. The prerequisite alone is the door for THIS quest; everything else in the sky tests sky-revealed. Vane's rows are gated on knows-the-sky besides — he is the pilot only because the Rookery pulled him off Gullspire.",
+        "_seam": "THE ACT 2 -> ACT 3 SEAM, receiving half. The prerequisite alone is the door for THIS quest; everything else in the sky tests sky-revealed. Given at the wreck, closed on the deck: giver and turnIn are the two placements of one pilot.",
         "objectives": [
           {
             "key": "board-the-balloon",
-            "text": { "key": "quest.sky.theLongAscent.obj.boardTheBalloon" }
+            "text": { "key": "quest.sky.theLongAscent.obj.boardTheBalloon" },
+            "trigger": { "kind": "ride", "site": "vane-wreck" }
           },
           {
             "key": "reach-skyhaven",

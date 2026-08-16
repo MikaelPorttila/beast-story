@@ -225,6 +225,8 @@ export const en = {
   "site.droveGround.desc": "The open herding flats out past Stonewatch, where the herd is led.",
   "site.holdFloor.name": "The Hold's Floor",
   "site.holdFloor.desc": "The lowest room of the Sunken Hold, furthest in from the gateway.",
+  "site.skyhavenMooring.name": "The Mooring",
+  "site.skyhavenMooring.desc": "Skyhaven's balloon berth beside the gate, where Corwin Vane ties up.",
 
   // ---- the campaign: Act 1, Land (game-story.md §4, issue #143) -------------
   // Keyed by the quest id with the slash dropped and the name camel-cased:
@@ -489,8 +491,13 @@ export const en = {
     "Down, dry, and the vane out of the salt. Now the part you carried me for: there are CITIES up there. Well-run, well-lit, and very sure nobody would ever drop in. When your instrument starts pointing up — and it will — I can get you there. You will not like it.",
   "npc.skyPilot.sea4.after":
     "I have flown over the whole Reach and I still could not tell you where the sea ends. Up is simpler. Up has lamps.",
-  // Home on the mooring deck — the receiving half of the Act 2 -> Act 3 seam
-  // (issue #157). Gain is already up here, of course; ask him how yourself.
+  // The Act 2 -> Act 3 seam (issue #157). Offered at the WRECK, patched and
+  // moored on Gullspire — the pad you board from — and closed on Skyhaven's deck.
+  // Gain is already up here, of course; ask him how yourself.
+  "npc.skyPilot.sky1.ground":
+    "She is patched, she is moored, and your instrument has stopped pretending it means anything but UP. Climb in when you are ready. I will say it once more so it is on record: you will not like it.",
+  "npc.skyPilot.sky1.board":
+    "The basket is right there. Step in, hold the stay, and do not look at the ground — it is only going to get further away.",
   "npc.skyPilot.sky1.offer":
     "Told you that you would not like it. Well — you are up, and she held, and that is the whole of the trick. Welcome to the Shelf. Mind the rim, mind the rotas, and mind Gain: he was on the deck with a hot cup when we moored, and I did not carry him.",
   "npc.skyPilot.sky1.done":
@@ -872,6 +879,8 @@ export const en = {
   "hint.zoneEntering": "Entering {zone}…",
   "hint.ferry": "Press {key} to sail to {place}",
   "hint.sailing": "Sailing to {place}…",
+  "hint.balloon": "Press {key} to ride the balloon to {place}",
+  "hint.ballooning": "Riding the balloon to {place}…",
 
   // ---- dialogue ------------------------------------------------------------
   // The talk panel's footer. `{key}` arrives already wrapped in <kbd>, like

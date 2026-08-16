@@ -42,6 +42,7 @@
 import * as THREE from "three";
 import {
   inRise,
+  type LocalFrame,
   type NpcField,
   type NpcInfo,
   type NpcTalk,
@@ -439,11 +440,7 @@ interface Placed {
  * coordinates once per update, because the talk test in main.ts is asked about
  * a hero whose position is a world position and must not have to know either.
  */
-export interface NpcFrame {
-  readonly y: number;
-  readonly yaw: number;
-  toWorld(lx: number, lz: number, out: { x: number; z: number }): void;
-}
+export type NpcFrame = LocalFrame;
 
 /** What the NPC system needs to know about the world it is being placed in. */
 export interface NpcSite {

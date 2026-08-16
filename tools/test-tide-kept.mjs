@@ -16,9 +16,10 @@
 //      a town), stands the Brineholder up, and its death marks the defeat.
 //   4. THE SEAM CLOSES: Coil's turn-in assembles the device — device-built,
 //      sky-revealed, act-2-complete all set, 200 paid. And its RECEIVING half
-//      (issue #157): sky-revealed loads story-sky, The Long Ascent is the main
-//      quest on the shelf, and Corwin Vane on Skyhaven's deck offers and closes
-//      it — act-3-open set, the town discovered, 100 paid.
+//      (issue #157): The Long Ascent is the main quest on the shelf, and Corwin
+//      Vane on Skyhaven's deck — the fallback door for whoever rode up without
+//      asking — offers and closes it: act-3-open set, the town discovered, 100
+//      paid. The intended door, the wreck and the ride, is test-long-ascent.
 //   5. THE ARENA OUTLIVES ITS BOSS (Act 4's anchor): with the act closed the
 //      ring is re-enterable and nothing respawns in it.
 //
@@ -188,10 +189,10 @@ let ring;
   check(ended.act2 === true, "act-2-complete was not set");
   check(paid === 200, `the reward paid ${paid} shards, not the promised 200`);
 
-  // AND THE RECEIVING HALF (issue #157): `sky-revealed` is what loads
-  // `story-sky` — the sky is not boot-resident, Skyhaven already is — and the
-  // prerequisite just handed in puts The Long Ascent on the shelf as the ONE
-  // main quest offered with the act closed. Polled: the load is async.
+  // AND THE RECEIVING HALF (issue #157): `story-sky` is boot-resident like the
+  // sea (the sky is part of the open world), and the prerequisite just handed in
+  // puts The Long Ascent on the shelf as the ONE main quest offered with the act
+  // closed. Polled: the shelf refreshes on the store's own change.
   let seam = null;
   for (let i = 0; i < 40 && seam?.tab !== "available"; i++) {
     await wait(250);
@@ -211,7 +212,7 @@ let ring;
     });
   }
   results.seam = seam;
-  check(seam.packages.includes("story-sky"), "sky-revealed did not load story-sky");
+  check(seam.packages.includes("story-sky"), "story-sky is not resident");
   check(seam.tab === "available", `the-long-ascent is on the "${seam.tab}" shelf, not "available"`);
   check(
     seam.diagnostics.length === 0,

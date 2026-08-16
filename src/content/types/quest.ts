@@ -41,7 +41,8 @@ export type ObjectiveTriggerKind =
   | "item-picked"
   | "town-arrival"
   | "zone-arrival"
-  | "escort";
+  | "escort"
+  | "ride";
 
 const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "orb-thrown",
@@ -51,6 +52,7 @@ const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "town-arrival",
   "zone-arrival",
   "escort",
+  "ride",
 ];
 
 /**
@@ -72,7 +74,7 @@ export interface ObjectiveTrigger {
    * A STAGED SITE the engine derives and content cannot place — the wreck, the
    * reef ring (the `site` field the questWaypoint note in main.ts priced in).
    * On `escort` it is the destination; a name the engine does not implement is
-   * a diagnostic at escort start.
+   * a diagnostic at escort start. On `ride` it is the pad boarded FROM.
    */
   readonly site?: string;
 }

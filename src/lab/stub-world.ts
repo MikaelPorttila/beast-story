@@ -43,6 +43,9 @@ export class StubWorld implements World {
   portOf(): null {
     return null;
   }
+  mooringOf(): null {
+    return null;
+  }
   debugColumn(): number {
     return 0;
   }
