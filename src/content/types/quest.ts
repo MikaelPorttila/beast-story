@@ -41,6 +41,7 @@ export type ObjectiveTriggerKind =
   | "item-picked"
   | "town-arrival"
   | "zone-arrival"
+  | "waypoint-lit"
   | "escort"
   | "ride";
 
@@ -51,6 +52,7 @@ const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "item-picked",
   "town-arrival",
   "zone-arrival",
+  "waypoint-lit",
   "escort",
   "ride",
 ];
@@ -68,6 +70,8 @@ export interface ObjectiveTrigger {
   readonly town?: ContentId;
   /** The `ZoneDef` id — `overworld`, `hold`. */
   readonly zone?: string;
+  /** A derived standing-stone id — not a content ref, because roads site these. */
+  readonly waypoint?: string;
   /** On `escort`: WHO is walked. The `escort.start` action names the same id. */
   readonly npc?: ContentId;
   /**
@@ -159,6 +163,14 @@ function readTrigger(value: unknown, ctx: Reader): ObjectiveTrigger | undefined 
     item: opt(v.item, ctx.at("item"), (s, c) => str(s, c, { min: 1, max: 64, what: "an item id" })),
     town: opt(v.town, ctx.at("town"), idOf("town")),
     zone: opt(v.zone, ctx.at("zone"), (s, c) => str(s, c, { min: 1, max: 64, what: "a zone id" })),
+    waypoint: opt(v.waypoint, ctx.at("waypoint"), (s, c) => {
+      const id = str(s, c, { min: 10, max: 96, what: "a waypoint id" });
+      if (id !== "" && !id.startsWith("waypoint:")) {
+        c.report("error", "bad-field", `expected a "waypoint:" id, got "${id}"`);
+        return "";
+      }
+      return id;
+    }),
     npc: opt(v.npc, ctx.at("npc"), idOf("npc")),
     site: opt(v.site, ctx.at("site"), (s, c) => str(s, c, { min: 1, max: 64, what: "a site name" })),
   };

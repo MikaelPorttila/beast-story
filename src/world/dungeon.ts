@@ -572,7 +572,8 @@ const key = (cx: number, cz: number): number => cx * 64 + cz;
  * not, and a define is what makes a material a material.
  */
 function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
-  const base = new THREE.OctahedronGeometry(0.42, 0).toNonIndexed();
+  // Three r185's OctahedronGeometry is already non-indexed; converting it again warns on Hold entry.
+  const base = new THREE.OctahedronGeometry(0.42, 0);
   base.scale(1, 2.1, 1);
   const bp = base.getAttribute("position");
   const bn = base.getAttribute("normal");

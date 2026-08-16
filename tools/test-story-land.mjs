@@ -31,33 +31,36 @@
 //      — the starting purse is a number that may change and is not this
 //      probe's business.
 //
-// SECTIONS 5 – 8 — QUEST 2, `quest:land/the-first-bond`, and the pair that runs
-// through the middle of them:
+// SECTIONS 5 – 8 — QUEST 2, `quest:land/the-blue-road`: Gain sends the player
+// through the gate, the Encampment waystone wakes from the real proximity fact,
+// and the map-travel tutorial then unlocks the first wild bond.
 //
 //   6. PREREQUISITES DECIDE THE ORDER, in both directions. The quest is on no
 //      shelf at all while quest 1 is unfinished (§5) and offered the moment it
 //      completes (§7). Either half alone passes against a build that never
 //      offers it, or one that always does.
-//   7. A WILD BOND COUNTS. Driven through the real mechanic — hunt a Sproutle,
+//   7. WAKING THE GATE STONE COUNTS, and that discovery is saved independently
+//      of the quest counter. The first-bond quest is hidden until Gain closes it.
+//   8. A WILD BOND COUNTS. Driven through the real mechanic — hunt a Sproutle,
 //      weaken it, force the catch — because the trigger under test is the one
 //      Acts 2 and 3 inherit, filtered to their own species. `first-bond` is set
 //      by the turn-in and the counter stops at the one the quest asked for.
 //
-// SECTION 11 — QUEST 5, `quest:land/the-bellwether`, the act's boss and the
+// SECTION 12 — QUEST 6, `quest:land/the-bellwether`, the act's boss and the
 // seam out of Act 1: the warden opens it, the herd's leader is put out on open
 // country outside Stonewatch when the player comes to meet it, the arena is
 // re-enterable with the boss dead (Act 4 needs that ground again), and the
 // turn-in sets `sea-revealed` and `act-1-complete` — the act closes on flags,
 // never on a counter.
 //
-// SECTION 10 — QUEST 4, `quest:land/the-red-thread`, the act's dungeon: going
+// SECTION 11 — QUEST 5, `quest:land/the-red-thread`, the act's dungeon: going
 // down is an objective, the hold's floor is STAGED while the quest is live (a
 // generated zone has nowhere to author a prop), freeing the Sproutle is the
-// same `tamed` fact quest 2 counts with a `zone` on it, the shard is walked
+// same `enemy-killed` fact The Mill Road counts with a `zone` on it, the shard is walked
 // onto, and leaving and coming back keeps every one of them — which is the
 // ticket's own acceptance and the reason progress lives in `ContentState`.
 //
-// SECTION 9 — QUEST 3, `quest:land/the-mill-road`, the act's travel quest and
+// SECTION 10 — QUEST 4, `quest:land/the-mill-road`, the act's travel quest and
 // the one that hands over the ground mount. Four more claims, the first of them
 // a pair for the same reason the others are:
 //
@@ -80,13 +83,14 @@ import { BASE as HOST } from "./target.mjs";
 const URL = `${HOST}/?menu=0&vol=0&debug=1`;
 
 const QUEST = "quest:land/first-light";
+const WAYPOINT_QUEST = "quest:land/the-blue-road";
 const QUEST2 = "quest:land/the-first-bond";
 const QUEST3 = "quest:land/the-mill-road";
 /** What the quest's own asset says, so the probe is not a second copy of it. */
 const PRACTICE_THROWS = 3;
 const CULL_COUNT = 6;
 const QUEST4 = "quest:land/the-red-thread";
-/** What the Hold's floor holds while quest 4 is live. */
+/** What the Hold's floor holds while quest 5 is live. */
 const SHARD_ITEM = "red-shard";
 /** What the thread is wound onto — killing it is what frees the animal. */
 const ANCHOR = "thread-anchor";
@@ -126,6 +130,7 @@ const dbg = (fn, ...args) => page.evaluate(fn, ...args);
 const state = async () => {
   const doc = (await dbg(() => window.__dbgContent())).state ?? {};
   const id = "quest:land/first-light";
+  const waypointId = "quest:land/the-blue-road";
   const id2 = "quest:land/the-first-bond";
   const id3 = "quest:land/the-mill-road";
   const id4 = "quest:land/the-red-thread";
@@ -137,6 +142,8 @@ const state = async () => {
     status: status(id),
     talk: at(id, "talk-to-gain"),
     practice: at(id, "bond-practice"),
+    waypointStatus: status(waypointId),
+    waypoint: at(waypointId, "wake-waystone"),
     status2: status(id2),
     tamed: at(id2, "tame-wild"),
     status3: status(id3),
@@ -153,6 +160,7 @@ const state = async () => {
     discoveredStonewatch: (doc.discovered ?? []).includes("town:stonewatch"),
     flags: doc.flags ?? [],
     discovered: (doc.discovered ?? []).includes("town:encampment"),
+    discoveredWaypoint: (doc.discovered ?? []).includes("waypoint:town-encampment"),
     discoveredRedbriar: (doc.discovered ?? []).includes("town:redbriar"),
   };
 };
@@ -409,15 +417,15 @@ async function goToWild(species) {
   );
 }
 
-// ---------- 5. quest 2 is locked until quest 1 is done ----------------------
+// ---------- 5. The Blue Road is locked until First Light is done ------------
 // The FIRST half of the pair. Section 7 is the second, and the two of them are
 // what "prerequisites decide the order" means: this quest is invisible now and
 // offered the moment the one before it completes. One arm alone passes against
 // a build that never offers it and against one that always does.
 {
-  const tab = await tabOf(QUEST2);
-  results.gateBefore = { tab, status: (await state()).status2 };
-  check(tab === null, `${QUEST2} is on the "${tab}" shelf before its prerequisite is done`);
+  const tab = await tabOf(WAYPOINT_QUEST);
+  results.gateBefore = { tab, status: (await state()).waypointStatus };
+  check(tab === null, `${WAYPOINT_QUEST} is on the "${tab}" shelf before its prerequisite is done`);
 }
 
 // ---------- 6. the turn-in pays and sets ------------------------------------
@@ -445,17 +453,71 @@ async function goToWild(species) {
   );
 }
 
-// ---------- 7. quest 2 is offered the moment quest 1 completes --------------
+// ---------- 7. The Blue Road is offered when First Light completes ----------
 {
-  const tab = await tabOf(QUEST2);
+  const tab = await tabOf(WAYPOINT_QUEST);
   results.gateAfter = { tab };
   check(
     tab === "available",
-    `${QUEST2} is on the "${tab}" shelf after its prerequisite completed, not "available"`,
+    `${WAYPOINT_QUEST} is on the "${tab}" shelf after its prerequisite completed, not "available"`,
   );
 }
 
-// ---------- 8. the wild bond ------------------------------------------------
+// ---------- 8. the blue road ------------------------------------------------
+{
+  const offer = await talkTo("gain");
+  await endTalk();
+  let s = await state();
+  results.blueRoad = { offerLine: offer, status: s.waypointStatus };
+  check(
+    s.waypointStatus === "active",
+    `${WAYPOINT_QUEST} is "${s.waypointStatus}" after Gain offered it`,
+  );
+  check(s.waypoint === 0, `wake-waystone was already ${s.waypoint} before leaving camp`);
+
+  const gate = (await dbg(() => window.__dbgWaypoints())).all.find(
+    (w) => w.id === "waypoint:town-encampment",
+  );
+  check(gate !== undefined, "the Encampment has no gate waystone for the quest to capture");
+  if (gate) {
+    await dbg((w) => window.__dbgTp(w.x, w.z), gate);
+    await adv(0.5);
+  }
+  s = await state();
+  results.blueRoad.capture = {
+    gate: gate && { x: gate.x, z: gate.z },
+    progress: s.waypoint,
+    discovered: s.discoveredWaypoint,
+  };
+  check(s.waypoint === 1, `wake-waystone is ${s.waypoint} after waking the gate stone, not 1`);
+  check(s.discoveredWaypoint, "the captured waystone was not written to discovered state");
+  check(
+    (await tabOf(QUEST2)) === null,
+    `${QUEST2} became available before Gain closed the waypoint lesson`,
+  );
+
+  const before = await purse();
+  const doneLine = await talkTo("gain");
+  await endTalk();
+  s = await state();
+  results.blueRoad.turnIn = {
+    line: doneLine,
+    status: s.waypointStatus,
+    paid: (await purse()) - before,
+    next: await tabOf(QUEST2),
+  };
+  check(
+    s.waypointStatus === "completed",
+    `${WAYPOINT_QUEST} is "${s.waypointStatus}" after the turn-in`,
+  );
+  check(results.blueRoad.turnIn.paid === 10, "The Blue Road did not pay its 10 Cubloons");
+  check(
+    results.blueRoad.turnIn.next === "available",
+    `${QUEST2} is on the "${results.blueRoad.turnIn.next}" shelf after The Blue Road`,
+  );
+}
+
+// ---------- 9. the wild bond ------------------------------------------------
 // THE TAMING TRIGGER, which is the piece Acts 2 and 3 inherit — the same fact,
 // filtered to their own species. Driven through the real bond: weaken an animal
 // and force the catch, because the ODDS are `test-taming`'s business and a
@@ -469,7 +531,7 @@ async function goToWild(species) {
 
   // THE PEN IS EMPTY NOW — quest 1 closed, so its dressing left with it. The
   // other half of "present while the quest is": a penned animal still standing
-  // here would be a bondable Sproutle inside the camp, and quest 2 is the quest
+  // here would be a bondable Sproutle inside the camp, and The First Bond is
   // about leaving it (issue #178). THREE SIM SECONDS FIRST, because emptying is
   // prompt rather than instant by design: an animal inside a settling orb is
   // held until the ceremony resolves (~2 s), and the retire poll runs on a
@@ -485,7 +547,7 @@ async function goToWild(species) {
   );
 
   // A WILD SPROUTLE SPECIFICALLY, twice over: it is the only bondable species a
-  // starting orb can hold (`orb-tame` is tier 1), and quest 2's trigger names
+  // starting orb can hold (`orb-tame` is tier 1), and The First Bond's trigger names
   // the wild INSTANCE — `wild-sproutle`, never the penned one (issue #178).
   const bond = await bondAWild("wild-sproutle", "sproutle");
   const s = await state();
@@ -510,8 +572,8 @@ async function goToWild(species) {
   check(done.tamed === 1, `tame-wild ended at ${done.tamed}, not the 1 the quest asks for`);
 }
 
-// ---------- 9. the mill road --------------------------------------------
-// QUEST 3, and the act's one travel quest. Four claims:
+// ---------- 10. the mill road -------------------------------------------
+// QUEST 4, and the act's one travel quest. Four claims:
 //
 //   9.  THE WALK IS ON FOOT, both halves. Nothing is unlocked while the quest
 //       is active, and `ground` is unlocked the moment it is handed in — one
@@ -562,7 +624,7 @@ async function goToWild(species) {
   check(marksDuring.allEnemies === true, "an unfiltered cull does not mark every enemy");
 
   // 10b. AND ANY BEAST COUNTS. The trigger names no enemies, so a wild Sproutle
-  // — the animal quest 2 taught you to bond — is a kill like any other, and the
+  // — the animal The First Bond taught you to bond — is a kill like any other, and the
   // sixth one closes the objective and takes the ring off everything.
   await dbg(() => window.__dbgSpawn("enemies", "wild-sproutle"));
   await adv(0.2);
@@ -623,8 +685,8 @@ async function goToWild(species) {
   );
 }
 
-// ---------- 10. the red thread -------------------------------------------
-// QUEST 4, the act's dungeon. Four claims:
+// ---------- 11. the red thread -------------------------------------------
+// QUEST 5, the act's dungeon. Four claims:
 //
 //   13. GOING DOWN IS THE OBJECTIVE. Arriving in `hold` advances
 //       `enter-the-hold` and discovers the zone.
@@ -632,7 +694,7 @@ async function goToWild(species) {
 //       and the shard beside it, in a zone that is generated and has nowhere to
 //       author a prop.
 //   15. FREEING IS KILLING WHAT HOLDS IT, and the animal survives it. The
-//       `enemy-killed` fact quest 3 counts, with a `zone` on it, so a Gloopling
+//       `enemy-killed` fact quest 4 counts, with a `zone` on it, so a Gloopling
 //       put down on the drove road moves nothing here.
 //   16. LEAVING AND COMING BACK KEEPS THE PROGRESS (the ticket's own
 //       acceptance), and the turn-in sets `red-thread-seen`.
@@ -692,7 +754,7 @@ async function goToWild(species) {
 
   // 15. CUTTING IT LOOSE. The anchor is what is killed and the animal is what is
   // freed — the two are deliberately different things, because a player who
-  // bonded a Sproutle in quest 2 cannot bond another one.
+  // bonded a Sproutle in The First Bond cannot bond another one.
   if (staged) {
     await dbg((a) => window.__dbgTp(a.x + 2, a.z + 2), staged.anchor);
     await adv(0.3);
@@ -772,7 +834,7 @@ async function goToWild(species) {
   );
 }
 
-// ---------- 11. the bellwether, and the seam out of Act 1 -------------------
+// ---------- 12. the bellwether, and the seam out of Act 1 -------------------
 // THE LAST QUEST OF THE ACT, and the assertions are about the SEAM as much as
 // the fight:
 //
@@ -788,7 +850,7 @@ async function goToWild(species) {
   const before = await tabOf(QUEST5);
   results.bellwether = { tabBeforePrereq: before };
   // Section 10 finished The Red Thread, so this reads the AFTER half; the BEFORE
-  // half is section 5's shape and is asserted there for quest 2. What is left to
+  // half is section 5's shape and is asserted there for the first gate. What is left to
   // prove here is that the warden — and only the warden — opens it.
   const offer = await talkTo("coil/stonewatch");
   await endTalk();

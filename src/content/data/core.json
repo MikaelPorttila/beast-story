@@ -121,6 +121,39 @@
           {
             "when": {
               "all": [
+                { "test": "quest", "quest": "quest:land/the-blue-road", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:land/the-blue-road",
+                  "objective": "wake-waystone"
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.waystone.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:land/the-blue-road" }]
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/first-light", "status": "completed" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:land/the-blue-road", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:land/the-blue-road", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.waystone.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:land/the-blue-road" }]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:land/the-blue-road", "status": "active" },
+            "line": { "key": "npc.gain.waystone.busy" }
+          },
+          {
+            "when": {
+              "all": [
                 { "test": "quest", "quest": "quest:land/the-first-bond", "status": "active" },
                 {
                   "test": "progress",
@@ -135,7 +168,7 @@
           {
             "when": {
               "all": [
-                { "test": "quest", "quest": "quest:land/first-light", "status": "completed" },
+                { "test": "quest", "quest": "quest:land/the-blue-road", "status": "completed" },
                 {
                   "any": [
                     { "test": "quest", "quest": "quest:land/the-first-bond", "status": "unknown" },
