@@ -63,19 +63,56 @@ const streamed = async () => {
 };
 
 async function talkTo(id) {
-  const who = (await dbg(() => window.__dbgNpcs())).all.find((n) => n.id === id);
-  if (!who) {
-    return null;
-  }
-  await dbg((n) => window.__dbgTp(n.x + 2, n.z, n.y - n.ground > 3 ? n.y + 0.3 : undefined), who);
-  await streamed();
-  await wait(300);
-  for (let i = 0; i < 20; i++) {
+  // Stand on the target's far side from whoever is next to him, and away from the
+  // town's middle — the crew stand close on a deck, E talks to the NEAREST, and the
+  // middle of a carried town is a building. Re-read each try: the deck moves.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const all = (await dbg(() => window.__dbgNpcs())).all;
+    const who = all.find((n) => n.id === id);
+    if (!who) {
+      return null;
+    }
+    let ax = 0;
+    let az = 0;
+    for (const o of all) {
+      const d = Math.hypot(o.x - who.x, o.z - who.z);
+      if (o.id !== id && d < 8) {
+        ax += (who.x - o.x) / d;
+        az += (who.z - o.z) / d;
+      }
+    }
+    const home = await dbg(
+      (t) => window.__dbgCarriers().all.find((k) => k.id === `carrier:town:${t}`) ?? null,
+      who.town,
+    );
+    if (home && Math.hypot(home.x - who.x, home.z - who.z) < 12) {
+      const d = Math.hypot(who.x - home.x, who.z - home.z) || 1;
+      ax += ((who.x - home.x) / d) * 2;
+      az += ((who.z - home.z) / d) * 2;
+    }
+    const len = Math.hypot(ax, az);
+    const dx = len > 0 ? (ax / len) * 1.6 : 1.6;
+    const dz = len > 0 ? (az / len) * 1.6 : 0;
+    await dbg(
+      (n, ox, oz) => window.__dbgTp(n.x + ox, n.z + oz, n.y - n.ground > 3 ? n.y + 0.3 : undefined),
+      who,
+      dx,
+      dz,
+    );
+    await streamed();
+    await adv(0.3);
+    await wait(250);
     await page.keyboard.press("KeyE");
-    await wait(200);
+    await wait(250);
     const talking = (await dbg(() => window.__dbgNpcs())).talking;
     if (talking?.id === id) {
+      await page.keyboard.press("Escape");
+      await wait(200);
       return talking.line;
+    }
+    if (talking) {
+      await page.keyboard.press("Escape");
+      await wait(200);
     }
   }
   return null;
@@ -135,7 +172,6 @@ async function ride(pad) {
 // ---------- 2. the wreck is the door -----------------------------------------
 {
   const line = await talkTo("sky-pilot/gullspire");
-  await page.keyboard.press("Escape");
   await adv(0.3);
   const s = await sky();
   results.offer = { line, ...s };
@@ -162,7 +198,6 @@ async function ride(pad) {
   check(s.reach >= 1, "landing on the deck did not mark reach-skyhaven");
 
   const done = await talkTo("sky-pilot");
-  await page.keyboard.press("Escape");
   await wait(250);
   const closed = await sky();
   const paid = (await dbg(() => window.__dbgZone().shards)) - before;
