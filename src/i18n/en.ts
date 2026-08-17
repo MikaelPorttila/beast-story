@@ -930,6 +930,7 @@ export const en = {
   "loco.swimming.name": "Aquatic",
   "loco.amphibious.name": "Amphibious",
   "biome.trampled.name": "Trodden Ground",
+  "biome.sky.name": "Sky",
 
   // ---- mount kinds ---------------------------------------------------------
   // THREE, against the four gaits above — the acts hand out one mount each and

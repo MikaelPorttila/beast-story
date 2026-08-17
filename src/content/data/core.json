@@ -680,6 +680,24 @@
         ]
       }
     },
+    {
+      "id": "biome:sky",
+      "schema": 1,
+      "name": { "key": "biome.sky.name" },
+      "tags": ["synthetic"],
+      "description": {
+        "text": {
+          "en": "Not a climate: the turf of a floating shard (issue #271). No column of ground is ever this; the shard clusters roll their own decks' population from it, which is where the flyers live."
+        }
+      },
+      "data": {
+        "startArea": false,
+        "spawns": [
+          { "enemy": "enemy:wild-galebird", "weight": 3 },
+          { "enemy": "enemy:wild-lumimoth", "weight": 2 }
+        ]
+      }
+    },
 
     {
       "id": "enemy:gloopling",

@@ -30,7 +30,8 @@ export const RIM_STONE = 4;
 
 // Read off the reference art: warm, not very saturated olive turf, cool
 // desaturated stone, and a narrow warm dirt band between them.
-const GRASS = 0x7ea83c;
+/** Exported so a shard's sward is tinted toward the turf it grows on. */
+export const GRASS = 0x7ea83c;
 const GRASS_D = 0x668a30;
 const GRASS_L = 0x93bd4c;
 const DIRT = 0x6b5334;

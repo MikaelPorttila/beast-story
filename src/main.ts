@@ -113,6 +113,7 @@ import { BeastActor, registerSkillDefs } from "./beasts/framework";
 import { CombatSystem, SWORD_REACH } from "./combat/index";
 import {
   enemySpecies,
+  rollSpawn,
   spawnTableReport,
   MELEE_UP_REACH,
   MELEE_DOWN_REACH,
@@ -3939,6 +3940,58 @@ function tickDeckStages(dt: number): void {
   }
 }
 
+// THE SHARDS' WILDS (issue #271). A cluster the hero is UP AT — within its reach and
+// its own height band, not on the ground under it — keeps `wilds` sky beasts on its
+// turf, rolled from `biome:sky`'s table, counted inside the cluster's cylinder and
+// restocked one a poll. The band is what keeps test-spawn-tables' Act 1 claim true:
+// the flyers live on the shards, and a hero meets them only by getting up there.
+const SHARD_WILDS_REACH = 30;
+const SHARD_WILDS_RISE = 40;
+let shardWildsPollIn = 0;
+
+function tickShardWilds(dt: number): void {
+  shardWildsPollIn -= dt;
+  if (shardWildsPollIn > 0 || !flags.enemies) {
+    return;
+  }
+  shardWildsPollIn = PRACTICE_POLL;
+  for (const c of world.carriers.all) {
+    if (
+      !(c instanceof ShardCluster) ||
+      !inReach(
+        c.x,
+        c.y,
+        c.z,
+        player.position.x,
+        player.position.y,
+        player.position.z,
+        c.radius + SHARD_WILDS_REACH,
+        SHARD_WILDS_RISE,
+        SHARD_WILDS_RISE,
+      )
+    ) {
+      continue;
+    }
+    let have = 0;
+    for (const e of combat.enemies) {
+      if (
+        e.targetable &&
+        inReach(c.x, c.y, c.z, e.position.x, e.position.y, e.position.z, c.radius + 8, 25, 8)
+      ) {
+        have++;
+      }
+    }
+    if (have >= c.wilds) {
+      continue;
+    }
+    const def = rollSpawn("sky");
+    const spot = def ? c.roost() : null;
+    if (def && spot) {
+      combat.spawnOne(def.id, spot.x, spot.z, c.topAt(spot.x, spot.z));
+    }
+  }
+}
+
 // The camera looks through the pinned crosshair, so its forward vector IS the crosshair ray. A module scratch because casting must not allocate.
 const _aim = new THREE.Vector3();
 // Steer strength for a shot fired down the crosshair, as a fraction of full lock-on: 0.35 closes a small aiming
@@ -6321,6 +6374,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickMawsStage(dt);
   tickWingStage(dt);
   tickDeckStages(dt);
+  tickShardWilds(dt);
   tickWaypoints(dt);
   // Where he has been, for the map's fog: cheap until he crosses a cell.
   exploration.visit(zones.id, player.position.x, player.position.z);

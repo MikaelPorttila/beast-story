@@ -494,6 +494,12 @@ export class Enemy implements Damageable {
       if (t.isDead) {
         continue;
       }
+      // A CYLINDER, not a column (core/types.ts `inReach`): a shard's flyer a hundred
+      // units up must not dive on a hero walking under it, nor a walker leap at one
+      // riding over. The band is the range itself, so ground play is unchanged.
+      if (!inRise(this.position.y, t.position.y, range)) {
+        continue;
+      }
       const dx = t.position.x - this.position.x;
       const dz = t.position.z - this.position.z;
       const d2 = dx * dx + dz * dz;
@@ -736,11 +742,14 @@ export class Enemy implements Damageable {
     // A SWIMMER holds a band under the surface: toward its quarry's depth when
     // hunting, a body-length off the bed when not — and never out of the water,
     // so a hero on the bank is lurked at from the shallows, not beached at.
+    // A flyer at rest never sinks below where it was born: a shard's bird that drifts
+    // past the rim keeps its altitude over the drop and comes back to the deck, where
+    // the ground's own answer would settle it in the valley a hundred units down.
     const groundY = this.groundAt(ctx, this.position.x, this.position.z);
     const wantY = flying
       ? chasing
         ? Math.max(groundY + 0.6, this.target!.position.y + 0.9)
-        : Math.max(groundY, ctx.world.waterLevel) + WILD_FLY_RISE
+        : Math.max(Math.max(groundY, ctx.world.waterLevel) + WILD_FLY_RISE, this.home.y)
       : swimming
         ? Math.max(
             groundY + 0.3,
