@@ -101,7 +101,7 @@ import {
   FENCE_RAIL_WIDTH,
 } from "./world/town-parts";
 import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./world/nature";
-import { createDungeon, holdFloorSpot } from "./world/dungeon";
+import { CINDER_VENT, SUNKEN_HOLD, createDungeon, dungeonFloorSpot } from "./world/dungeon";
 import { Ferry, type FerryStop } from "./world/ferry";
 import { ShardCluster } from "./world/sky-shards";
 import { SURFACE_Y } from "./world/water";
@@ -984,6 +984,7 @@ const QUEST_SITE_NAMES = [
   "maws-rest",
   "drove-ground",
   "hold-floor",
+  "vent-floor",
   "skyhaven-mooring",
   "lanternfall-galleries",
 ] as const;
@@ -1018,7 +1019,9 @@ function questSite(name: string): { x: number; z: number } | null {
     case "drove-ground":
       return droveGround();
     case "hold-floor":
-      return holdFloorSpot();
+      return dungeonFloorSpot(SUNKEN_HOLD);
+    case "vent-floor":
+      return dungeonFloorSpot(CINDER_VENT);
     default:
       return null;
   }
@@ -1326,7 +1329,12 @@ const OVERWORLD: ZoneDef = {
       },
       Number(storedGfx("terrainDistance")),
     ),
-  gates: () => [{ to: "hold", x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }],
+  gates: (w) => [
+    { to: "hold", x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff },
+    // A carried town's shaft is an arch ON ITS DECK (issue #265): frame-local, re-placed
+    // every slice by the zone manager. The town's data names the zone it opens on.
+    ...w.descents.map((d) => ({ to: d.to, x: d.x, z: d.z, y: d.y, frame: d.frame, hex: 0xff8a4a })),
+  ],
 };
 
 const HOLD: ZoneDef = {
@@ -1334,10 +1342,22 @@ const HOLD: ZoneDef = {
   get name() {
     return t("zone.hold.name");
   },
-  create: (scene) => createDungeon(scene, 0x5ea1ed),
+  create: (scene) => createDungeon(scene, SUNKEN_HOLD),
   // You arrive ON the return gateway, which is why it starts disarmed (see EXIT_R).
   gates: (w) => [{ to: "overworld", x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xffc46b }],
   // A dungeon is a side trip; the overworld is where you live (issue #211).
+  keepReturn: true,
+};
+
+// THE VENT UNDER CINDERHELM (issue #265): the hold's shape at another seed and palette,
+// entered from the arch on the shelf's deck. The way back up is that arch, not the camp.
+const VENT: ZoneDef = {
+  id: "vent",
+  get name() {
+    return t("zone.vent.name");
+  },
+  create: (scene) => createDungeon(scene, CINDER_VENT),
+  gates: (w) => [{ to: "overworld", x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xff8a4a }],
   keepReturn: true,
 };
 
@@ -1351,19 +1371,27 @@ let skillDenHint = "";
 
 const zones = new ZoneManager({
   scene: engine.scene,
-  zones: [OVERWORLD, HOLD],
+  zones: [OVERWORLD, HOLD, VENT],
   start: "overworld",
   bind: bound,
   warm: (stage, lights) => warmUpFrame(stage, lights),
-  onArrive: (w, def) => {
+  onArrive: (w, def, from) => {
     world = w;
     world.applyCelestial(dayNight);
     // A saddle pose is computed against one world's heightfield — the teleport-into-rock case.
     if (mount.isMounted) {
       mount.dismount();
     }
-    player.position.copy(w.spawnPoint);
-    player.position.y = Math.max(w.getHeight(w.spawnPoint.x, w.spawnPoint.z), w.waterLevel);
+    // A door on the GROUND lands you at the zone's spawn (the contract Acts 2 and 3 copy from
+    // the hold); a door on a DECK lands you on the deck it rides, since the ground under a
+    // flying shelf is not where you went down (issue #265).
+    const back = from ? zones.gatewayTo(from.id) : null;
+    if (back?.carried) {
+      player.position.set(back.x, back.y + 0.4, back.z);
+    } else {
+      player.position.copy(w.spawnPoint);
+      player.position.y = Math.max(w.getHeight(w.spawnPoint.x, w.spawnPoint.z), w.waterLevel);
+    }
     player.velocity.set(0, 0, 0);
     // A ZONE ID IS A SCENE NAME: `musicPlaylist` looks for `music:<id>` and takes the fallback
     // otherwise, so a zone added later brings its music and this line never grows a branch.
@@ -3438,7 +3466,7 @@ function tickHoldStage(dt: number): void {
   if (!asset || content.state.questStatus(asset.id) !== "active") {
     return;
   }
-  const spot = holdFloorSpot();
+  const spot = dungeonFloorSpot(SUNKEN_HOLD);
   // THE SHARD IS PLACED FROM ANYWHERE AND THE LIVING PARTS ARE NOT: a drop lies where it is put, but
   // an enemy further than `DESPAWN_DIST` from the hero is swept the same slice it is made — the floor
   // is 136 units from the gateway you arrive on, so staging them at the door spawned two animals into
@@ -3911,14 +3939,61 @@ function tickWingStage(dt: number): void {
   }
 }
 
-// THE SKY'S DECK STAGES (issues #159, #160, #161) — Lanternfall's oil, the
-// Cinderguard and its record, the Choirguard. One shape: a quest that is active,
-// a carried town the hero is near, and something stood up ON ITS DECK — a spawn
-// at deck height attaches to the carrier and travels with it, and so does a drop
-// (pickups ride too). Nothing here knows an island by more than its town id.
+// THE VENT'S FLOOR (issue #265) — the hold's stage again, for `quest:sky/cinderhelm`: the
+// Cinderguard at the room furthest in from the arch, and the record it was keeping put down
+// where it fell. Same rules as the hold: the living half waits for the hero to be near enough
+// to keep it, the drop is placed from anywhere and only once the guardian is down.
+const VENT_BOSS = "cinderguard";
+const RECORD_ITEM = "the-record";
+let ventStagePollIn = 0;
+
+function tickVentStage(dt: number): void {
+  ventStagePollIn -= dt;
+  if (ventStagePollIn > 0) {
+    return;
+  }
+  ventStagePollIn = PRACTICE_POLL;
+  if (zones.id !== "vent") {
+    return;
+  }
+  const asset = content.get<QuestData>("quest:sky/cinderhelm");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  const spot = dungeonFloorSpot(CINDER_VENT);
+  const down = content.state.progress(asset.id, "defeat-cinderguard") >= 1;
+  if (
+    !down &&
+    inReach(
+      spot.x,
+      spot.y,
+      spot.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      HOLD_STAGE_REACH,
+      24,
+      24,
+    ) &&
+    !combat.enemies.some((e) => e.targetable && e.species === VENT_BOSS)
+  ) {
+    combat.spawnOne(VENT_BOSS, spot.x, spot.z);
+  }
+  if (down && content.state.progress(asset.id, "recover-the-record") < 1) {
+    const onFloor = combat.dropSnapshot().some((d) => d.itemId === RECORD_ITEM && !d.claimed);
+    if (!onFloor && bag.count(RECORD_ITEM) === 0) {
+      combat.spawnDrop(RECORD_ITEM, spot.x, spot.y + 0.6, spot.z + HOLD_STAGE_APART);
+    }
+  }
+}
+
+// THE SKY'S DECK STAGES (issues #159, #161) — Lanternfall's oil and the Choirguard.
+// One shape: a quest that is active, a carried town the hero is near, and something
+// stood up ON ITS DECK — a spawn at deck height attaches to the carrier and travels
+// with it, and so does a drop (pickups ride too). Nothing here knows an island by
+// more than its town id.
 const OIL_ITEM = "lamp-oil";
 const OIL_N = 6;
-const RECORD_ITEM = "the-record";
 const DECK_STAGE_REACH = 60;
 let deckStagePollIn = 0;
 
@@ -3963,37 +4038,15 @@ function deckSpot(isle: CarrierInfo, d: number, phase: number): typeof _deckSpot
 }
 
 /** A guardian on a deck: stood up while its defeat is owed, once, and never again after. */
-function stageDeckBoss(isle: CarrierInfo, questId: string, objective: string, boss: string): boolean {
-  const defeated = content.state.progress(questId, objective) >= 1;
-  if (defeated) {
-    return true;
+function stageDeckBoss(isle: CarrierInfo, questId: string, objective: string, boss: string): void {
+  if (content.state.progress(questId, objective) >= 1) {
+    return;
   }
   if (!combat.enemies.some((e) => e.targetable && e.species === boss)) {
     const spot = deckSpot(isle, 14, 0.7);
     if (spot) {
       combat.spawnOne(boss, spot.x, spot.z, spot.y);
     }
-  }
-  return false;
-}
-
-/** Quest drops on a deck: as many as the objective still owes, minus what is in the bag and on the ground. */
-function stageDeckDrops(
-  isle: CarrierInfo,
-  questId: string,
-  objective: string,
-  item: string,
-  want: number,
-  d: number,
-): void {
-  const have = content.state.progress(questId, objective) + bag.count(item);
-  const down = combat.dropSnapshot().filter((x) => x.itemId === item && !x.claimed).length;
-  for (let i = have + down; i < want; i++) {
-    const spot = deckSpot(isle, d, i * 1.3);
-    if (!spot) {
-      return;
-    }
-    combat.spawnDrop(item, spot.x + Math.sin(i) * 1.5, spot.y + 0.6, spot.z + Math.cos(i) * 1.5);
   }
 }
 
@@ -4016,17 +4069,6 @@ function tickDeckStages(dt: number): void {
         const a = (i / OIL_N) * Math.PI * 2;
         m.frame.toWorld(m.x + Math.sin(a) * 2.2, m.z + Math.cos(a) * 2.2, _siteW);
         combat.spawnDrop(OIL_ITEM, _siteW.x, m.frame.y + m.y + 0.6, _siteW.z);
-      }
-    }
-  }
-  const cinder = content.get<QuestData>("quest:sky/cinderhelm");
-  if (cinder && content.state.questStatus(cinder.id) === "active") {
-    const isle = nearIsland("cinderhelm");
-    if (isle) {
-      const down = stageDeckBoss(isle, cinder.id, "defeat-cinderguard", "cinderguard");
-      // The record is what the guardian was keeping: it appears where it fell.
-      if (down && content.state.progress(cinder.id, "recover-the-record") < 1) {
-        stageDeckDrops(isle, cinder.id, "recover-the-record", RECORD_ITEM, 1, 14);
       }
     }
   }
@@ -6470,6 +6512,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // On the slice for the clock's reason: a quest's stage dressing is part of the world.
   tickPracticeBeast(dt);
   tickHoldStage(dt);
+  tickVentStage(dt);
   tickBossStage(dt);
   tickMarketStage(dt);
   tickRookeryStage(dt);
@@ -8442,7 +8485,8 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
 // from Stonewatch's own gate — so a probe walks to whatever the game chose instead of keeping a second
 // copy of the arithmetic that put it there.
 (window as unknown as { __dbgQuestSites: () => unknown }).__dbgQuestSites = () => ({
-  holdFloor: holdFloorSpot(),
+  holdFloor: dungeonFloorSpot(SUNKEN_HOLD),
+  ventFloor: dungeonFloorSpot(CINDER_VENT),
   droveGround: droveGround(),
   drownedMarket: drownedMarket(),
   vaneWreck: vaneWreck(),

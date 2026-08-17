@@ -6,7 +6,14 @@
  * Altitude, not avoidance, keeps it out of peaks — see `steer`.
  */
 import * as THREE from "three";
-import type { CelestialState, LampSite, Mooring, TownInfo, TownRegistry } from "../core/types";
+import type {
+  CelestialState,
+  Descent,
+  LampSite,
+  Mooring,
+  TownInfo,
+  TownRegistry,
+} from "../core/types";
 import { CarrierBody } from "./carriers";
 import type { PropLib } from "./props";
 import { Accum, bakeProp, type Template } from "./props";
@@ -129,6 +136,8 @@ interface SkyPlan {
   readonly focus: { x: number; z: number };
   /** The balloon's berth: the pad the hero boards from and where the craft waits. */
   readonly mooring: { x: number; z: number; boatX: number; boatZ: number };
+  /** The shaft mouth (issue #265): a gateway's pad, or null for a town with no way down. */
+  readonly descent: { x: number; z: number } | null;
 }
 
 /** The paved square. Nothing inside it but the tower and the market. */
@@ -251,6 +260,7 @@ function planIsland(
   onDeck: (x: number, z: number) => boolean,
   rimAt: (bearing: number) => number,
   settle: CarriedSettlement,
+  wantDescent: boolean,
 ): SkyPlan {
   const rng = mulberry32(seed ^ 0x5c17);
   const buildings: Array<{
@@ -389,6 +399,30 @@ function planIsland(
     }
   }
 
+  // The shaft mouth (issue #265): a gateway pad across the square from the gate, walked
+  // outward from the ring road until it stands clear on turf. Inside 0.72 R so the rim
+  // rail (inset 3.2) is never refused a bay by it; the bearing widens if the ranks are
+  // in the way. Its radius is the arch's EXIT_R (zones.ts): nothing may stand inside it.
+  let descent: { x: number; z: number } | null = null;
+  if (wantDescent) {
+    const a0d = gateAngle + Math.PI;
+    for (let k = 0; k < 9 && descent === null; k++) {
+      const a = a0d + (k % 2 === 0 ? 1 : -1) * Math.ceil(k / 2) * 0.35;
+      for (let f = 0.5; f <= 0.72; f += 0.04) {
+        const [px, pz] = at(a, ISLAND_R * f);
+        if (onDeck(px, pz) && free(px, pz, 5)) {
+          descent = { x: px, z: pz };
+          claim(px, pz, 5);
+          break;
+        }
+      }
+    }
+    if (descent === null) {
+      const [px, pz] = at(a0d, ISLAND_R * 0.6);
+      descent = { x: px, z: pz };
+    }
+  }
+
   // Every street is planned by here, and must be before anything is PLANTED:
   // `free`/`claim` knows radii and a street is a line (issue #142 §1).
   const streets = streetNetwork(paths);
@@ -511,6 +545,7 @@ function planIsland(
     fallAngle,
     focus: { x: fx * 0.4, z: fz * 0.4 },
     mooring,
+    descent,
   };
 }
 
@@ -784,6 +819,8 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   private readonly phase: number;
   /** The balloon's berth, LOCAL: the deck is y = 0, and `this` is the frame. */
   readonly mooring: Mooring;
+  /** The way down into its own rock (issue #265), local like the mooring; null for most towns. */
+  readonly descent: Descent | null;
   /** The galleries the layout left DARK (issue #266), local like the mooring. */
   readonly lampSites: readonly LampSpot[];
   /** Their glow, one mesh for the island, rebuilt from `setLampsLit`; null while none is lit. */
@@ -865,9 +902,14 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       (x, z) => this.localDeck(x, z) > -Infinity,
       (a) => outlineAt(a, this.phase) * CELL,
       settlement ?? SETTLEMENTS.skyhaven,
+      data.descent !== undefined,
     );
     this.streets = plan.streets;
     this.mooring = { ...plan.mooring, y: 0, frame: this };
+    this.descent =
+      plan.descent && data.descent !== undefined
+        ? { town: data.id, to: data.descent, ...plan.descent, y: 0, frame: this }
+        : null;
     this.buildRock(plan);
     for (const t of plan.trees) {
       this.treeSpots.push(t.x, t.z);
@@ -1734,6 +1776,8 @@ interface SkyTownData {
   layout: string;
   radius: number;
   color: number;
+  /** The zone its shaft opens on, if it keeps one (issue #265). */
+  descent?: string;
 }
 
 /** Every carried settlement in this content, in load order — the first is the hub the debug hooks single out. */
@@ -1753,6 +1797,7 @@ export function readCarriedTowns(): SkyTownData[] {
       layout: asset.data.layout,
       radius: asset.data.radius,
       color: asset.data.color,
+      descent: asset.data.descent,
     });
   }
   return found;

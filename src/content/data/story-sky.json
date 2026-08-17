@@ -10,7 +10,7 @@
     "note": "The five main quests of Act 3 (game-story.md §4, issue #145). Act 3 is PART OF THE OPEN WORLD, the way Act 2 is (issue #144): the Shelf is the open world's sky, its towns are CARRIERS that roam above it, and there is no `cirrus` zone. What `sky-revealed` opens is the BALLOON — the means of getting up — not the geography.",
     "loading": "Boot-loaded (see bootstrapContent in main.ts), for the same reason story-sea is: a carried town must exist when the world is built, because the island that carries it is built with the world. The flag-gated load recorded in issue #261 was the zone-era answer and went with the zone.",
     "the-seam": "The ascent is offered at the WRECK on Gullspire by Corwin Vane's sea placement (story-sea.json — the same man, the balloon he patched) and closed by his Skyhaven placement (core.json). Boarding is a `ride` fact the balloon emits, `reach-skyhaven` the arrival replay every town-arrival objective gets. The balloon runs both ways from the first day it is moored: Act 4 stages out of the Encampment.",
-    "the-stub": "Quests 3-5 ship as DATA over placeholders (issues #262-#267): `gallery`/`orrery` are Skyhaven's stamping, the Cinderguard and Choirguard wear borrowed rigs, Vess wears Mera's body, the vent under Cinderhelm is the town itself, and Tobin relights the galleries in one breath. Each placeholder names its issue beside it. No cargo weight (decided). `music:cirrus` ships (issue #267)."
+    "the-stub": "Quests 3-5 ship as DATA over placeholders (issues #262-#264, #267): `gallery`/`orrery` are Skyhaven's stamping, the Cinderguard and Choirguard wear borrowed rigs, Vess wears Mera's body, and Tobin relights the galleries in one breath. Each placeholder names its issue beside it. No cargo weight (decided). `music:cirrus` ships (issue #267)."
   },
   "assets": [
     {
@@ -483,6 +483,8 @@
         "order": 8,
         "start": false,
         "carried": true,
+        "descent": "vent",
+        "_descent": "The shaft under the shelf (issue #265): the island plans an arch on its deck and the zone host stands the gateway there, riding the deck. `vent` is a ZoneDef in main.ts — the hold's shape at another seed and palette.",
         "_layout": "PLACEHOLDER: `gallery`/`orrery` are registered as Skyhaven's own stamping until their kits exist (issue #262). Carried, so the road planner never sees it (game-story.md §1.4)."
       }
     },
@@ -563,10 +565,10 @@
               "key": "quest.sky.cinderhelm.obj.descendTheVent"
             },
             "trigger": {
-              "kind": "town-arrival",
-              "town": "town:cinderhelm"
+              "kind": "zone-arrival",
+              "zone": "vent"
             },
-            "_vent": "PLACEHOLDER: the vent is a dungeon under the shelf (issue #265); until it exists, reaching the burnt half-town is the descent."
+            "_vent": "The vent is a zone under the shelf (issue #265), entered through the arch on Cinderhelm's deck; the chip points at that arch from up here and at nothing once you are down."
           },
           {
             "key": "defeat-cinderguard",
@@ -578,9 +580,10 @@
               "enemies": [
                 "enemy:cinderguard"
               ],
-              "town": "town:cinderhelm"
+              "zone": "vent",
+              "site": "vent-floor"
             },
-            "_town": "WHERE, for the chip: enemy-killed does not filter on it. The stage stands the guardian up on Cinderhelm's deck (tickDeckStages in main.ts)."
+            "_zone": "WHERE it happened, like the-red-thread's anchor; `site` is the chip, since down there no town or closer is in reach. The stage stands the guardian up at the vent's floor (tickVentStage in main.ts)."
           },
           {
             "key": "recover-the-record",
@@ -590,7 +593,8 @@
             "trigger": {
               "kind": "item-picked",
               "item": "the-record",
-              "town": "town:cinderhelm"
+              "zone": "vent",
+              "site": "vent-floor"
             }
           }
         ],

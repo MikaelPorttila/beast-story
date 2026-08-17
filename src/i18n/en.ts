@@ -365,9 +365,10 @@ export const en = {
   "toast.mountUnlocked.flying": "You may ride a flying beast — hold F beside your lead beast",
 
   // ---- zones -------------------------------------------------------------
-  // Keyed by the ZoneDef id in main.ts ('overworld', 'hold').
+  // Keyed by the ZoneDef id in main.ts ('overworld', 'hold', 'vent').
   "zone.overworld.name": "Embervale",
   "zone.hold.name": "The Sunken Hold",
+  "zone.vent.name": "The Cinderhelm Vent",
   // A REGION, not a zone: Act 2 is part of the open world (issue #144).
   "region.brine.name": "The Brine Reach",
 

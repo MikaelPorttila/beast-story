@@ -129,6 +129,9 @@ const SOLO = new Set([
   // Act 3's fork and closer: oil, two guardians and a record, all on decks the
   // hero is teleported between — presses, spawns and motion.
   "orrery",
+  // The vent under Cinderhelm (issue #265): crosses a gateway that RIDES a deck,
+  // both ways, and reads where the hero lands — a crossing's wall clock and motion.
+  "vent",
   // The hovering shard clusters: rides one, walks a bridge, faints and revives on
   // a shard's stone — a hero, held keys and motion.
   "shards",

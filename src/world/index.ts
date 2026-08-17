@@ -1331,6 +1331,7 @@ export function createWorld(
     // The pier head's y is the DECK, which the layout knew and the height field never will.
     portOf: (townId) => towns?.portOf(townId) ?? null,
     mooringOf: (townId) => skies.find((s) => s.town.id === townId)?.mooring ?? null,
+    descents: skies.flatMap((s) => (s.descent ? [s.descent] : [])),
     lamps:
       skies.length > 0
         ? {

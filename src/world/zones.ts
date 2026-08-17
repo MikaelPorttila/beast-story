@@ -16,16 +16,23 @@
  * from the moment you land, and a mashed key bounces you straight back.
  */
 import type * as THREE from "three";
-import { inRise, type World, type WorldBound } from "../core/types";
+import { inRise, type LocalFrame, type World, type WorldBound } from "../core/types";
 import { t } from "../i18n";
 import { Gateway } from "./portal";
 
-/** One way out of a zone: where the arch stands and which zone it opens on. */
+/**
+ * One way out of a zone: where the arch stands and which zone it opens on.
+ * With `frame` the arch RIDES a carrier (issue #265): `x/z/y` are frame-local,
+ * `y` the deck under the pad, and the pad is re-placed through the frame every
+ * slice — the rules stay the same, they are just asked at a moving point.
+ */
 export interface GateSpec {
   to: string;
   x: number;
   z: number;
   hex: number;
+  frame?: LocalFrame;
+  y?: number;
 }
 
 export interface ZoneDef {
@@ -61,6 +68,8 @@ const GATE_EXIT_RISE = GATE_RISE * 1.5;
 const PRELOAD_R = 30;
 const RELEASE_R = 48;
 
+const _gateW = { x: 0, z: 0 };
+
 const ENTER_R2 = ENTER_R * ENTER_R;
 const EXIT_R2 = EXIT_R * EXIT_R;
 const PRELOAD_R2 = PRELOAD_R * PRELOAD_R;
@@ -78,6 +87,11 @@ const WARM_STRIDE = 3;
 interface GateState {
   gateway: Gateway;
   to: string;
+  /** Set for an arch on a deck; `lx/lz/ly` are its frame-local pad. */
+  frame: LocalFrame | null;
+  lx: number;
+  lz: number;
+  ly: number;
   /** Asked for, and waiting on the far side to be built. Cleared by leaving the pad. */
   requested: boolean;
   /** False until the hero has left EXIT_R of THIS pad at least once. */
@@ -163,11 +177,13 @@ export class ZoneManager {
   /**
    * The way OUT of the active zone toward `to`: the direct gate, or — pointing at a
    * zone this one has no arch for — the first gate, which is still the way you leave.
+   * `carried` says the pad rides a deck, so `y` is a deck and not the ground.
    */
-  gatewayTo(to: string): { x: number; z: number; to: string } {
+  gatewayTo(to: string): { x: number; y: number; z: number; to: string; carried: boolean } {
     const state = this.states.get(this.activeId)!;
     const g = state.gates.find((gate) => gate.to === to) ?? state.gates[0];
-    return { x: g.gateway.position.x, z: g.gateway.position.z, to: g.to };
+    const p = g.gateway.position;
+    return { x: p.x, y: p.y, z: p.z, to: g.to, carried: g.frame !== null };
   }
 
   private build(id: string): ZoneState {
@@ -176,15 +192,35 @@ export class ZoneManager {
       throw new Error(`unknown zone "${id}"`);
     }
     const world = def.create(this.opts.scene);
-    const gates = def.gates(world).map(
-      (g): GateState => ({
-        gateway: new Gateway(this.opts.scene, g.x, world.getHeight(g.x, g.z), g.z, g.hex),
-        to: g.to,
-        requested: false,
-        armed: false,
-      }),
-    );
-    return { def, world, gates, warm: 0, warmWait: 0 };
+    const gates = def.gates(world).map((g): GateState => ({
+      gateway: new Gateway(
+        this.opts.scene,
+        g.x,
+        g.frame ? 0 : world.getHeight(g.x, g.z),
+        g.z,
+        g.hex,
+      ),
+      to: g.to,
+      frame: g.frame ?? null,
+      lx: g.x,
+      lz: g.z,
+      ly: g.y ?? 0,
+      requested: false,
+      armed: false,
+    }));
+    const state = { def, world, gates, warm: 0, warmWait: 0 };
+    this.placeGates(state);
+    return state;
+  }
+
+  /** Carried arches follow their decks; a grounded one was placed once, at build. */
+  private placeGates(s: ZoneState): void {
+    for (const g of s.gates) {
+      if (g.frame !== null) {
+        g.frame.toWorld(g.lx, g.lz, _gateW);
+        g.gateway.moveTo(_gateW.x, g.frame.y + g.ly, _gateW.z, g.frame.yaw);
+      }
+    }
   }
 
   private destroy(s: ZoneState): void {
@@ -204,6 +240,7 @@ export class ZoneManager {
     }
 
     active.world.update(focus, dt, newFrame);
+    this.placeGates(active);
     for (const g of active.gates) {
       g.gateway.update(dt);
     }
@@ -344,6 +381,8 @@ export class ZoneManager {
 
     next.world.setVisible(true);
     this.setGatesVisible(next, true);
+    // Its decks may have moved since it was built; `onArrive` may land the hero on one.
+    this.placeGates(next);
 
     for (const b of this.opts.bind) {
       b.setWorld(next.world);
@@ -446,6 +485,7 @@ export class ZoneManager {
         x: +g.gateway.position.x.toFixed(2),
         y: +g.gateway.position.y.toFixed(2),
         z: +g.gateway.position.z.toFixed(2),
+        carried: g.frame !== null,
         requested: g.requested,
         armed: g.armed,
       })),
