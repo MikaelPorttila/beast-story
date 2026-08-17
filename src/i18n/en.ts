@@ -235,6 +235,9 @@ export const en = {
   "site.holdFloor.desc": "The lowest room of the Sunken Hold, furthest in from the gateway.",
   "site.skyhavenMooring.name": "The Mooring",
   "site.skyhavenMooring.desc": "Skyhaven's balloon berth beside the gate, where Corwin Vane ties up.",
+  "site.lanternfallGalleries.name": "The Dark Galleries",
+  "site.lanternfallGalleries.desc":
+    "Four of Lanternfall's lamp galleries, gone out one shelf at a time. A cask each relights them.",
 
   // ---- the campaign: Act 1, Land (game-story.md §4, issue #143) -------------
   // Keyed by the quest id with the slash dropped and the name camel-cased:
@@ -322,7 +325,8 @@ export const en = {
   "quest.sky.lanternfall.desc":
     "The gallery lamps are the only thing keeping the engine's overflow dim, and they are going out one shelf at a time — nobody has flown oil up since the road stopped. Vane's casks are waiting at Skyhaven's mooring. Tobin Ashgrove is waiting for someone with wings.",
   "quest.sky.lanternfall.obj.carryOil": "Carry lamp oil from Skyhaven's mooring to Lanternfall",
-  "quest.sky.lanternfall.obj.relightGalleries": "Relight the galleries with Tobin",
+  "quest.sky.lanternfall.obj.relightGalleries":
+    "Pour a cask into each of Lanternfall's four dark galleries",
   "quest.sky.cinderhelm.name": "Cinderhelm",
   "quest.sky.cinderhelm.desc":
     "What happens when a gallery goes dark: the shelf below is a burnt half-town with the engine's exhaust vented under it, and something down there has been in the red for a century. Mother Pell wants the cities' own record back, and she will not say why until you have read it.",
@@ -593,6 +597,8 @@ export const en = {
     "Four galleries dark and the fifth guttering, and every cask I own is sitting at Skyhaven's mooring where Vane put it down, because nothing with wings would carry it further. You would. Six casks — bring them and we light the shelf, and I will tell you what the lamps are FOR, which nobody down there has been told.",
   "npc.skyLamplighter.sky3.busy":
     "Skyhaven's mooring, by the gate. Six. I will have the wicks trimmed by the time you are back.",
+  "npc.skyLamplighter.sky3.pour":
+    "You have them? Then do not hand them to me — the dark ones are the four at the head of their shelves. A cask in each and stand back; the wick takes.",
   "npc.skyLamplighter.sky3.done":
     "Six. Watch — there, and there, and the far shelf. That glow is the engine's overflow, dimmed, and the lamps are the only thing dimming it. And you — the mill. Redbriar. You said Ashgrove. MERA Ashgrove? She is alive? I have lit these lamps ten years thinking I was the last of us.",
   "npc.skyLamplighter.sky3.after":
@@ -991,6 +997,9 @@ export const en = {
   "hint.ferry": "Press {key} to sail to {place}",
   "hint.sailing": "Sailing to {place}…",
   "hint.balloon": "Press {key} to ride the balloon to {place}",
+  // A dark gallery lamp (issue #266): the offer with a cask in the bag, and what it wants without one.
+  "hint.lampPour": "Press {key} to pour a cask into the lamp",
+  "hint.lampNeedsOil": "The lamp is dark — it needs a cask of oil",
   "hint.ballooning": "Riding the balloon to {place}…",
 
   // ---- dialogue ------------------------------------------------------------
@@ -1119,6 +1128,7 @@ export const en = {
   // reach it, and what that buys you is said in the second line, once, the first
   // time it happens — a player who has never fainted has no idea what it is for.
   "toast.waypointLit": "The waystone lights — you will wake here",
+  "toast.lampLit": "The gallery lights",
   "toast.escortStarted": "{name} is following you — lead the way",
   "toast.escortDone": "{name} has arrived",
   "toast.fainted": "You fainted!",

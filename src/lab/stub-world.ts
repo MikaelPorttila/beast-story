@@ -119,6 +119,8 @@ export class StubWorld implements World {
   readonly waterLevel: number;
   /** The stage has no roads and therefore no standing stones. */
   readonly waypoints = null;
+  /** Nothing flies over the stage, so no dark lamps either. */
+  readonly lamps = null;
   /** ...and no camp, so no pen. */
   readonly tamingPen = null;
   readonly shopPositions: THREE.Vector3[] = [];

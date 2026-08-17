@@ -320,6 +320,28 @@ export interface Mooring {
   readonly frame: LocalFrame;
 }
 
+/**
+ * A LAMP a carried town keeps dark until something is carried to it (issue #266).
+ * Every coordinate is in `frame`, like a Mooring; `y` is the deck under it.
+ */
+export interface LampSite {
+  /** Derived, `site:lamp/<town>/<n>` — what ContentState records when it is lit. */
+  readonly id: string;
+  /** The `TownInfo.id` it stands in, so a quest can name the town's lamps as one site. */
+  readonly town: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly frame: LocalFrame;
+}
+
+/** What a host needs of the dark lamps: where they are, and a redraw against who has lit which. */
+export interface LampField {
+  readonly all: readonly LampSite[];
+  /** Redraw against what the character has lit; idempotent. */
+  setLit(isLit: (id: string) => boolean): void;
+}
+
 export interface CarrierInfo {
   /** Stable for the life of the frame. A rider stores this, not the object. */
   readonly id: string;
@@ -569,6 +591,12 @@ export interface World {
    * LOCAL to `frame`, the piece of world the town rides — resolve through it.
    */
   mooringOf(townId: string): Mooring | null;
+  /**
+   * The lamps a carried town keeps dark for a quest to light, or null where no
+   * town flies (issue #266). Sited by the world; which are LIT is the
+   * character's, in `ContentState`, like the standing stones below.
+   */
+  readonly lamps: LampField | null;
   /**
    * The standing stones this world grew, or an empty list where it grew none.
    *

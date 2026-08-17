@@ -293,8 +293,8 @@
                 {
                   "test": "progress",
                   "quest": "quest:sky/lanternfall",
-                  "objective": "carry-oil",
-                  "atLeast": 6
+                  "objective": "relight-galleries",
+                  "atLeast": 4
                 }
               ]
             },
@@ -303,17 +303,31 @@
             },
             "actions": [
               {
-                "do": "progress.add",
-                "quest": "quest:sky/lanternfall",
-                "objective": "relight-galleries",
-                "by": 4
-              },
-              {
                 "do": "quest.complete",
                 "quest": "quest:sky/lanternfall"
               }
             ],
-            "_relight": "PLACEHOLDER for a real relighting: there is no interactable a player can carry oil TO yet (issue #266), so the six casks handed over are the four galleries relit, in one breath."
+            "_relight": "Tobin only CLOSES: the four galleries are lit at the lamps themselves (item-used, issue #266)."
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:sky/lanternfall",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:sky/lanternfall",
+                  "objective": "carry-oil",
+                  "atLeast": 6
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.skyLamplighter.sky3.pour"
+            }
           },
           {
             "when": {
@@ -418,7 +432,13 @@
             "text": {
               "key": "quest.sky.lanternfall.obj.relightGalleries"
             },
-            "count": 4
+            "count": 4,
+            "trigger": {
+              "kind": "item-used",
+              "item": "lamp-oil",
+              "site": "lanternfall-galleries"
+            },
+            "_site": "The four galleries the `gallery` layout leaves DARK on Lanternfall (issue #266); a cask poured into one is the fact, and the compass walks the shelf lamp by lamp."
           }
         ],
         "onComplete": [
