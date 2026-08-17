@@ -39,6 +39,7 @@ export type ObjectiveTriggerKind =
   | "tamed"
   | "enemy-killed"
   | "item-picked"
+  | "item-used"
   | "town-arrival"
   | "zone-arrival"
   | "waypoint-lit"
@@ -50,6 +51,7 @@ const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "tamed",
   "enemy-killed",
   "item-picked",
+  "item-used",
   "town-arrival",
   "zone-arrival",
   "waypoint-lit",
@@ -78,7 +80,8 @@ export interface ObjectiveTrigger {
    * A STAGED SITE the engine derives and content cannot place — the wreck, the
    * reef ring (the `site` field the questWaypoint note in main.ts priced in).
    * On `escort` it is the destination; a name the engine does not implement is
-   * a diagnostic at escort start. On `ride` it is the pad boarded FROM.
+   * a diagnostic at escort start. On `ride` it is the pad boarded FROM; on
+   * `item-used` it is WHERE the item was used — a dark lamp's town (issue #266).
    */
   readonly site?: string;
 }

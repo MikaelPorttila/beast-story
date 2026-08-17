@@ -794,6 +794,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     // A hold has no roads, so it grows no standing stones. Death sends you to the
     // nearest one you lit UP THERE — see `resolveRespawn` in main.ts.
     waypoints: null,
+    /** Nothing flies down here, so nothing keeps a lamp dark for a quest. */
+    lamps: null,
     /** Nobody pens an animal in a dungeon. */
     tamingPen: null,
     /** Nor moors a boat. */

@@ -43,6 +43,7 @@ import {
   type SkillDef,
   type Damageable,
   type ItemDef,
+  type LampSite,
   type MountKind,
   type World,
   type WorldBound,
@@ -984,6 +985,7 @@ const QUEST_SITE_NAMES = [
   "drove-ground",
   "hold-floor",
   "skyhaven-mooring",
+  "lanternfall-galleries",
 ] as const;
 
 const _siteW = { x: 0, z: 0 };
@@ -999,6 +1001,16 @@ function questSite(name: string): { x: number; z: number } | null {
         return null;
       }
       m.frame.toWorld(m.x, m.z, _siteW);
+      return { x: _siteW.x, z: _siteW.z };
+    }
+    case "lanternfall-galleries": {
+      // The nearest gallery still dark, where it is NOW — the island moves, and the chip
+      // walks the shelf lamp by lamp as each is lit.
+      const lamp = nearestDarkLamp("lanternfall");
+      if (!lamp) {
+        return null;
+      }
+      lamp.frame.toWorld(lamp.x, lamp.z, _siteW);
       return { x: _siteW.x, z: _siteW.z };
     }
     case "maws-rest":
@@ -1360,6 +1372,7 @@ const zones = new ZoneManager({
     bus.emit({ type: "toast", text: t("toast.enteredZone", { zone: def.name }) });
     // The stones are the zone's, and a new zone's are dark until they are asked.
     w.waypoints?.setLit(waypointLit);
+    w.lamps?.setLit(lampLit);
     // ARRIVAL, for a quest that sent you here. Below the placement, so anything reading the fact sees
     // the hero already standing in the zone; `discover` is the zone's own id and not a town's.
     content.state.discover(`zone:${def.id}`);
@@ -2389,6 +2402,10 @@ const SITE_TIP_KEYS: Record<string, { name: StringKey; desc: StringKey }> = {
   "drove-ground": { name: "site.droveGround.name", desc: "site.droveGround.desc" },
   "hold-floor": { name: "site.holdFloor.name", desc: "site.holdFloor.desc" },
   "skyhaven-mooring": { name: "site.skyhavenMooring.name", desc: "site.skyhavenMooring.desc" },
+  "lanternfall-galleries": {
+    name: "site.lanternfallGalleries.name",
+    desc: "site.lanternfallGalleries.desc",
+  },
 };
 
 const speciesById = (id: string): BeastSpecies | undefined =>
@@ -2952,6 +2969,7 @@ content.state.onChange((change) => {
   // all reach the same redraw. `setLit` is idempotent and compares before it writes.
   if (change.kind === "discovery" || change.kind === "reset") {
     world.waypoints?.setLit(waypointLit);
+    world.lamps?.setLit(lampLit);
   }
 });
 content.onDefinitionsChange(refreshQuests);
@@ -2961,6 +2979,8 @@ refreshQuests();
 interface QuestFact {
   readonly kind: ObjectiveTriggerKind;
   readonly id?: string;
+  /** WHERE it happened, for a kind whose trigger filters on `site` (`item-used`). */
+  readonly site?: string;
 }
 
 // ONE ROUTER, NOT A HOOK PER QUEST: an objective declares WHICH fact it counts, so adding a KIND is
@@ -2989,6 +3009,13 @@ function advanceObjectives(fact: QuestFact): void {
         continue;
       }
       if (fact.kind === "item-picked" && trigger.item !== undefined && trigger.item !== fact.id) {
+        continue;
+      }
+      if (
+        fact.kind === "item-used" &&
+        ((trigger.item !== undefined && trigger.item !== fact.id) ||
+          (trigger.site !== undefined && trigger.site !== fact.site))
+      ) {
         continue;
       }
       if (fact.kind === "town-arrival" && trigger.town !== undefined && trigger.town !== fact.id) {
@@ -3307,6 +3334,78 @@ function tickWaypoints(dt: number): void {
   advanceObjectives({ kind: "waypoint-lit", id: at.id });
   field.setLit(waypointLit);
   bus.emit({ type: "toast", text: t("toast.waypointLit") });
+}
+
+// THE DARK LAMPS (issue #266) — the stones' rule pointed at a carried town: a gallery its layout
+// left dark is lit by carrying a cask up to it and pressing E, and which are lit is a content
+// fact beside the stones', so it is saved, loaded and reset with them. The world sites and draws
+// them; the press, the cask it costs and the fact it makes are policy and live here.
+const lampLit = (id: string): boolean => content.state.discovered(id);
+// The press reaches from the stair foot and from up on the plinth's deck: 5.5 covers the
+// gallery's half-length plus a stride, and 3.5 is the deck top with a hop to spare.
+const LAMP_REACH = 5.5;
+const LAMP_RISE = 3.5;
+/** The dark lamp in reach this slice, or null. Same contract as `nearNpc`. */
+let nearLamp: LampSite | null = null;
+
+/** The site name `item-used` reports for a town's lamps — what a quest's trigger selects by. */
+const lampSiteName = (town: string): string => `${town}-galleries`;
+
+function findNearLamp(): LampSite | null {
+  const field = world.lamps;
+  if (!field) {
+    return null;
+  }
+  for (const lamp of field.all) {
+    if (lampLit(lamp.id)) {
+      continue;
+    }
+    lamp.frame.toWorld(lamp.x, lamp.z, _siteW);
+    if (
+      inReach(
+        _siteW.x,
+        lamp.frame.y + lamp.y,
+        _siteW.z,
+        player.position.x,
+        player.position.y,
+        player.position.z,
+        LAMP_REACH,
+        LAMP_RISE,
+      )
+    ) {
+      return lamp;
+    }
+  }
+  return null;
+}
+
+/** The town's nearest lamp still dark, from where the hero stands, or null once all burn. */
+function nearestDarkLamp(town: string): LampSite | null {
+  let best: LampSite | null = null;
+  let bestD = Infinity;
+  for (const lamp of world.lamps?.all ?? []) {
+    if (lamp.town !== town || lampLit(lamp.id)) {
+      continue;
+    }
+    lamp.frame.toWorld(lamp.x, lamp.z, _siteW);
+    const d = (_siteW.x - player.position.x) ** 2 + (_siteW.z - player.position.z) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = lamp;
+    }
+  }
+  return best;
+}
+
+/** Pour a cask into a dark lamp: the cask leaves the bag, the lamp is a lit fact, the quest is told. */
+function pourOil(lamp: LampSite): void {
+  if (bag.remove(OIL_ITEM, 1) !== 1) {
+    return;
+  }
+  content.state.discover(lamp.id);
+  advanceObjectives({ kind: "item-used", id: OIL_ITEM, site: lampSiteName(lamp.town) });
+  refreshBagChips();
+  bus.emit({ type: "toast", text: t("toast.lampLit") });
 }
 
 // THE HOLD'S FLOOR — the other end of the same idea, for `quest:land/the-red-thread` (issue #150).
@@ -6259,6 +6358,8 @@ function npcHint(npc: NpcInfo): string {
 }
 /** The dialogue panel's footer. Composed like the hints above. */
 let dialogueFoot = "";
+/** The dark lamp's offer, with the cap baked in like the den's. */
+let lampPourHint = "";
 
 // Re-compose every prompt hoisted out of the frame loop — the exhaustive list and the only writer. Two
 // things invalidate them, neither per-frame: the language and the DEVICE, since each has a key cap baked
@@ -6266,6 +6367,7 @@ let dialogueFoot = "";
 function composeKeyHints(): void {
   const key = hud.interactPrompt;
   skillDenHint = t("hint.skillDen", { key });
+  lampPourHint = t("hint.lampPour", { key });
   dialogueFoot = t("npc.dialogue.close", { key });
   npcHints.clear();
 }
@@ -6518,6 +6620,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       npcField && !npcField.talking
         ? npcField.nearest(player.position.x, player.position.y, player.position.z, NPC_TALK_RANGE)
         : null;
+    nearLamp = findNearLamp();
     if (first && input.pressed("KeyE")) {
       if (npcField?.talking) {
         npcField.endTalk();
@@ -6525,6 +6628,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
         npcField?.talk(nearNpc.id);
       } else if (nearShop) {
         tryOpenShop();
+      } else if (nearLamp && bag.count(OIL_ITEM) > 0) {
+        pourOil(nearLamp);
       } else {
         // LAST, and each refuses the press itself when the hero is not standing on
         // its own pad — the pier and the arch stand in open country, so they must
@@ -6664,12 +6769,16 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       ? npcHint(nearNpc)
       : nearShop
         ? skillDenHint
-        : pierOffer
-          ? t(pierOffer.ride === balloon ? "hint.balloon" : "hint.ferry", {
-              place: t(pierOffer.to.nameKey),
-              key: hud.interactPrompt,
-            })
-          : null);
+        : nearLamp
+          ? bag.count(OIL_ITEM) > 0
+            ? lampPourHint
+            : t("hint.lampNeedsOil")
+          : pierOffer
+            ? t(pierOffer.ride === balloon ? "hint.balloon" : "hint.ferry", {
+                place: t(pierOffer.to.nameKey),
+                key: hud.interactPrompt,
+              })
+            : null);
   if (hint) {
     hud.showHint(hint);
   } else {
@@ -8364,6 +8473,22 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
     respawnAt: player.respawnAt?.(player.position.x, player.position.z) ?? null,
   };
 };
+
+// THE DARK LAMPS (issue #266): where each is NOW, world space, which are lit, and the one in reach.
+(window as unknown as { __dbgLamps: () => unknown }).__dbgLamps = () => ({
+  all: (world.lamps?.all ?? []).map((l) => {
+    l.frame.toWorld(l.x, l.z, _siteW);
+    return {
+      id: l.id,
+      town: l.town,
+      x: +_siteW.x.toFixed(2),
+      y: +(l.frame.y + l.y).toFixed(2),
+      z: +_siteW.z.toFixed(2),
+      lit: lampLit(l.id),
+    };
+  }),
+  near: nearLamp?.id ?? null,
+});
 
 (window as unknown as { __dbgDraws: () => number }).__dbgDraws = () =>
   engine.renderer.info.render.calls;

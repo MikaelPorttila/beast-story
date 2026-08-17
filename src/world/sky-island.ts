@@ -6,7 +6,7 @@
  * Altitude, not avoidance, keeps it out of peaks — see `steer`.
  */
 import * as THREE from "three";
-import type { CelestialState, Mooring, TownInfo, TownRegistry } from "../core/types";
+import type { CelestialState, LampSite, Mooring, TownInfo, TownRegistry } from "../core/types";
 import { CarrierBody } from "./carriers";
 import type { PropLib } from "./props";
 import { Accum, bakeProp, type Template } from "./props";
@@ -19,6 +19,7 @@ import { mulberry32 } from "./noise";
 import { flags } from "../core/flags";
 import { Waterfall } from "./waterfall";
 import {
+  SV,
   skyArchive,
   skyBush,
   skyCottage,
@@ -109,6 +110,8 @@ interface SkyPlan {
     s?: number;
     /** Facade distance and light height for the separate night-only layer. */
     light?: readonly [front: number, height: number];
+    /** A LAMP SITE (issue #266): stamped, but its `light` waits on the character lighting it. */
+    dark?: boolean;
   }>;
   /** Path centrelines as [x0, z0, x1, z1], painted into the turf. */
   readonly paths: ReadonlyArray<readonly [number, number, number, number]>;
@@ -222,6 +225,7 @@ export interface SettleCtx {
     yaw: number;
     s?: number;
     light?: readonly [front: number, height: number];
+    dark?: boolean;
   }>;
   readonly paths: Array<readonly [number, number, number, number]>;
   readonly lamps: Array<{ x: number; z: number; yaw: number }>;
@@ -256,6 +260,7 @@ function planIsland(
     yaw: number;
     s?: number;
     light?: readonly [front: number, height: number];
+    dark?: boolean;
   }> = [];
   const paths: Array<readonly [number, number, number, number]> = [];
   const lamps: Array<{ x: number; z: number; yaw: number }> = [];
@@ -642,6 +647,13 @@ function streetNetwork(
 
 const _dbg = { x: 0, z: 0 };
 
+/** A dark gallery as the island keeps it: the site, plus what its glow needs to be drawn. */
+interface LampSpot extends LampSite {
+  readonly yaw: number;
+  readonly s: number;
+  readonly light: readonly [front: number, height: number];
+}
+
 export class SkyIsland extends CarrierBody implements NpcFrame {
   /** The settlement's public face — name, colour, radius. Its x/z are LIVE. */
   readonly town: SkyTownInfo;
@@ -683,6 +695,56 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     }
   }
 
+  /**
+   * Redraw the dark lamps against who has lit which. The glow is the same night layer
+   * the other galleries carry — their window, and a flame on each cage — so a relit
+   * gallery is one of the rank; one mesh for the island, rebuilt on a change, never per frame.
+   */
+  setLampsLit(isLit: (id: string) => boolean): void {
+    const key = this.lampSites.map((s) => (isLit(s.id) ? "1" : "0")).join("");
+    if (key === this.lampGlowLit || !this.nightGlowMat) {
+      return;
+    }
+    this.lampGlowLit = key;
+    if (this.lampGlow) {
+      this.root.remove(this.lampGlow);
+      this.lampGlow.geometry.dispose();
+      this.lampGlow = null;
+    }
+    const acc = new Accum();
+    for (const site of this.lampSites) {
+      if (!isLit(site.id)) {
+        continue;
+      }
+      const [front, height] = site.light;
+      const sy = Math.sin(site.yaw);
+      const cy = Math.cos(site.yaw);
+      acc.add(SKY_WINDOW, site.x + sy * front, height, site.z + cy * front, site.yaw, 1, 1, 1, 1);
+      // skyGallery's cages are at voxel x = ±2, ±4 on the deck's centreline, topped at course 9.
+      for (const gx of [-4, -2, 2, 4]) {
+        const lx = gx * SV * site.s;
+        acc.add(
+          SKY_LANTERN,
+          site.x + cy * lx,
+          9 * SV * site.s + 0.3,
+          site.z - sy * lx,
+          site.yaw,
+          1,
+          1,
+          1,
+          1,
+        );
+      }
+    }
+    const geo = acc.toGeometry();
+    if (!geo) {
+      return;
+    }
+    this.lampGlow = new THREE.Mesh(geo, this.nightGlowMat);
+    this.lampGlow.matrixAutoUpdate = false;
+    this.root.add(this.lampGlow);
+  }
+
   /** Take the world's shared night lights: parented here, at the anchors, at tonight's darkness. */
   holdNightLights(lights: THREE.PointLight[]): void {
     this.heldLights = lights;
@@ -722,6 +784,11 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   private readonly phase: number;
   /** The balloon's berth, LOCAL: the deck is y = 0, and `this` is the frame. */
   readonly mooring: Mooring;
+  /** The galleries the layout left DARK (issue #266), local like the mooring. */
+  readonly lampSites: readonly LampSpot[];
+  /** Their glow, one mesh for the island, rebuilt from `setLampsLit`; null while none is lit. */
+  private lampGlow: THREE.Mesh | null = null;
+  private lampGlowLit = "";
 
   constructor(
     private readonly terrain: Terrain,
@@ -833,7 +900,8 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
     const night = new Accum();
     for (const b of plan.buildings) {
-      if (!b.light) {
+      // A dark lamp's window is drawn by `setLampsLit`, once the character has lit it.
+      if (!b.light || b.dark) {
         continue;
       }
       const [front, height] = b.light;
@@ -849,6 +917,19 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
         1,
       );
     }
+    this.lampSites = plan.buildings
+      .filter((b) => b.dark)
+      .map((b, i) => ({
+        id: `site:lamp/${data.id}/${i}`,
+        town: data.id,
+        x: b.x,
+        y: 0,
+        z: b.z,
+        yaw: b.yaw,
+        s: b.s ?? 1,
+        light: b.light ?? [0, 0],
+        frame: this,
+      }));
     for (const lamp of plan.lamps) {
       // skyLamp's flame is course 8 at SV=0.6: 4.8 units above the deck.
       night.add(SKY_LANTERN, lamp.x, 4.8, lamp.z, lamp.yaw, 1, 1, 1, 1);
@@ -1127,6 +1208,8 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   dispose(): void {
     this.npcs?.dispose();
     this.fall?.dispose();
+    this.lampGlow?.geometry.dispose();
+    this.lampGlow = null;
     for (const g of this.geos) {
       g.dispose();
     }
@@ -1491,6 +1574,10 @@ const gallerySettlement: CarriedSettlement = {
   },
   ring: ({ rng, parts, at: pt, free, claim, buildings, paths, lamps, plots, plaza, islandR }) => {
     const RANKS = 7;
+    // The four galleries `quest:sky/lanternfall` relights (issue #266): the first of a rank,
+    // one rank each, so they are spread round the shelf rather than bunched on one terrace.
+    const DARK = 4;
+    let dark = 0;
     const a0 = rng() * 6.28;
     for (let r = 0; r < RANKS; r++) {
       const bearing = a0 + (r / RANKS) * Math.PI * 2 + (rng() - 0.5) * 0.22;
@@ -1507,6 +1594,7 @@ const gallerySettlement: CarriedSettlement = {
         if (!free(gx, gz, 4.2)) {
           continue;
         }
+        const isDark = placed === 0 && dark < DARK;
         buildings.push({
           t: parts.gallery,
           x: gx,
@@ -1514,9 +1602,13 @@ const gallerySettlement: CarriedSettlement = {
           yaw: bearing + Math.PI,
           s: 1.1,
           light: [2.4, 5.4],
+          dark: isDark,
         });
         claim(gx, gz, 4.2);
         placed++;
+        if (isDark) {
+          dark++;
+        }
       }
       if (placed === 0) {
         continue;

@@ -8,8 +8,11 @@
 //   1. THE FORK, BOTH ORDERS: lanternfall-then-cinderhelm and the reverse each
 //      put The Orrery on the shelf — and one arm alone never does.
 //   2. LANTERNFALL: the oil waits at Skyhaven's mooring — ON the deck, riding
-//      the island — six casks; picked up they count; Tobin at Lanternfall
-//      relights and closes it: component-lantern, ashgrove-reunited, 140 paid.
+//      the island — six casks; picked up they count. Four galleries on
+//      Lanternfall are DARK (issue #266): E at one with a cask pours it in,
+//      the lamp lights, a cask leaves the bag and relight-galleries counts;
+//      Tobin refuses to close with a gallery dark and closes once all four
+//      burn: component-lantern, ashgrove-reunited, 140 paid.
 //   3. CINDERHELM: the Cinderguard stands up on Cinderhelm's deck, its death
 //      leaves the record where it fell, and Pell closes it:
 //      knows-the-cities-built-it set, 160 paid.
@@ -244,6 +247,54 @@ await adv(0.3);
   await adv(2);
   const restocked = await drops("lamp-oil");
   check(restocked.length === 0, `the mooring restocked ${restocked.length} casks after all six were carried`);
+
+  // With every cask carried and no gallery lit, Tobin does not close.
+  const early = await talkTo("sky-lamplighter/lanternfall");
+  s = await facts(Q3, ["relight-galleries"], []);
+  results.early = { line: early, ...s };
+  check(s.status === "active", `Tobin closed Lanternfall with every gallery dark ("${s.status}")`);
+
+  // The four dark galleries, lit one by one: E at each with a cask in the bag.
+  const lamps = () => dbg(() => window.__dbgLamps());
+  const bagOil = () =>
+    dbg(() => window.__dbgInventory().bag.find((e) => e.id === "lamp-oil")?.count ?? 0);
+  const oilBefore = await bagOil();
+  const dark0 = (await lamps()).all.filter((l) => l.town === "lanternfall" && !l.lit);
+  results.lamps = { dark: dark0.length };
+  check(dark0.length === 4, `Lanternfall has ${dark0.length} dark galleries, want 4`);
+  for (let i = 0; i < 4; i++) {
+    const cur = (await lamps()).all.filter((l) => l.town === "lanternfall" && !l.lit);
+    if (cur.length === 0) {
+      break;
+    }
+    // Re-read each time: the island moves. Stand a stride short of the plinth's middle.
+    const l = cur[0];
+    const home = await isle("lanternfall");
+    const d = Math.hypot(l.x - home.x, l.z - home.z) || 1;
+    await dbg((p) => window.__dbgTp(p.x, p.z, p.y + 0.3), {
+      x: l.x + ((l.x - home.x) / d) * 3.2,
+      y: l.y,
+      z: l.z + ((l.z - home.z) / d) * 3.2,
+    });
+    await streamed();
+    await adv(0.3);
+    const near = (await lamps()).near;
+    check(near === l.id, `standing at ${l.id} the hero is near "${near}"`);
+    await page.keyboard.press("KeyE");
+    await adv(0.3);
+    const after = (await lamps()).all.find((x) => x.id === l.id);
+    check(after?.lit === true, `E at ${l.id} did not light it`);
+  }
+  s = await facts(Q3, ["relight-galleries"], []);
+  results.relit = s;
+  check(
+    s["relight-galleries"] === 4,
+    `relight-galleries counted ${s["relight-galleries"]}, want 4`,
+  );
+  // Four casks poured of the six carried: the objective cost the item.
+  const oilAfter = await bagOil();
+  results.oil.poured = oilBefore - oilAfter;
+  check(oilBefore - oilAfter === 4, `pouring cost ${oilBefore - oilAfter} casks, want 4`);
 
   const before = await shards();
   const done = await talkTo("sky-lamplighter/lanternfall");
