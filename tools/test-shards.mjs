@@ -14,6 +14,11 @@
 //      stays supported the whole way and lands on the far rock.
 //   4. THE WOODS ARE SOLID: trees are planted and drawn as colliders floored on
 //      the deck, not hanging to the ground.
+//   6. THE TURF IS CARPETED (issue #271): every cluster stamps a sward.
+//   7. THE DECKS ARE LIVED ON (issue #271): a hero up on a cluster is joined by
+//      its wilds — sky species, on the deck's own column, restocked to the
+//      cluster's count — and one on the ground under the same cluster is not.
+//      A wild that is there stays up: it never sinks toward the valley.
 //
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from "./browser.mjs";
@@ -180,6 +185,71 @@ if (bridged) {
     check(Math.hypot(p.x - stone.x, p.z - stone.z) < 4, `the revival put him ${Math.hypot(p.x - stone.x, p.z - stone.z).toFixed(1)} from the stone`);
     check(p.y > c.y - 0.6, `the revival dropped him to y=${p.y.toFixed(1)} under the deck at ${c.y.toFixed(1)}`);
   }
+}
+
+// ---------- 6. the turf is carpeted --------------------------------------------------
+{
+  const all = await shards();
+  const bare = all.filter((s) => s.clumps === 0 || s.swardVerts === 0);
+  results.sward = {
+    clumps: all.reduce((n, s) => n + s.clumps, 0),
+    verts: all.reduce((n, s) => n + s.swardVerts, 0),
+  };
+  check(bare.length === 0, `clusters with no sward: ${bare.map((s) => s.id)}`);
+}
+
+// ---------- 7. the decks are lived on -----------------------------------------------
+{
+  const cl = (await shards()).reduce((a, b) => (b.wilds > a.wilds ? b : a));
+  const sky = await dbg(() => window.__dbgSpawnTables().tables.sky ?? []);
+  const skyIds = sky.map((r) => r.enemy);
+  check(skyIds.length > 0, "biome:sky has no spawn table");
+  const on = async () =>
+    (await dbg(() => window.__dbgBodies().enemies)).filter(
+      (e) =>
+        e.targetable &&
+        Math.hypot(e.x - cl.x, e.z - cl.z) < cl.radius + 8 &&
+        Math.abs(e.y - cl.y) < 25,
+    );
+  // THE GROUND HALF FIRST: stood under the cluster, nothing is stocked on it.
+  await dbg((c) => window.__dbgTp(c.x, c.z), cl);
+  await streamed();
+  await adv(4);
+  const below = await on();
+  results.wildsFromGround = below.length;
+  check(
+    below.length === 0,
+    `${below.length} wilds stocked on ${cl.id} while the hero was on the ground under it`,
+  );
+  // UP ON IT: the population arrives, sky species, standing on the deck's column.
+  await dbg((c) => window.__dbgTp(c.x, c.z, c.y + 0.3), cl);
+  await streamed();
+  let up = [];
+  for (let i = 0; i < 12 && up.length < cl.wilds; i++) {
+    await adv(1);
+    up = await on();
+  }
+  results.wilds = { want: cl.wilds, have: up.length, species: up.map((e) => e.species) };
+  check(up.length >= cl.wilds, `${up.length} of ${cl.wilds} wilds on ${cl.id} after 12 s up on it`);
+  check(
+    up.every((e) => skyIds.includes(e.species)),
+    `a deck wild is not from the sky table: ${up.map((e) => e.species)}`,
+  );
+  // ON THE DECK'S COLUMN, not the ground's: a flyer cruises a few units over the turf.
+  const deckY = (await shards()).find((s) => s.id === cl.id).y;
+  const rises = up.map((e) => +(e.y - deckY).toFixed(2));
+  results.wildRise = rises;
+  check(
+    rises.every((r) => r > -0.5 && r < 8),
+    `a deck wild is not over the deck: rises ${JSON.stringify(rises)}`,
+  );
+  // AND IT STAYS UP: seconds later every one is still within the deck's band.
+  await adv(6);
+  const later = await on();
+  check(
+    later.length >= Math.min(up.length, cl.wilds),
+    `wilds left the cluster's band: ${up.length} -> ${later.length}`,
+  );
 }
 
 // ---------- 1b. shards=0 --------------------------------------------------------------

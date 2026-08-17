@@ -355,6 +355,9 @@ const BIOMES = [
   "underwater",
   "deepwater",
   "trampled",
+  // Ninth, and not a climate either: the turf of a floating shard (issue #271),
+  // which no ground column ever is. It exists to carry the sky's spawn table.
+  "sky",
 ];
 
 // ---------------------------------------------------------------------------
@@ -592,7 +595,8 @@ async function consoleClosed(tries = 40) {
       // 10 -> 14: the Act 3 cast — Gain's third placement, Tobin's second, Vess
       // and Coil's third (issues #158-#161).
       npc: 14,
-      biome: 8,
+      // 8 -> 9: `biome:sky`, the shards' own table (issue #271).
+      biome: 9,
       // +2: `enemy:thread-anchor` (issue #150) and `enemy:bellwether` (issue
       // #151), the two enemies `story-land` brings with it. +1 again for
       // `enemy:penned-sproutle`, the Encampment's practice animal (issue #178).

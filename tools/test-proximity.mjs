@@ -242,7 +242,14 @@ const gate = zone0.gate;
 // crosshair is doing" — and then the OUTCOME, which is the only statement about
 // combat that is about the game rather than about the maths.
 {
-  const bodies = await probe(page, "__dbgBodies");
+  // The gate hop despawned the boot population and the den sits in a town, where
+  // most rolls are refused, so the first read after arriving can be empty by
+  // chance: give the spawner a few seconds of sim before calling it absent.
+  let bodies = await probe(page, "__dbgBodies");
+  for (let i = 0; i < 12 && !bodies.enemies.some((e) => !e.isDead); i++) {
+    await page.evaluate(() => window.__dbgAdvance(0.5));
+    bodies = await probe(page, "__dbgBodies");
+  }
   // A TARGET ON THE GROUND, and that filter is the whole point of the control.
   //
   // The claim is that a sword refuses a target directly OVERHEAD and lands on

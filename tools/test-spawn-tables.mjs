@@ -12,10 +12,11 @@
 //   2. THE POPULATION OBEYS IT. Every live enemy is one its own column's table
 //      lists. Measured over the population the spawner built on its own, not
 //      over one this probe placed.
-//   3. NO FLYER IS IN AN ACT 1 TABLE. The flying beasts belong to Act 3 and its
+//   3. NO FLYER IS IN A GROUND TABLE. The flying beasts belong to Act 3 and its
 //      mount; meeting one in the opening valley spends it early. Asserted on
 //      the whole roster rather than on the four ids, so a flyer added later is
-//      caught by the same line.
+//      caught by the same line. The one table that DOES hold them is `sky`,
+//      the shards' decks (issue #271), which no ground column ever rolls.
 //   4. A ZONE WITH NO BIOME IS QUIET. The Hold answers '' and its table lookup
 //      finds nothing, so nothing wanders in — what is down there is what a
 //      quest staged, which is the contract `quest:land/the-red-thread` needs.
@@ -63,7 +64,7 @@ const flyers = async () => (await tables()).flying;
   }
 }
 
-// ---------- 2. no flyer is in any of them ----------------------------------
+// ---------- 2. no flyer is in any ground table; the sky's holds them --------
 {
   const flying = await flyers();
   const t = await tables();
@@ -72,9 +73,14 @@ const flyers = async () => (await tables()).flying;
   );
   results.flyers = { flying, inTables: found };
   check(flying !== null && flying.length > 0, "the debug surface reports no flying enemies at all");
+  const grounded = found.filter((f) => !f.startsWith("sky:"));
   check(
-    found.length === 0,
-    `flying beasts are in an overworld table: ${JSON.stringify(found)} — they belong to Act 3`,
+    grounded.length === 0,
+    `flying beasts are in an overworld table: ${JSON.stringify(grounded)} — they belong to Act 3`,
+  );
+  check(
+    found.some((f) => f.startsWith("sky:")),
+    "the sky table rolls no flyer — the shards' decks would be empty",
   );
 }
 

@@ -1606,6 +1606,17 @@ const TUFT_REF_DRY = lin(0xc4b473);
 /** Clamp a ground-blend tint so a snow or lake-bed sample cannot blow one out. */
 const clampTint = (v: number): number => (v < 0.5 ? 0.5 : v > 1.7 ? 1.7 : v);
 
+/** The tussock tint over an sRGB ground colour — `addTuft`'s 45% blend, for a builder with no `columnInfo`. */
+export function swardTint(groundHex: number): [number, number, number] {
+  const g = lin(groundHex);
+  const B = 0.45;
+  return [
+    clampTint(1 - B + B * (g[0] / TUFT_REF[0])),
+    clampTint(1 - B + B * (g[1] / TUFT_REF[1])),
+    clampTint(1 - B + B * (g[2] / TUFT_REF[2])),
+  ];
+}
+
 export interface ChunkProps {
   solid: THREE.Mesh | null;
   soft: THREE.Mesh | null;

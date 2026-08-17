@@ -11,11 +11,11 @@ import { VoxelModel } from "../core/voxel";
 import { CarrierBody } from "./carriers";
 import { flags } from "../core/flags";
 import { mulberry32 } from "./noise";
-import type { PropLib, Template } from "./props";
+import { Accum, swardTint, type PropLib, type Template } from "./props";
 import { RoadNetwork, type Road } from "./roads";
 import { trackProfile } from "./path-profile";
 import { SolidStamp, StructureField } from "./structures";
-import { CELL, LEDGE, LIP_COURSES, hash2, lipAt, paintShellColumn } from "./sky-rock";
+import { CELL, GRASS, LEDGE, LIP_COURSES, hash2, lipAt, paintShellColumn } from "./sky-rock";
 import { Waypoints, WAYPOINT_PLATE_R, type WaypointSite } from "./waypoints";
 import type { RingBand } from "./distant-terrain";
 
@@ -53,6 +53,10 @@ const HOVER_AMP = 1.2;
 const HOVER_PERIOD = 9;
 /** Beyond this the whole cluster is hidden — past the fog, and never streamed. */
 const CULL_DIST = 900;
+/** Turf inboard of the rim-stone collar, cells: where the sward and the wilds go. */
+const TURF_INSIDE = (SHARD_RIM + 1) * CELL;
+/** Wilds a cluster keeps: one per this many square units of deck, at least one, at most four. */
+const WILDS_PER_AREA = 900;
 
 const WOOD = 0x8a6a45;
 const WOOD_D = 0x6d4f31;
@@ -162,6 +166,10 @@ export class ShardCluster extends CarrierBody {
   private tracks!: RoadNetwork;
   private t: number;
   private trees = 0;
+  private clumps = 0;
+  private swardVerts = 0;
+  /** How many sky wilds the cluster's decks are worth — see WILDS_PER_AREA. */
+  readonly wilds: number;
   /** The waystone, on a cluster big enough to earn one; its `all` is the world's to merge. */
   readonly waypoints: Waypoints | null;
 
@@ -206,7 +214,41 @@ export class ShardCluster extends CarrierBody {
       this.root.add(this.waypoints.group);
     }
     this.plantWoods(props, stone);
+    this.plantSward(props, stone);
+    let area = 0;
+    for (const s of spec.shards) {
+      area += Math.PI * s.r * s.r;
+    }
+    this.wilds = Math.max(1, Math.min(4, Math.round(area / WILDS_PER_AREA)));
     this.root.name = this.id;
+  }
+
+  /**
+   * A place for a wild to stand: bare turf on any shard, off the track, the stone and
+   * the woods. World coordinates, deck height. Null when a dozen rolls find none.
+   */
+  roost(): { x: number; y: number; z: number } | null {
+    for (let k = 0; k < 12; k++) {
+      const s = this.spec.shards[Math.floor(Math.random() * this.spec.shards.length)];
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.sqrt(Math.random()) * s.r * 0.8;
+      const x = s.x + Math.sin(a) * d;
+      const z = s.z + Math.cos(a) * d;
+      const hit = this.shardAt(x, z);
+      if (!hit || hit.inside < TURF_INSIDE || this.tracks.edgeDistanceTo(x, z) < 0.5) {
+        continue;
+      }
+      // Standing room: no trunk or boulder through the body, and off the stone's plate.
+      // Under a crown is fine — the woods are the point.
+      if (
+        this.solids.hits(x, z, 0.6, 0, 1) ||
+        (this.waypoints?.solids.hits(x, z, WAYPOINT_PLATE_R, 0, 1) ?? false)
+      ) {
+        continue;
+      }
+      return { x: x + this.x, y: this.y, z: z + this.z };
+    }
+    return null;
   }
 
   /**
@@ -510,6 +552,119 @@ export class ShardCluster extends CarrierBody {
     }
   }
 
+  /**
+   * THE SWARD (issue #271): the meadow's own carpet on the turf — a clump is sprigs, a
+   * tussock or two and a few blades, tinted toward the shard's turf as the ground's
+   * are toward theirs. Off the rim collar, the track and the stone's plate; the woods
+   * refuse it through the one rule every stamp obeys (`Accum.site`).
+   */
+  private plantSward(lib: PropLib, stone: WaypointSite | null): void {
+    const rng = mulberry32(this.spec.seed ^ 0x2b91);
+    const soft = new Accum(flags.sway);
+    soft.site = this.solids;
+    const [tr, tg, tb] = swardTint(GRASS);
+    const grasses = [lib.grassA, lib.grassB, lib.grassC];
+    const clear = (x: number, z: number): boolean => {
+      const hit = this.shardAt(x, z);
+      return (
+        hit !== null &&
+        hit.inside >= TURF_INSIDE &&
+        this.tracks.edgeDistanceTo(x, z) >= 0.3 &&
+        !(stone && (stone.x - x) ** 2 + (stone.z - z) ** 2 < (WAYPOINT_PLATE_R + 0.5) ** 2)
+      );
+    };
+    for (const s of this.spec.shards) {
+      // One clump per ~16 square units: half the meadow's density, on rock that never streams out.
+      const want = Math.round((Math.PI * s.r * s.r) / 16);
+      let planted = 0;
+      for (let k = 0; k < want * 3 && planted < want; k++) {
+        const a = rng() * Math.PI * 2;
+        const d = Math.sqrt(rng()) * s.r * 0.9;
+        const cx = s.x + Math.sin(a) * d;
+        const cz = s.z + Math.cos(a) * d;
+        if (!clear(cx, cz)) {
+          continue;
+        }
+        planted++;
+        this.clumps++;
+        const cj = 0.92 + rng() * 0.16;
+        const grass = grasses[Math.floor(rng() * 2.999)];
+        const sprigN = 3 + Math.floor(rng() * 3);
+        for (let m = 0; m < sprigN; m++) {
+          const ang = rng() * Math.PI * 2;
+          const rad = Math.sqrt(rng()) * 2.0;
+          const x = cx + Math.cos(ang) * rad;
+          const z = cz + Math.sin(ang) * rad;
+          if (clear(x, z)) {
+            soft.add(
+              lib.sprigs[Math.floor(rng() * 3.999)],
+              x,
+              -0.06,
+              z,
+              rng() * Math.PI * 2,
+              0.85 + rng() * 0.6,
+              tr * cj,
+              tg * cj,
+              tb * cj,
+            );
+          }
+        }
+        const tuftN = 1 + Math.floor(rng() * 2);
+        for (let m = 0; m < tuftN; m++) {
+          const ang = rng() * Math.PI * 2;
+          const rad = rng() * 1.05;
+          const x = cx + Math.cos(ang) * rad;
+          const z = cz + Math.sin(ang) * rad;
+          if (clear(x, z)) {
+            soft.add(
+              lib.tufts[Math.floor(rng() * 3.999)],
+              x,
+              -0.07,
+              z,
+              rng() * Math.PI * 2,
+              1.0 + rng() * 0.45,
+              tr * cj,
+              tg * cj,
+              tb * cj,
+            );
+          }
+        }
+        const bladeN = 2 + Math.floor(rng() * 3);
+        for (let m = 0; m < bladeN; m++) {
+          const ang = rng() * Math.PI * 2;
+          const rad = 0.3 + rng() * 1.4;
+          const x = cx + Math.cos(ang) * rad;
+          const z = cz + Math.sin(ang) * rad;
+          if (clear(x, z)) {
+            const t = cj * (0.96 + rng() * 0.08);
+            soft.add(
+              grass,
+              x,
+              -0.03,
+              z,
+              rng() * Math.PI * 2,
+              0.65 + rng() * 0.5,
+              t * 0.97,
+              t,
+              t * 0.9,
+            );
+          }
+        }
+      }
+    }
+    const geo = soft.toGeometry();
+    if (geo) {
+      const mesh = new THREE.Mesh(geo, lib.softMat);
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      mesh.name = "shard:sward";
+      this.root.add(mesh);
+      this.geos.push(geo);
+      this.swardVerts = geo.getAttribute("position").count;
+    }
+  }
+
   // ---- per frame, and the probes ------------------------------------------------
 
   /** Hide the whole cluster past the fog: never streamed, so this is its only cull. */
@@ -546,6 +701,9 @@ export class ShardCluster extends CarrierBody {
         bz: +(b.bz + this.z).toFixed(1),
       })),
       trees: this.trees,
+      clumps: this.clumps,
+      swardVerts: this.swardVerts,
+      wilds: this.wilds,
       waypoint: this.waypoints?.all[0]?.id ?? null,
       visible: this.root.visible,
     };
