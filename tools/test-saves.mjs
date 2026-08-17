@@ -800,7 +800,7 @@ const readState = (page) =>
   });
   const savedBag = await page.evaluate(() => window.__dbgSaves.doc().bag.length);
 
-  // Exit to title through the pause menu's own button, which is the route a
+  // Exit through the pause menu's own button, which is the route a
   // player has — and the one that clears the active character.
   await page.evaluate(() => window.__dbgBoot && null);
   await page.keyboard.press("F10");

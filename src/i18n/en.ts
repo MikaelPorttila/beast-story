@@ -1490,7 +1490,7 @@ export const en = {
    * Back to the title screen, not out of the browser. "Exit" alone reads as
    * quitting the application on desktop, and there is nothing to quit to.
    */
-  "pause.exit": "Exit to title",
+  "pause.exit": "Exit",
 
   // ---- boot progress -------------------------------------------------------
   // The corner chip while the title screen is up, and the loading screen the

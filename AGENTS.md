@@ -122,7 +122,7 @@ readings.
   touching any model builder.
 - **A probe that measures the world passes `menu=0`** (the title screen gates
   the frame loop). One that must walk the staged boot — pointer lock, New Game,
-  Exit to title — drops it. Pass `fs=0` wherever New Game is clicked, so the
+  Exit — drops it. Pass `fs=0` wherever New Game is clicked, so the
   viewport is not resized under a measurement.
 - **Debug loads are muted automatically.** Open a browser preview at `?vol=0`;
   pass `vol=0.01` only for audio work, and say that you did.

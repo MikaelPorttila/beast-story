@@ -306,7 +306,7 @@ function beginPlay(): void {
     applySave(doc);
   } else if (flags.debug && !ownsSpecies(STARTER_BEAST)) {
     // THE DEVELOPER'S GAME ONLY: a player's new game is bonded to nothing (issue #4) — the first orb
-    // is the first beast. Skipped when already bonded, so this is safe after an exit to title too.
+    // is the first beast. Skipped when already bonded, so this is safe after an Exit too.
     grantBeast(STARTER_BEAST);
   }
   // Drain keys latched while the title screen was up — endFrame() only runs inside frame(), so the first slice would otherwise see the whole menu session at once.
@@ -742,7 +742,7 @@ async function saveNow(): Promise<number | null> {
   return id;
 }
 
-// WHEN IT SAVES (issue #171): the event writes — a quest changing state, the exit to title — protect
+// WHEN IT SAVES (issue #171): the event writes — a quest changing state, the Exit — protect
 // progress, and the interval is the backstop. Turning the timer off does not turn saving off.
 
 /** Seconds since the last write. Reset by every save, whatever triggered it. */

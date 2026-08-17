@@ -104,7 +104,7 @@ const canvasPoint = async (page) => {
  * that moved the camp moves this with it.
  *
  * RE-AIMED ON EVERY CALL rather than once after boot, because `Player.reset()`
- * goes through `takeStartPose()` — so Exit to title and a second New Game put
+ * goes through `takeStartPose()` — so Exit and a second New Game put
  * the camera back on his face, and the exit arm does exactly that.
  *
  * Takes a PAGE, not a ctx, because the exit arm runs it on a private page —

@@ -69,7 +69,7 @@ const ABOUT_SCROLL = 64;
  * JS decides only WHEN it starts; the stylesheet owns the ordering in
  * `animation-delay`, because long boot tasks delayed a 550 ms `setTimeout` to
  * 4066 ms. Waits on `decode()` first, capped. Skipped under `photo=1` and on
- * Exit to title — both jump straight to `lit`.
+ * Exit — both jump straight to `lit`.
  */
 const INTRO = {
   decodeCap: 2500,
@@ -91,7 +91,7 @@ export interface StartMenuHooks extends SettingsHooks {
 }
 
 export interface StartMenuOptions {
-  /** Open on the options step. For Exit to title, which has no splash. */
+  /** Open on the options step. For Exit, which has no splash. */
   skipSplash?: boolean;
 }
 

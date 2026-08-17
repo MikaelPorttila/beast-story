@@ -17,7 +17,7 @@
 //      and a raw loop clicks.
 //   4. NEW GAME IS A SCENE CHANGE. The title track goes and the overworld's
 //      arrives — a second `starts`, a different file, and only ever one element.
-//   5. SO IS EXIT TO TITLE, in the other direction.
+//   5. SO IS Exit, in the other direction.
 //   6. THE VOLUME ROW UNLOADS AT ZERO and reloads above it, writing one key.
 //   7. AN AREA'S PLAYLIST IS CONTENT, and an area nobody scored gets the
 //      fallback one rather than silence. The second half is the only claim in
@@ -211,7 +211,7 @@ const out = {};
   check(/overworld/.test(out.unmuted?.track ?? ""), "and it is the scene we are in");
   check(out.unmutedKey === "0.8", `stored as a decimal, got ${out.unmutedKey}`);
 
-  // Exit to title: the other scene change.
+  // Exit: the other scene change.
   await page.keyboard.press("F10");
   await wait(300);
   await page.click('.bs-pause [data-act="exit"]');

@@ -75,7 +75,7 @@ export class Input {
    * `document.pointerLockElement` stays null for that whole window — so
    * `releaseLock()` asking "is anything locked" got `no` and did nothing, and
    * the lock it was cancelling landed a moment later on whatever had replaced
-   * the game. That is issue #29: `Exit to title` closes the in-game menu (which
+   * the game. That is issue #29: `Exit` closes the in-game menu (which
    * hands the pointer BACK to the game, the right thing on Continue) and then
    * runs `exitToTitle`, which releases it — in that order, one frame apart.
    * The release lost the race, and the title screen came up with the pointer

@@ -316,7 +316,7 @@ export function createContentRuntime(opts: ContentRuntimeOptions = {}): ContentR
   return new Runtime(opts);
 }
 
-// The runtime the game holds. One per page; `Exit to title` resets the STATE and never
+// The runtime the game holds. One per page; `Exit` resets the STATE and never
 // the graph, since definitions are a pure function of the build.
 // Held as the concrete class so `bootstrapContent` can reach `loadedView`/`validate`,
 // exported as the CONTRACT so nothing outside depends on the implementation.

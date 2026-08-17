@@ -1056,7 +1056,7 @@ const CSS = `
    animation delays adding up, so once .intro is added no JavaScript is involved —
    which is the point: the boot blocks the main thread in long tasks, and a
    setTimeout(550) for the second beat was measured firing at 4066 ms.
-   .lit is the same layers with no sequence (the skip, photo=1, Exit to title). It
+   .lit is the same layers with no sequence (the skip, photo=1, Exit). It
    sits AFTER .intro to win at equal specificity, and restates the press pulse
    because animation:none would otherwise take it away with the fades. */
 .bs-menu .stage,.bs-menu .logo,.bs-menu .press{opacity:0}
