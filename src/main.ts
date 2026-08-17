@@ -337,6 +337,7 @@ const pauseMenu = new PauseMenu({
   ...settingsHooks,
   // This wheel is CLICKED, not read: the cursor has to be able to reach every sector.
   onOpen: () => input.releaseLock(),
+  inputSource: () => input.lastSource,
   // After a key only when Escape is ours: otherwise leaving fullscreen drops the lock 8 ms later, which reads as a fresh Escape.
   onClose: (by) => {
     if (isTouchPrimary()) {
