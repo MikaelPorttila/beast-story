@@ -30,16 +30,67 @@ import { hashCell, mulberry32 } from "./noise";
 import { perf } from "../core/profiler";
 
 /**
- * Where the hold lives in world coordinates.
- *
- * Far enough that nothing about the overworld can reach it (the streamer's
- * unload radius is 6.5 chunks = 208 units, wild spawns despawn at ~90) and small
- * enough that float32 vertex data is unaffected — chunk meshes carry chunk-LOCAL
- * vertices with the offset in `mesh.position`, so the only float this number
- * ever enters is a position, where 8192 leaves ~0.001 of resolution.
+ * ONE SHAPE, TWO PLACES (issue #265): the Sunken Hold and the vent under
+ * Cinderhelm are the same generated dungeon at two seeds, two origins and two
+ * palettes. Everything a zone differs by is here; nothing below reads a
+ * hold-specific constant.
  */
-export const HOLD_ORIGIN_X = 8192;
-export const HOLD_ORIGIN_Z = 8192;
+export interface DungeonSpec {
+  readonly seed: number;
+  /**
+   * Where it lives in world coordinates. Far enough that nothing about the
+   * overworld can reach it (the streamer's unload radius is 6.5 chunks = 208
+   * units, wild spawns despawn at ~90), far enough from the OTHER dungeon that
+   * both may be resident, and small enough that float32 vertex data is
+   * unaffected — chunk meshes carry chunk-LOCAL vertices with the offset in
+   * `mesh.position`, so the only float this number ever enters is a position,
+   * where 8192 leaves ~0.001 of resolution.
+   */
+  readonly originX: number;
+  readonly originZ: number;
+  /** sRGB hexes; converted to linear once at build. See the palette note below. */
+  readonly floor: number;
+  readonly wall: number;
+  readonly rim: number;
+  /** Scattered floor patches — moss in a damp hold, ash in a burnt one. */
+  readonly patch: number;
+  /** Crystal body tints (two, so a cluster is not one silhouette), their emissive, and the lamps. */
+  readonly crystal: readonly [number, number];
+  readonly glow: number;
+  readonly lamp: number;
+}
+
+export const SUNKEN_HOLD: DungeonSpec = {
+  seed: 0x5ea1ed,
+  originX: 8192,
+  originZ: 8192,
+  floor: 0x9a8f80, // warm flagstone
+  // The walls are WARM, and that is a correction, not a preference. At a first
+  // pass they were a cool 0x6f6b73, and a captured corridor shot was 80% one flat
+  // blue-grey slab: a wall facing away from the sun receives nothing but the
+  // (deliberately cool) hemisphere fill, so a cool albedo on top of it has no hue
+  // left at all. Warm stone under a cool fill still reads as stone in shade.
+  wall: 0x8a7d6d,
+  rim: 0x5f584f, // the outer mass, darker still
+  patch: 0x5e6f4a, // damp moss on the floor
+  crystal: [0x2f6f8c, 0x27536b],
+  glow: 0x49d7ff,
+  lamp: 0x7fe4ff,
+};
+
+/** The engine's exhaust under Cinderhelm: slag, ash, and the fire still in the cracks. */
+export const CINDER_VENT: DungeonSpec = {
+  seed: 0xc1d3e2,
+  originX: -8192,
+  originZ: 8192,
+  floor: 0x4a423d,
+  wall: 0x3e3531,
+  rim: 0x2a2523,
+  patch: 0x6a3a2a, // ash burnt red-brown
+  crystal: [0x7a2e18, 0x5c2412],
+  glow: 0xff6a2c,
+  lamp: 0xff8a4a,
+};
 
 /** Footprint, in columns. 160 = exactly 5 chunks, so no chunk is half-void. */
 const GRID = 160;
@@ -81,15 +132,13 @@ const lin = (hex: number): [number, number, number] => [
   s2l(((hex >> 8) & 255) / 255),
   s2l((hex & 255) / 255),
 ];
-const FLOOR_RGB = lin(0x9a8f80); // warm flagstone
-// The walls are WARM, and that is a correction, not a preference. At a first
-// pass they were a cool 0x6f6b73, and a captured corridor shot was 80% one flat
-// blue-grey slab: a wall facing away from the sun receives nothing but the
-// (deliberately cool) hemisphere fill, so a cool albedo on top of it has no hue
-// left at all. Warm stone under a cool fill still reads as stone in shade.
-const WALL_RGB = lin(0x8a7d6d);
-const RIM_RGB = lin(0x5f584f); // the outer mass, darker still
-const MOSS_RGB = lin(0x5e6f4a); // damp patches on the floor
+/** A spec's palette in linear radiance, converted once per zone build. */
+interface Palette {
+  floor: [number, number, number];
+  wall: [number, number, number];
+  rim: [number, number, number];
+  patch: [number, number, number];
+}
 
 /** Corner-AO ramp, same idea and same reasoning as world/chunk.ts. */
 const AO = [0.42, 0.6, 0.8, 1.0];
@@ -124,6 +173,9 @@ interface Room {
 
 export interface HoldPlan {
   seed: number;
+  /** World origin of local column (0, 0). */
+  ox: number;
+  oz: number;
   /** 1 = walkable, 0 = rock. Row-major GRID x GRID, LOCAL columns. */
   mask: Uint8Array;
   rooms: Room[];
@@ -158,7 +210,8 @@ const carve = (mask: Uint8Array, x0: number, z0: number, x1: number, z1: number)
  * camera something to see past, and still reads as a corridor rather than a
  * room.
  */
-function makePlan(seed: number): HoldPlan {
+function makePlan(spec: DungeonSpec): HoldPlan {
+  const { seed } = spec;
   const rng = mulberry32(seed ^ 0x0d17);
   const mask = new Uint8Array(GRID * GRID);
   const rooms: Room[] = [];
@@ -202,21 +255,29 @@ function makePlan(seed: number): HoldPlan {
     }
   }
 
-  return { seed, mask, rooms, crystals, gate: { x: rooms[0].x, z: rooms[0].z } };
+  return {
+    seed,
+    ox: spec.originX,
+    oz: spec.originZ,
+    mask,
+    rooms,
+    crystals,
+    gate: { x: rooms[0].x, z: rooms[0].z },
+  };
 }
 
 /**
- * THE FLOOR OF THE HOLD in world coordinates — the room diagonally opposite the
+ * THE FLOOR OF A DUNGEON in world coordinates — the room diagonally opposite the
  * gate, which is the furthest one in from where you come down (issue #150).
  *
  * A quest stages its props here and must not carry a copy of the layout to do
- * it: the plan is deterministic in the seed, so this re-derives it rather than
+ * it: the plan is deterministic in the spec, so this re-derives it rather than
  * exporting the live `createDungeon` closure or hanging a field on `World`.
  * `makePlan` is nine rooms of arithmetic — cheap enough to ask on a poll.
  */
-export function holdFloorSpot(seed = 0x5ea1ed): { x: number; y: number; z: number } {
-  const room = makePlan(seed).rooms[8];
-  return { x: HOLD_ORIGIN_X + room.x + 0.5, y: FLOOR_Y, z: HOLD_ORIGIN_Z + room.z + 0.5 };
+export function dungeonFloorSpot(spec: DungeonSpec): { x: number; y: number; z: number } {
+  const room = makePlan(spec).rooms[8];
+  return { x: spec.originX + room.x + 0.5, y: FLOOR_Y, z: spec.originZ + room.z + 0.5 };
 }
 
 /** Column top in LOCAL coordinates. The whole height authority of the zone. */
@@ -237,6 +298,7 @@ function buildHoldChunk(
   cx: number,
   cz: number,
   plan: HoldPlan,
+  pal: Palette,
   material: THREE.Material,
 ): THREE.Mesh {
   const G = CHUNK_SIZE + 2;
@@ -326,7 +388,7 @@ function buildHoldChunk(
         hS = hA[i + G],
         hN = hA[i - G];
 
-      const body = H === FLOOR_Y ? FLOOR_RGB : H === WALL_Y ? WALL_RGB : RIM_RGB;
+      const body = H === FLOOR_Y ? pal.floor : H === WALL_Y ? pal.wall : pal.rim;
       let r = body[0],
         g = body[1],
         b = body[2];
@@ -339,9 +401,9 @@ function buildHoldChunk(
         const sp = hashCell(seed, wx, 7, wz);
         if (sp > 0.9) {
           const w = 0.35 + (sp - 0.9) * 2;
-          r += (MOSS_RGB[0] - r) * w;
-          g += (MOSS_RGB[1] - g) * w;
-          b += (MOSS_RGB[2] - b) * w;
+          r += (pal.patch[0] - r) * w;
+          g += (pal.patch[1] - g) * w;
+          b += (pal.patch[2] - b) * w;
         }
       }
       const jt = jitter(wx, H, wz);
@@ -535,7 +597,7 @@ function buildHoldChunk(
   geo.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(HOLD_ORIGIN_X + ox, 0, HOLD_ORIGIN_Z + oz);
+  mesh.position.set(plan.ox + ox, 0, plan.oz + oz);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.matrixAutoUpdate = false;
@@ -571,7 +633,7 @@ const key = (cx: number, cz: number): number => cx * 64 + cz;
  * mid-game should introduce no new program KEY. Geometry is free, materials are
  * not, and a define is what makes a material a material.
  */
-function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
+function buildCrystals(plan: HoldPlan, spec: DungeonSpec): { mesh: THREE.Mesh; dispose(): void } {
   // Three r185's OctahedronGeometry is already non-indexed; converting it again warns on Hold entry.
   const base = new THREE.OctahedronGeometry(0.42, 0);
   base.scale(1, 2.1, 1);
@@ -593,16 +655,16 @@ function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
   const col: number[] = [];
   // Vertex colour is the shard's own body; the emissive uniform does the
   // glowing. Two tones so a cluster is not one silhouette.
-  const tint = [lin(0x2f6f8c), lin(0x27536b)];
+  const tint = [lin(spec.crystal[0]), lin(spec.crystal[1])];
 
   for (let i = 0; i < plan.crystals.length; i += 2) {
     const n = 2 + ((rng() * 3) | 0);
     for (let k = 0; k < n; k++) {
       const yaw = rng() * Math.PI;
       t.set(
-        HOLD_ORIGIN_X + plan.crystals[i] + (rng() - 0.5) * 1.8,
+        plan.ox + plan.crystals[i] + (rng() - 0.5) * 1.8,
         (rng() - 0.5) * 0.35 + 0.5,
-        HOLD_ORIGIN_Z + plan.crystals[i + 1] + (rng() - 0.5) * 1.8,
+        plan.oz + plan.crystals[i + 1] + (rng() - 0.5) * 1.8,
       );
       e.set((rng() - 0.5) * 0.4, yaw, (rng() - 0.5) * 0.4);
       q.setFromEuler(e);
@@ -634,7 +696,7 @@ function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
   // decides whether this material needs a program of its own.
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    emissive: 0x49d7ff,
+    emissive: spec.glow,
     emissiveIntensity: 1.5,
     roughness: 0.25,
     metalness: 0,
@@ -652,20 +714,26 @@ function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
 }
 
 /**
- * Build the Sunken Hold as a `World`.
+ * Build a dungeon — the Sunken Hold, the vent — as a `World`.
  *
  * Nothing outside ZoneManager should call this: it adds to the scene, and the
  * only thing that knows when to take it back out again is whatever owns the
  * zone.
  */
-export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
-  const plan = makePlan(seed);
+export function createDungeon(scene: THREE.Scene, spec: DungeonSpec): World {
+  const plan = makePlan(spec);
+  const pal: Palette = {
+    floor: lin(spec.floor),
+    wall: lin(spec.wall),
+    rim: lin(spec.rim),
+    patch: lin(spec.patch),
+  };
   const stoneMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.92,
     metalness: 0,
   });
-  const crystals = buildCrystals(plan);
+  const crystals = buildCrystals(plan, spec);
   const fixtures = new THREE.Group();
   fixtures.add(crystals.mesh);
 
@@ -688,8 +756,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
    */
   for (const k of [0, 2, 6, 8]) {
     const r = plan.rooms[k];
-    const lamp = new THREE.PointLight(0x7fe4ff, 5, 22, 2);
-    lamp.position.set(HOLD_ORIGIN_X + r.x, FLOOR_Y + 2.6, HOLD_ORIGIN_Z + r.z);
+    const lamp = new THREE.PointLight(spec.lamp, 5, 22, 2);
+    lamp.position.set(plan.ox + r.x, FLOOR_Y + 2.6, plan.oz + r.z);
     lamp.castShadow = false;
     fixtures.add(lamp);
   }
@@ -716,9 +784,9 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
   let disposed = false;
 
   const spawnPoint = new THREE.Vector3(
-    HOLD_ORIGIN_X + plan.gate.x + 0.5,
+    plan.ox + plan.gate.x + 0.5,
     FLOOR_Y,
-    HOLD_ORIGIN_Z + plan.gate.z + 0.5,
+    plan.oz + plan.gate.z + 0.5,
   );
   /**
    * The hold has nobody living in it, so where a session would begin here is
@@ -730,7 +798,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
   const playerStart = { position: spawnPoint, yaw: 0 };
 
   const buildChunk = (rec: HoldChunk): void => {
-    rec.mesh = buildHoldChunk(rec.cx, rec.cz, plan, stoneMat);
+    rec.mesh = buildHoldChunk(rec.cx, rec.cz, plan, pal, stoneMat);
     scene.add(rec.mesh);
     perf.count("chunks");
   };
@@ -801,6 +869,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     /** Nor moors a boat. */
     portOf: () => null,
     mooringOf: () => null,
+    /** ...nor keeps a way further down. */
+    descents: [],
     shopPositions: [],
     /**
      * Nobody LIVES in the hold, so its registry is permanently empty. That is a
@@ -839,7 +909,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     },
 
     getHeight(x: number, z: number): number {
-      return localHeight(plan, Math.floor(x - HOLD_ORIGIN_X), Math.floor(z - HOLD_ORIGIN_Z));
+      return localHeight(plan, Math.floor(x - plan.ox), Math.floor(z - plan.oz));
     },
     /**
      * Rock is climbable-from, and rock is all there is: the contract's floor
@@ -854,7 +924,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * underground should be.
      */
     climbTopAt(x: number, z: number): number {
-      return localHeight(plan, Math.floor(x - HOLD_ORIGIN_X), Math.floor(z - HOLD_ORIGIN_Z));
+      return localHeight(plan, Math.floor(x - plan.ox), Math.floor(z - plan.oz));
     },
     /** No trees underground. Walls are terrain, and terrain blocks already. */
     trunkSolidTopAt(): number {
@@ -948,8 +1018,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
       if (newFrame) {
         buildBudgetLeft = BUILD_BUDGET_MS;
       }
-      const fcx = Math.floor((focus.x - HOLD_ORIGIN_X) / CHUNK_SIZE);
-      const fcz = Math.floor((focus.z - HOLD_ORIGIN_Z) / CHUNK_SIZE);
+      const fcx = Math.floor((focus.x - plan.ox) / CHUNK_SIZE);
+      const fcz = Math.floor((focus.z - plan.oz) / CHUNK_SIZE);
       if (fcx !== lastCX || fcz !== lastCZ) {
         lastCX = fcx;
         lastCZ = fcz;

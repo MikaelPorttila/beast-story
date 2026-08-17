@@ -46,6 +46,7 @@ export class StubWorld implements World {
   mooringOf(): null {
     return null;
   }
+  readonly descents = [];
   debugColumn(): number {
     return 0;
   }

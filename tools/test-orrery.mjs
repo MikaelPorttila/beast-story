@@ -13,9 +13,12 @@
 //      the lamp lights, a cask leaves the bag and relight-galleries counts;
 //      Tobin refuses to close with a gallery dark and closes once all four
 //      burn: component-lantern, ashgrove-reunited, 140 paid.
-//   3. CINDERHELM: the Cinderguard stands up on Cinderhelm's deck, its death
-//      leaves the record where it fell, and Pell closes it:
-//      knows-the-cities-built-it set, 160 paid.
+//   3. CINDERHELM: the shelf is not the descent (issue #265) — the vent under
+//      it is a zone, its arch rides the deck, and `/zone vent` takes it here
+//      (test-vent drives the crossing itself); the Cinderguard stands up at the
+//      vent's floor, its death leaves the record where it fell, the way back
+//      up lands on the deck, and Pell closes it: knows-the-cities-built-it set,
+//      160 paid. The shelf takes him again with the boss dead (#160).
 //   4. THE ORRERY: reaching the deck marks the arrival, the Choirguard stands
 //      up and falls, Vess closes it — vess-truth, act-3-complete, 250 paid —
 //      and the frame outlives its boss: re-enterable, nothing respawns.
@@ -24,7 +27,8 @@
 import { launchBrowser, newPage, wait } from "./browser.mjs";
 import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
-const URL = `${HOST}/?menu=0&fs=0&vol=0&${NO_WARMUP}`;
+// `debug=1` for the console: `/zone` is how this reaches the vent without a crossing.
+const URL = `${HOST}/?menu=0&fs=0&vol=0&debug=1&${NO_WARMUP}`;
 const Q3 = "quest:sky/lanternfall";
 const Q4 = "quest:sky/cinderhelm";
 const Q5 = "quest:sky/the-orrery";
@@ -148,6 +152,17 @@ async function talkTo(id) {
     }
   }
   return null;
+}
+
+/** One console line, the way test-story-land drives it. */
+async function cmd(line) {
+  await page.keyboard.press("Backquote");
+  await page.waitForSelector(".bs-console-input", { visible: true });
+  await page.type(".bs-console-input", line);
+  await page.keyboard.press("Enter");
+  await wait(300);
+  await page.keyboard.press("Backquote");
+  await wait(150);
 }
 
 /** Poll until `fn` returns something truthy, advancing the sim between reads. */
@@ -318,14 +333,34 @@ await adv(0.3);
   check(!!cinder, "Cinderhelm is not a carrier in this world");
   await tpDeck({ x: cinder.x + 20, y: cinder.y, z: cinder.z });
   s = await facts(Q4, ["descend-the-vent"], []);
-  check(s["descend-the-vent"] >= 1, "standing on Cinderhelm did not mark the descent");
+  check(s["descend-the-vent"] === 0, "standing on Cinderhelm's deck counted as the descent");
+  // The way down is an arch ON the deck, riding it (test-vent walks through it).
+  const arch = (await dbg(() => window.__dbgZone().gates)).find((g) => g.to === "vent");
+  results.arch = arch;
+  check(!!arch && arch.carried === true, "the overworld has no carried gate to the vent");
+  check(
+    !!arch && Math.hypot(arch.x - cinder.x, arch.z - cinder.z) < cinder.r,
+    "the vent's arch does not stand on Cinderhelm",
+  );
+  await cmd("/zone vent");
+  await streamed();
+  await adv(0.3);
+  check((await dbg(() => window.__dbgZone().id)) === "vent", "the console did not reach the vent");
+  s = await facts(Q4, ["descend-the-vent"], []);
+  check(s["descend-the-vent"] >= 1, "arriving in the vent did not mark the descent");
+  const floor = (await dbg(() => window.__dbgQuestSites())).ventFloor;
+  await dbg((p) => window.__dbgTp(p.x, p.z), floor);
+  await streamed();
   const guard = await until(async () => {
     const e = await enemies("cinderguard");
     return e.length > 0 && e[0].targetable ? e[0] : null;
   });
   results.cinderguard = guard;
-  check(!!guard, "the Cinderguard did not stand up on Cinderhelm");
-  check(guard && guard.y > cinder.y - 1, `the Cinderguard is at y=${guard?.y}, under the deck`);
+  check(!!guard, "the Cinderguard did not stand up at the vent's floor");
+  check(
+    !!guard && Math.hypot(guard.x - floor.x, guard.z - floor.z) < 12,
+    "the Cinderguard is not at the floor room",
+  );
   await dbg(() => window.__dbgKillEnemy("cinderguard"));
   await adv(0.5);
   s = await facts(Q4, ["defeat-cinderguard"], []);
@@ -336,11 +371,23 @@ await adv(0.3);
   });
   check(!!record, "the record did not appear where the guardian fell");
   if (record) {
-    await dbg((p) => window.__dbgTp(p.x, p.z, p.y + 0.3), record);
+    await dbg((p) => window.__dbgTp(p.x, p.z), record);
     await adv(1.2);
   }
   s = await facts(Q4, ["recover-the-record"], []);
   check(s["recover-the-record"] >= 1, "picking up the record did not count");
+  // Back up: a door on a deck lands you on the deck, not at the camp.
+  await cmd("/zone overworld");
+  await streamed();
+  await adv(0.5);
+  const up = await isle("cinderhelm");
+  const p0 = await dbg(() => window.__dbgPlayerPos());
+  results.backUp = { zone: await dbg(() => window.__dbgZone().id), y: p0.y, deck: up?.y };
+  check(results.backUp.zone === "overworld", "the console did not bring the hero back up");
+  check(
+    !!up && Math.hypot(p0.x - up.x, p0.z - up.z) < up.r && p0.y > up.y - 1,
+    "the way up did not land on Cinderhelm's deck",
+  );
   const before = await shards();
   const done = await talkTo("sky-gardener");
   const closed = await facts(Q4, [], ["knows-the-cities-built-it"]);
@@ -349,6 +396,13 @@ await adv(0.3);
   check(closed.status === "completed", `Pell's turn-in left Cinderhelm "${closed.status}"`);
   check(closed["knows-the-cities-built-it"] === true, "knows-the-cities-built-it was not set");
   check(paid === 160, `Cinderhelm paid ${paid}, not the promised 160`);
+  // The shelf outlives its boss (#160): enterable, and nothing stands up.
+  await tpDeck({ x: cinder.x + 20, y: cinder.y, z: cinder.z });
+  const again = await isle("cinderhelm");
+  const p1 = await dbg(() => window.__dbgPlayerPos());
+  results.cinderReentry = { onDeck: p1.y > again.y - 1, cinderguards: (await enemies("cinderguard")).length };
+  check(results.cinderReentry.onDeck, "Cinderhelm refused re-entry with the boss dead");
+  check(results.cinderReentry.cinderguards === 0, "a Cinderguard stood up on the shelf with the quest closed");
 }
 
 // ---------- 4. the Orrery ---------------------------------------------------------

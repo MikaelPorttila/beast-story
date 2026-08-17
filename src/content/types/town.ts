@@ -61,6 +61,12 @@ export interface TownData {
    * no cart road — the ferry, and later the water mount, are how it is reached.
    */
   readonly island: boolean;
+  /**
+   * The zone this town's own shaft opens on (issue #265) — a `ZoneDef` id, so a
+   * carried town plans a mouth for it and the zone host stands a gateway there.
+   * Only a CARRIED town may have one: a ground town's way down is a landmark.
+   */
+  readonly descent?: string;
 }
 
 /**
@@ -113,6 +119,9 @@ function parse(body: unknown, ctx: ParseCtx): TownData | null {
     start: opt(b.start, r.at("start"), bool) ?? false,
     carried: opt(b.carried, r.at("carried"), bool) ?? false,
     island: opt(b.island, r.at("island"), bool) ?? false,
+    descent: opt(b.descent, r.at("descent"), (v, c) =>
+      str(v, c, { min: 1, max: 64, what: "a zone id" }),
+    ),
   };
 }
 
@@ -139,6 +148,16 @@ function validate(asset: ContentAsset<TownData>, ctx: ValidateCtx): void {
       message: `"${asset.id}" is an island town and cannot also be ${asset.data.start ? "the start town" : "carried"}`,
       field: "data.island",
       fix: "the player starts on the road network; a carrier sites its own settlement",
+    });
+  }
+
+  if (asset.data.descent !== undefined && !asset.data.carried) {
+    ctx.report({
+      severity: "error",
+      code: "bad-field",
+      message: `"${asset.id}" declares a descent but is not carried`,
+      field: "data.descent",
+      fix: "only a carried town plans a shaft mouth on its deck; a ground zone's way down is a landmark",
     });
   }
 

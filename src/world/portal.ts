@@ -120,6 +120,13 @@ export class Gateway {
     scene.add(this.group);
   }
 
+  /** Stand it somewhere else — an arch on a MOVING deck is re-placed every slice (issue #265). */
+  moveTo(x: number, y: number, z: number, yaw: number): void {
+    this.position.set(x, y, z);
+    this.group.position.set(x, y, z);
+    this.group.rotation.y = yaw;
+  }
+
   /**
    * Breathe. `1 - exp(-lambda*dt)` is the house smoothing rule, but this is a
    * driven oscillation rather than a chase, so it integrates its own phase and

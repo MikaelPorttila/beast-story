@@ -603,8 +603,9 @@ async function consoleClosed(tries = 40) {
       // +2 again: the two Act 3 guardians (issue #263).
       enemy: 10 + WILD_BEASTS.length,
       quest: BOOT_QUESTS,
-      // 2 -> 3: `music:brine`, the Reach's own score, shipped in `story-sea`.
-      music: 3,
+      // 2 -> 3: `music:brine`, the Reach's own score, shipped in `story-sea`;
+      // 3 -> 4: `music:cirrus`, the Shelf's (issue #267).
+      music: 4,
     },
     "assets by type",
   );

@@ -321,6 +321,19 @@ export interface Mooring {
 }
 
 /**
+ * The mouth of a shaft under a carried town (issue #265): where its gateway
+ * stands, in `frame` like a Mooring, and `to` the zone the shaft opens on.
+ */
+export interface Descent {
+  readonly town: string;
+  readonly to: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly frame: LocalFrame;
+}
+
+/**
  * A LAMP a carried town keeps dark until something is carried to it (issue #266).
  * Every coordinate is in `frame`, like a Mooring; `y` is the deck under it.
  */
@@ -591,6 +604,12 @@ export interface World {
    * LOCAL to `frame`, the piece of world the town rides — resolve through it.
    */
   mooringOf(townId: string): Mooring | null;
+  /**
+   * The shafts carried towns keep down into their own rock (issue #265): each is
+   * a gateway on a MOVING deck, and the zone host resolves it through `frame`
+   * every slice. Empty where no town flies or none has a way down.
+   */
+  readonly descents: readonly Descent[];
   /**
    * The lamps a carried town keeps dark for a quest to light, or null where no
    * town flies (issue #266). Sited by the world; which are LIT is the
