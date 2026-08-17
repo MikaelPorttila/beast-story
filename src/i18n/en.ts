@@ -1483,7 +1483,9 @@ export const en = {
   "pause.map": "Map",
   "pause.controls": "Controls",
   "pause.settings": "Settings",
-  "pause.hint": "Arrow keys + E · point and click · hold left stick + A · Esc or B to close",
+  "pause.hint.kbm": "Arrow keys + E · point and click · Esc to close",
+  "pause.hint.gamepad": "Hold the left stick to aim · A to confirm · B to close",
+  "pause.hint.touch": "Tap a sector to choose",
   /**
    * Back to the title screen, not out of the browser. "Exit" alone reads as
    * quitting the application on desktop, and there is nothing to quit to.

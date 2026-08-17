@@ -1382,7 +1382,8 @@ export const sections = [
         await ctx.ev(() => {
           document.querySelector('.bs-pause [data-act="continue"]')?.click();
         });
-        await ctx.frame();
+        // Continue plays the wheel's out transition; wait for it to be GONE.
+        await ctx.waitFn(() => !document.querySelector(".bs-pause"), 3000);
         await closePanel(ctx);
       };
       // The lock is granted (and lost) on REAL browser events, so both are waited
@@ -1487,7 +1488,7 @@ export const sections = [
         await ctx.ev(() => {
           document.querySelector('.bs-pause [data-act="continue"]')?.click();
         });
-        await ctx.frame();
+        await ctx.waitFn(() => !document.querySelector(".bs-pause"), 3000);
         await closePanel(ctx);
       };
 

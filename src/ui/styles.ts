@@ -888,11 +888,15 @@ const CSS = `
   pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   color:#fff;user-select:none;-webkit-user-select:none}
-.bs-pause .bs-scrim{position:absolute;inset:0;background:rgba(4,7,10,.62);opacity:0;
-  transition:opacity .22s ease}
+.bs-pause .bs-scrim{position:absolute;inset:0;opacity:0;
+  /* A vignette rather than a flat shade: the world stays legible at the rim, the wheel sits in a pool of dark. */
+  background:radial-gradient(ellipse 62% 62% at 50% 50%,rgba(6,5,4,.78),rgba(6,5,4,.5) 60%,rgba(6,5,4,.34));
+  backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  transition:opacity .28s ease}
 .bs-pause.open .bs-scrim{opacity:1}
+.bs-pause.closing .bs-scrim{opacity:0;transition:opacity .2s ease-in}
 .bs-pause .pane{position:relative;width:min(420px,90vw);max-height:88vh;overflow-y:auto;
-  padding:22px 20px;border-radius:0;
+  padding:22px 20px;border-radius:14px;
   /* Warm, so the wooden buttons do not sit on the HUD's blue-grey. */
   background:linear-gradient(180deg,#261a0f,#140e08);
   border:1px solid rgba(255,214,140,.22);
@@ -901,41 +905,125 @@ const CSS = `
   transition:opacity .24s ease,transform .28s cubic-bezier(.34,1.45,.64,1);
   scrollbar-width:thin;scrollbar-color:rgba(255,214,140,.3) transparent}
 .bs-pause.open .pane{opacity:1;transform:translateY(0) scale(1)}
+.bs-pause[data-step="settings"] .pane>.bs-opts{animation:bs-pane-in .22s cubic-bezier(.2,.8,.2,1) both}
+@keyframes bs-pane-in{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
+/* The wheel step animates itself (below); the pane is only a box around it. */
 .bs-pause[data-step="wheel"] .pane{width:min(720px,98vw);max-height:96vh;overflow:visible;
-  padding:0;background:none;border:0;box-shadow:none}
-.bs-wheel{position:relative;width:min(88vw,78vh,560px);aspect-ratio:1;margin:auto}
-.bs-wheel::before{content:"";position:absolute;inset:9%;border-radius:50%;
-  background:
-    radial-gradient(circle,transparent 0 25%,rgba(8,16,22,.88) 25.5% 62%,transparent 62.5%),
-    repeating-conic-gradient(from -25.714deg,rgba(255,210,125,.08) 0 50.4deg,
-      rgba(255,221,155,.38) 50.4deg 51.428deg);
-  border:1px solid rgba(255,221,155,.34);box-shadow:0 20px 70px rgba(0,0,0,.55)}
+  padding:0;background:none;border:0;box-shadow:none;opacity:1;transform:none;transition:none}
+.bs-pause.closing{pointer-events:none}
+
+/* ---- the wheel ---------------------------------------------------------- */
+/* Two layers over one geometry (ui/pause.ts): the SVG face draws the ring, the
+   wedges, the rim arc and the hub in a 100-unit box; the buttons sit on the
+   same polar grid, mid-band, and are the focus stops. --k is the sector's rank
+   from the top (both sides fill together) and drives every stagger; --aim is
+   the accumulated rim-arc angle. */
+.bs-wheel{position:relative;width:min(88vw,78vh,560px);aspect-ratio:1;margin:auto;
+  --gold:#ffd98f;--k:0;--aim:0deg;
+  animation:bs-wheel-in .36s cubic-bezier(.2,.9,.25,1) both}
+/* A dark backing disc: it carries the drop shadow (a filter on the whole wheel would rasterise it
+   every frame) and it is what shows through the gaps between wedges, not the world. */
+.bs-wheel::before{content:"";position:absolute;inset:2%;border-radius:50%;
+  background:rgba(8,6,4,.72);box-shadow:0 24px 54px rgba(0,0,0,.62),0 0 0 1px rgba(0,0,0,.35)}
+.bs-pause.closing .bs-wheel{animation:bs-wheel-out .2s cubic-bezier(.5,0,.85,.45) both}
+@keyframes bs-wheel-in{
+  from{opacity:0;transform:scale(.8) rotate(-8deg)}
+  to{opacity:1;transform:none}}
+@keyframes bs-wheel-out{
+  from{opacity:1;transform:none}
+  to{opacity:0;transform:scale(.9) rotate(4deg)}}
+.bs-wheel-face{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.bs-wheel-face .rim{fill:none;stroke:rgba(255,205,120,.34);stroke-width:.45;
+  animation:bs-fade-in .3s ease both .1s}
+@keyframes bs-fade-in{from{opacity:0}to{opacity:1}}
+.bs-wheel-face .wedge{fill:url(#bsWheelDark);stroke:rgba(255,214,140,.14);stroke-width:.3;
+  transform-box:view-box;transform-origin:50px 50px;
+  transition:fill .12s ease,stroke .12s ease,filter .12s ease;
+  animation:bs-wedge-in .42s cubic-bezier(.3,1.35,.5,1) both;
+  animation-delay:calc(40ms + var(--k) * 26ms)}
+@keyframes bs-wedge-in{from{opacity:0;transform:scale(.6) rotate(-6deg)}to{opacity:1;transform:none}}
+.bs-wheel-face .wedge.selected{fill:url(#bsWheelLit);stroke:#ffe9b8;stroke-width:.5;
+  filter:drop-shadow(0 0 3px rgba(255,190,90,.75))}
+/* Continue's press: the lit wedge blooms as the wheel goes. */
+.bs-pause.closing .wedge.confirmed{animation:bs-wedge-confirm .24s ease-out both}
+@keyframes bs-wedge-confirm{
+  from{fill:#fff6dc;transform:scale(1.02);filter:drop-shadow(0 0 8px rgba(255,220,140,1))}
+  to{fill:url(#bsWheelLit);transform:scale(1.08);filter:drop-shadow(0 0 3px rgba(255,190,90,.75))}}
+/* The arc's wrapper arrives with the rim, so it never floats over an empty face. */
+.bs-wheel-face .aimwrap{animation:bs-fade-in .25s ease both .22s}
+/* Slides to the aimed sector on the shortest arc; hidden when nothing is aimed. */
+.bs-wheel-face .aim{fill:none;stroke:#ffe6a8;stroke-width:1.5;stroke-linecap:round;
+  opacity:0;transform-box:view-box;transform-origin:50px 50px;transform:rotate(var(--aim));
+  transition:transform .2s cubic-bezier(.3,1.25,.45,1),opacity .14s ease;
+  filter:drop-shadow(0 0 2px rgba(255,204,110,.9))}
+.bs-wheel.aimed .bs-wheel-face .aim{opacity:1}
+.bs-wheel-face .hub{fill:url(#bsWheelHub);stroke:rgba(255,221,155,.42);stroke-width:.4;
+  transform-box:view-box;transform-origin:50px 50px;
+  animation:bs-hub-in .4s cubic-bezier(.2,1.3,.3,1) both .04s}
+.bs-wheel-face .hubring{fill:none;stroke:rgba(255,221,155,.16);stroke-width:.3;
+  stroke-dasharray:.6 1.9;transform-box:view-box;transform-origin:50px 50px;
+  animation:bs-hub-in .4s cubic-bezier(.2,1.3,.3,1) both .04s,bs-hub-turn 60s linear infinite}
+@keyframes bs-hub-in{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
+@keyframes bs-hub-turn{to{transform:rotate(360deg)}}
 .bs-wheel-sectors{position:absolute;inset:0}
 .bs-wheel-sector{position:absolute;z-index:2;transform:translate(-50%,-50%);
-  width:clamp(108px,18vmin,138px);min-height:clamp(64px,10vmin,78px);padding:9px 8px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
-  border:1px solid rgba(255,221,155,.3);border-radius:18px;background:rgba(24,18,12,.92);
-  box-shadow:0 8px 24px rgba(0,0,0,.42),inset 0 1px rgba(255,236,194,.1);
-  color:#f8e8c7;font:700 max(16px,1.7vmin)/1.05 inherit;cursor:pointer;
-  transition:transform .12s ease,background .12s ease,border-color .12s ease,box-shadow .12s ease}
-.bs-wheel-sector .ic{width:clamp(25px,4vmin,34px);height:clamp(25px,4vmin,34px);display:grid;place-items:center}
-.bs-wheel-sector svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;
-  stroke-linecap:round;stroke-linejoin:round}
-.bs-wheel-sector.selected,.bs-wheel-sector:focus-visible{outline:none;transform:translate(-50%,-50%) scale(1.09);
-  color:#fff4d4;background:linear-gradient(180deg,#775025,#3d2815);border-color:#ffd98f;
-  box-shadow:0 0 0 3px rgba(255,207,120,.22),0 12px 34px rgba(0,0,0,.55)}
-.bs-wheel-hint{margin:4px auto 0;max-width:680px;text-align:center;color:#eadabc;
-  font:600 max(16px,1.8vmin)/1.35 inherit;text-shadow:0 2px 8px #000}
+  width:clamp(84px,17vmin,120px);padding:2px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  border:0;background:none;color:#f1e2c2;cursor:pointer;
+  /* Longhands: a CSS-wide keyword inside the font shorthand voids the whole declaration. */
+  font:inherit;font-weight:700;font-size:max(16px,1.7vmin);line-height:1.1;text-align:center;text-wrap:balance;
+  text-shadow:0 1px 3px rgba(0,0,0,.8);
+  animation:bs-sector-in .4s cubic-bezier(.3,1.35,.5,1) both;
+  animation-delay:calc(90ms + var(--k) * 26ms)}
+@keyframes bs-sector-in{from{opacity:0;transform:translate(-50%,-50%) scale(.6)}to{opacity:1;transform:translate(-50%,-50%)}}
+.bs-wheel-sector .ic{width:clamp(30px,6vmin,46px);height:clamp(30px,6vmin,46px);display:grid;place-items:center;
+  transition:transform .22s cubic-bezier(.3,1.6,.5,1),filter .18s ease}
+.bs-wheel-sector svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;overflow:visible}
+.bs-wheel-sector svg .f{fill:currentColor;fill-opacity:.28;stroke:none}
+/* The open book is optically the widest glyph on the 24-grid; taken down to weight. */
+.bs-wheel-sector[data-id="journal"] svg{transform:scale(.9)}
+.bs-wheel-sector .lb{transition:color .18s ease,letter-spacing .18s ease}
+.bs-wheel-sector:focus-visible{outline:none}
+.bs-wheel-sector:active .ic{transform:scale(1.04)}
+/* Dark on the lit gold face, as the title's primary button is; the icon lifts and its fill goes solid. */
+.bs-wheel-sector.selected{color:#3a2703;text-shadow:0 1px 0 rgba(255,240,200,.5)}
+.bs-wheel-sector.selected .ic{transform:scale(1.18) translateY(-1px);
+  filter:drop-shadow(0 2px 2px rgba(120,70,0,.35))}
+.bs-wheel-sector.selected svg .f{fill-opacity:.55}
+.bs-wheel-sector.selected .lb{letter-spacing:.02em}
+/* The hub names what is aimed; rebuilt on each change so the fade replays. Idle, it carries the menu's own name, dimmed. */
+.bs-wheel-hub{position:absolute;inset:0;display:grid;place-items:center;text-align:center;
+  pointer-events:none;animation:bs-fade-in .3s ease both .14s}
+.bs-wheel-hub .name{grid-area:1/1;max-width:30%;color:var(--gold);font-weight:800;font-size:max(16px,1.9vmin);line-height:1.15;
+  letter-spacing:.06em;text-transform:uppercase;text-shadow:0 0 14px rgba(255,204,110,.45),0 2px 4px #000;
+  animation:bs-hubname-in .16s cubic-bezier(.2,.9,.3,1) both}
+.bs-wheel-hub .name.idle{color:rgba(255,217,143,.68);font-weight:700;text-shadow:0 2px 4px #000}
+/* Sequenced, not overlapped: the old name is gone before the new one lands, and they move apart. */
+.bs-wheel-hub .name.out{animation:bs-hubname-out .09s ease-in both}
+.bs-wheel-hub .name.out~.name{animation-delay:.07s}
+@keyframes bs-hubname-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@keyframes bs-hubname-out{from{opacity:1}to{opacity:0;transform:translateY(-5px)}}
+.bs-wheel-hint{margin:6px auto 0;max-width:680px;text-align:center;color:#eadabc;
+  font-weight:600;font-size:max(16px,1.7vmin);line-height:1.35;text-shadow:0 2px 8px #000;
+  animation:bs-hint-in .5s ease both .35s}
+.bs-pause.closing .bs-wheel-hint{animation:none;opacity:0;transition:opacity .16s ease}
+@keyframes bs-hint-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 /* Greyed as a whole row, so it does not read as three broken buttons. */
 .bs-opts .row.lang.off{opacity:.45}
 @media (max-width:560px),(max-height:520px){
-  .bs-wheel{width:min(92vw,72vh,460px)}
-  .bs-wheel-sector{width:104px;min-height:62px;padding:7px 5px;border-radius:15px}
-  .bs-wheel-sector .ic{width:25px;height:25px}
-  .bs-wheel-hint{max-width:92vw}
+  .bs-wheel{width:min(92vw,80vh,460px)}
+  .bs-wheel-sector{width:84px;gap:2px;font-size:16px;font-weight:600;line-height:1.05}
+  .bs-wheel-sector .ic{width:24px;height:24px}
+  .bs-wheel-hub .name{font-size:16px;letter-spacing:.02em}
+  .bs-wheel-hint{margin-top:2px;max-width:92vw}
 }
 @media (prefers-reduced-motion:reduce){
-  .bs-pause .bs-scrim,.bs-pause .pane,.bs-wheel-sector{transition:none}
+  .bs-pause .bs-scrim,.bs-pause .pane,.bs-wheel-sector,.bs-wheel-sector .ic,.bs-wheel-face .aim,
+  .bs-wheel-face .wedge{transition:none}
+  .bs-wheel,.bs-wheel-face .rim,.bs-wheel-face .aimwrap,.bs-wheel-face .wedge,.bs-wheel-face .hub,
+  .bs-wheel-face .hubring,.bs-wheel-sector,.bs-wheel-hub,.bs-wheel-hub .name,.bs-wheel-hint,
+  .bs-pause[data-step="settings"] .pane>.bs-opts{animation:none}
 }
 
 /* ---- start menu ---------------------------------------------------------- */

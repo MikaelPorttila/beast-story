@@ -288,11 +288,11 @@ export const sections = [
             "inventory",
             "journal",
             "map",
-            "controls",
-            "settings",
             "exit",
+            "settings",
+            "controls",
           ]),
-        "the wheel exposes every panel and action, in data order",
+        "the wheel exposes every panel and action, in data order (Exit opposite Continue)",
       );
       ctx.check(m.focusOnOpen === "continue", "something is focused on open, for a pad");
       ctx.check(
@@ -678,6 +678,130 @@ export const sections = [
   },
 
   // -------------------------------------------------------------------------
+  // THE WHEEL MOVES: it animates in, its rim arc slides to the aimed sector the
+  // SHORT way round, the hub names what is aimed, and closing plays out before
+  // the element goes — without swallowing a menu key pressed during the fade.
+  //
+  // REALTIME where it reads an animation, unavoidably: CSS animations run on
+  // the browser's clock, which `__dbgAdvance` cannot age. Every wait is bounded
+  // and settles on state. Reduced motion is FORCED OFF for the section and put
+  // back after, because the host OS may have it on (this machine does), and a
+  // wheel that respects that setting would otherwise pass here by never moving.
+  // -------------------------------------------------------------------------
+  {
+    id: "wheelMotion",
+    run: async (ctx) => {
+      const { page } = ctx;
+      const w = {};
+      ctx.res.wheelMotion = w;
+      const reduced = await ctx.ev(() => matchMedia("(prefers-reduced-motion: reduce)").matches);
+      await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "no-preference" }]);
+      try {
+        await page.keyboard.press("F10");
+        await ctx.waitFn(() => !!document.querySelector(".bs-wheel"), 5000);
+        // The FIRST presented frame: mid-entrance, not already settled.
+        w.entrance = await ctx.ev(() => {
+          const s = getComputedStyle(document.querySelector(".bs-wheel"));
+          return { opacity: +s.opacity, transform: s.transform };
+        });
+        // Settled: opaque and within a hair of identity (a filled animation reports a matrix, not none).
+        await ctx.waitFn(() => {
+          const s = getComputedStyle(document.querySelector(".bs-wheel"));
+          const m = s.transform.match(/matrix\(([^)]+)\)/);
+          const [a, b] = m ? m[1].split(",").map(Number) : [1, 0];
+          return +s.opacity === 1 && Math.abs(a - 1) < 0.002 && Math.abs(b) < 0.002;
+        }, 3000);
+
+        // Aim by pointer: Continue (0°), Journal (+102.9°), then Controls — which
+        // is 154° back, not 206° on. `--aim` accumulates, so the arc never spins.
+        const c = await ctx.ev(() => {
+          const r = document.querySelector(".bs-wheel").getBoundingClientRect();
+          return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width };
+        });
+        const aimAt = async (idx) => {
+          const a = ((idx * 360) / 7 - 90) * (Math.PI / 180);
+          await page.mouse.move(c.x + Math.cos(a) * c.w * 0.34, c.y + Math.sin(a) * c.w * 0.34);
+          await ctx.frame();
+          return ctx.ev(() => ({
+            aim: parseFloat(document.querySelector(".bs-wheel").style.getPropertyValue("--aim")),
+            hub: document.querySelector(".bs-wheel-hub .name:not(.out)")?.textContent ?? null,
+            lit: document.querySelector(".wedge.selected")?.getAttribute("data-wedge") ?? null,
+          }));
+        };
+        w.aimContinue = await aimAt(0);
+        w.aimJournal = await aimAt(2);
+        w.aimControls = await aimAt(6);
+        await page.mouse.move(c.x, c.y);
+        await ctx.frame();
+        w.hubIdle = await ctx.ev(() => ({
+          hub: document.querySelector(".bs-wheel-hub .name:not(.out)")?.textContent ?? null,
+          aimed: document.querySelector(".bs-wheel").classList.contains("aimed"),
+        }));
+
+        // Close: the element stays for the fade, is inert, and then goes.
+        await page.keyboard.press("F10");
+        await ctx.adv(0.05);
+        w.closing = await ctx.ev(() => {
+          const el = document.querySelector(".bs-pause");
+          return el
+            ? { classed: el.classList.contains("closing"), events: getComputedStyle(el).pointerEvents }
+            : null;
+        });
+        w.gone = await ctx
+          .waitFn(() => !document.querySelector(".bs-pause"), 2000)
+          .then(() => true)
+          .catch(() => false);
+
+        // A menu key DURING the fade reopens: the fade is not a modal.
+        await page.keyboard.press("F10");
+        await ctx.adv(0.05);
+        await page.keyboard.press("F10");
+        await ctx.adv(0.05);
+        await page.keyboard.press("F10");
+        await ctx.adv(0.05);
+        w.reopenedDuringFade = await ctx.ev(() => {
+          const el = document.querySelector(".bs-pause");
+          return !!el && !el.classList.contains("closing");
+        });
+        await page.keyboard.press("F10");
+        await ctx.adv(0.05);
+        await ctx.waitFn(() => !document.querySelector(".bs-pause"), 3000);
+      } finally {
+        await page.emulateMediaFeatures([
+          { name: "prefers-reduced-motion", value: reduced ? "reduce" : "no-preference" },
+        ]);
+      }
+
+      ctx.check(
+        w.entrance.opacity < 1 || w.entrance.transform !== "none",
+        `the wheel was already settled on its first frame (${JSON.stringify(w.entrance)})`,
+      );
+      ctx.check(
+        w.aimContinue.aim === 0 && w.aimContinue.lit === "0",
+        `aiming Continue: ${JSON.stringify(w.aimContinue)}`,
+      );
+      ctx.check(
+        Math.abs(w.aimJournal.aim - 102.857) < 0.01 && w.aimJournal.hub === "Journal",
+        `aiming Journal: ${JSON.stringify(w.aimJournal)}`,
+      );
+      ctx.check(
+        Math.abs(w.aimControls.aim + 51.429) < 0.01 && w.aimControls.hub === "Controls",
+        `the rim arc took the long way to Controls: ${JSON.stringify(w.aimControls)}`,
+      );
+      ctx.check(
+        w.hubIdle.hub === "Action wheel" && w.hubIdle.aimed === false,
+        `the hub does not fall back to the menu's name at rest: ${JSON.stringify(w.hubIdle)}`,
+      );
+      ctx.check(
+        w.closing?.classed === true && w.closing?.events === "none",
+        `closing: ${JSON.stringify(w.closing)} — the fade must be present and inert`,
+      );
+      ctx.check(w.gone, "the wheel never left after its fade");
+      ctx.check(w.reopenedDuringFade, "F10 during the close fade was swallowed");
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // Arm 1b: A POINTER THE BROWSER TOOK IS A POINTER, NOT A MENU
   //
   // REALTIME, unavoidably: Chrome's ~1.25 s refusal window after a lock is
@@ -1010,12 +1134,17 @@ export const sections = [
         await advance(page, 0.4);
         g.openAfterRelease = await has(page, ".bs-pause");
 
-        // And again: the same press has to close it, once.
+        // And again: the same press has to close it, once. The wheel plays its
+        // out transition (`.closing`, ui/pause.ts) before the element goes, so
+        // "closed" is waited on rather than read off the next frame.
         await setPadButton(page, PAD_BUTTON.START, true);
         await advance(page, 0.9);
         await setPadButton(page, PAD_BUTTON.START, false);
         await advance(page, 0.4);
-        g.closedBySecondPress = !(await has(page, ".bs-pause"));
+        g.closedBySecondPress = await page
+          .waitForFunction(() => !document.querySelector(".bs-pause"), { timeout: 2000 })
+          .then(() => true)
+          .catch(() => false);
 
         // Third press reopens — proving the edge history survived a modal round trip
         // rather than the menu simply having got stuck shut.
@@ -1181,9 +1310,10 @@ export const sections = [
         await setPadButton(page, PAD_BUTTON.START, false);
         await advance(page, 0.2);
         await page.waitForSelector(".bs-pause", { timeout: 5000 });
+        // Exit is the sector OPPOSITE Continue: down and a little left.
         await page.evaluate(() => {
-          window.__fakePad.axes[0] = -0.8;
-          window.__fakePad.axes[1] = -0.6;
+          window.__fakePad.axes[0] = -0.45;
+          window.__fakePad.axes[1] = 0.85;
         });
         await page.waitForFunction(
           () =>
