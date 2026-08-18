@@ -465,6 +465,8 @@ export interface NpcField {
   escorting(id: string): boolean;
   /** End every escort and return everyone to his ORIGINAL placement. Session teardown — see `exitToTitle`. */
   cancelEscorts(): void;
+  /** Re-derive who stands here from content as it is NOW — a package that arrived, a `present` that changed. */
+  reconcile(): void;
 }
 
 /** How a body moves: a walker SHOVES what it passes through, a flyer BLOWS from above. */

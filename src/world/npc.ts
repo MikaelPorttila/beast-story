@@ -64,7 +64,7 @@ import {
   SKY_PILOT_BODY,
 } from "./npc-villagers";
 import { content, defineFactory, NPC_BODY_KIND, type NpcData, type NpcTalkLine } from "../content";
-import type { ContentText } from "../content/types";
+import type { Condition, ContentText } from "../content/types";
 import { displayKey, reportContentIssue } from "../core/content-bridge";
 
 // ---------------------------------------------------------------------------
@@ -220,6 +220,10 @@ interface Character {
    * in a settlement that HAS a focus.
    */
   acrossFocus: boolean;
+  /** Rings around the town's focus rather than its centre; see `NpcData.atFocus`. */
+  atFocus: boolean;
+  /** Whether he is here at all right now; see `NpcData.present`. */
+  present: Condition | undefined;
   body: NpcBody;
   /**
    * What he might say, IN ORDER, first match wins. THE QUEST SEAM, and it is
@@ -230,6 +234,9 @@ interface Character {
    */
   talk: readonly NpcTalkLine[];
 }
+
+/** Assets already reported as unbuildable, so a re-read does not report them again. */
+const refused = new Set<string>();
 
 /**
  * The roster, resolved from content.
@@ -246,6 +253,11 @@ function readCharacters(): readonly Character[] {
     const { data } = asset;
     const body = content.factory<NpcBody>(NPC_BODY_KIND, data.body);
     if (!body) {
+      // Once per asset: `reconcile` re-reads on every state change.
+      if (refused.has(asset.id)) {
+        continue;
+      }
+      refused.add(asset.id);
       reportContentIssue({
         severity: "error",
         code: "unknown-factory",
@@ -273,6 +285,8 @@ function readCharacters(): readonly Character[] {
       townId: data.town.slice(data.town.indexOf(":") + 1),
       homeOffset: data.homeOffset,
       acrossFocus: data.acrossFocus,
+      atFocus: data.atFocus,
+      present: data.present,
       body,
       talk: data.talk,
     });
@@ -482,7 +496,8 @@ export class Npcs implements NpcField {
   readonly group = new THREE.Group();
   /** His footprint, in the same primitive the settlement uses. */
   readonly solids = new StructureField();
-  readonly all: readonly NpcInfo[];
+  /** Live: `reconcile` adds and removes in place, so a holder of the array sees the roster as it is. */
+  readonly all: NpcInfo[] = [];
 
   private readonly placed: Placed[] = [];
   private talkState: NpcTalk | null = null;
@@ -498,81 +513,131 @@ export class Npcs implements NpcField {
     private readonly site: NpcSite,
     private readonly frame: NpcFrame | null = null,
   ) {
-    const infos: NpcInfo[] = [];
-    /** Everyone already standing, so the next one is not placed on top of them. */
-    const placed: Array<{ x: number; z: number; r: number }> = [];
     for (const char of readCharacters()) {
-      const town = site.towns.get(char.townId);
-      if (!town) {
-        continue;
-      } // a zone without his town simply has no him
-      const rig = char.body.build();
-      let spot = findSpot(site, town.x, town.z, char.homeOffset, rig.radius, null, placed);
-      // ACROSS THE FIRE from wherever the plain search put him.
-      //
-      // Two passes and not one, because the mirror is defined against the spot
-      // the first pass chose: reflect it through the fire, take the bearing of
-      // that reflection from the middle of town, and search again preferring
-      // it. The second pass runs the same rings and the same `free` tests, so
-      // he cannot end up somewhere the first pass would have refused — if the
-      // far side is full, the preference simply loses to crowding and he stays
-      // where he was.
-      const focus = char.acrossFocus ? (site.focusOf?.(char.townId) ?? null) : null;
-      if (focus) {
-        const mx = 2 * focus.x - spot.x;
-        const mz = 2 * focus.z - spot.z;
-        spot = findSpot(
-          site,
-          town.x,
-          town.z,
-          char.homeOffset,
-          rig.radius,
-          Math.atan2(mx - town.x, mz - town.z),
-          placed,
-        );
+      if (content.evaluate(char.present)) {
+        this.place(char);
       }
-      placed.push({ x: spot.x, z: spot.z, r: rig.radius });
-      const y = site.getHeight(spot.x, spot.z);
-      // Facing the GATE, so the first thing a visitor walking in off the road
-      // sees is his face rather than the back of his mantle.
-      const restYaw = Math.atan2(town.gateX - spot.x, town.gateZ - spot.z);
-      rig.root.position.set(spot.x, y, spot.z);
-      rig.root.rotation.y = restYaw;
-      this.group.add(rig.root);
-      // The record starts out holding the SITE's coordinates, which off a frame
-      // is already the world's. On a frame the first `update` overwrites it —
-      // and nothing reads it in between, because the field is not on the World
-      // contract until the world that owns it has been returned.
-      const info: LiveNpcInfo = {
-        id: char.id,
-        nameKey: char.nameKey,
-        x: spot.x,
-        y,
-        z: spot.z,
-        restYaw,
-      };
-      infos.push(info);
-      this.placed.push({
-        char,
-        rig,
-        info,
-        restYaw,
-        yaw: restYaw,
-        localX: spot.x,
-        localY: y,
-        localZ: spot.z,
-        homeX: spot.x,
-        homeY: y,
-        homeZ: spot.z,
-        homeYaw: restYaw,
-        escort: null,
-        walkSpeed: 0,
-      });
     }
     // The same call shape `SolidStamp.add` uses, and the same field type — his
     // box is stamped at the pose he stands in, and re-stamped when that changes.
     this.restamp();
-    this.all = infos;
+  }
+
+  /**
+   * Stand one character in his town. Silently nothing for a town this zone
+   * does not have — a zone without his town simply has no him.
+   */
+  private place(char: Character): void {
+    const town = this.site.towns.get(char.townId);
+    if (!town) {
+      return;
+    }
+    const site = this.site;
+    /** Everyone already standing, so he is not placed on top of them. */
+    const placed = this.placed.map((p) => ({ x: p.homeX, z: p.homeZ, r: p.rig.radius }));
+    const rig = char.body.build();
+    // AROUND THE FIRE: the rings walk out from the focus, so `homeOffset` is a
+    // distance from it — the homecoming (issue #162) stands where the warmth is.
+    const focus = site.focusOf?.(char.townId) ?? null;
+    const at = char.atFocus && focus ? focus : town;
+    let spot = findSpot(site, at.x, at.z, char.homeOffset, rig.radius, null, placed);
+    // ACROSS THE FIRE from wherever the plain search put him.
+    //
+    // Two passes and not one, because the mirror is defined against the spot
+    // the first pass chose: reflect it through the fire, take the bearing of
+    // that reflection from the middle of town, and search again preferring
+    // it. The second pass runs the same rings and the same `free` tests, so
+    // he cannot end up somewhere the first pass would have refused — if the
+    // far side is full, the preference simply loses to crowding and he stays
+    // where he was.
+    if (char.acrossFocus && focus) {
+      const mx = 2 * focus.x - spot.x;
+      const mz = 2 * focus.z - spot.z;
+      spot = findSpot(
+        site,
+        town.x,
+        town.z,
+        char.homeOffset,
+        rig.radius,
+        Math.atan2(mx - town.x, mz - town.z),
+        placed,
+      );
+    }
+    const y = site.getHeight(spot.x, spot.z);
+    // Facing the GATE, so the first thing a visitor walking in off the road
+    // sees is his face rather than the back of his mantle.
+    const restYaw = Math.atan2(town.gateX - spot.x, town.gateZ - spot.z);
+    rig.root.position.set(spot.x, y, spot.z);
+    rig.root.rotation.y = restYaw;
+    this.group.add(rig.root);
+    // The record starts out holding the SITE's coordinates, which off a frame
+    // is already the world's. On a frame the first `update` overwrites it —
+    // and nothing reads it in between, because the field is not on the World
+    // contract until the world that owns it has been returned.
+    const info: LiveNpcInfo = {
+      id: char.id,
+      nameKey: char.nameKey,
+      x: spot.x,
+      y,
+      z: spot.z,
+      restYaw,
+    };
+    this.all.push(info);
+    this.placed.push({
+      char,
+      rig,
+      info,
+      restYaw,
+      yaw: restYaw,
+      localX: spot.x,
+      localY: y,
+      localZ: spot.z,
+      homeX: spot.x,
+      homeY: y,
+      homeZ: spot.z,
+      homeYaw: restYaw,
+      escort: null,
+      walkSpeed: 0,
+    });
+  }
+
+  /**
+   * Re-derive WHO STANDS HERE from content as it is now: a character whose
+   * definition arrived with a package loaded mid-session, or whose `present`
+   * just came true, is placed; one whose `present` went false, or whose asset
+   * is gone, is taken down. A follower mid-escort is left alone. Called on
+   * every content change (main.ts); a no-op when nothing moved.
+   */
+  reconcile(): void {
+    const wanted = readCharacters().filter((c) => content.evaluate(c.present));
+    let changed = false;
+    for (let i = this.placed.length - 1; i >= 0; i--) {
+      const p = this.placed[i];
+      if (p.escort !== null || wanted.some((c) => c.id === p.char.id)) {
+        continue;
+      }
+      for (const d of p.rig.disposables) {
+        d.dispose();
+      }
+      this.group.remove(p.rig.root);
+      this.placed.splice(i, 1);
+      this.all.splice(this.all.indexOf(p.info), 1);
+      if (this.talkState?.id === p.char.id) {
+        this.talkState = null;
+      }
+      changed = true;
+    }
+    for (const char of wanted) {
+      if (this.placed.some((p) => p.char.id === char.id)) {
+        continue;
+      }
+      const before = this.placed.length;
+      this.place(char);
+      changed ||= this.placed.length !== before;
+    }
+    if (changed) {
+      this.restamp();
+    }
   }
 
   // -- NpcField -------------------------------------------------------------

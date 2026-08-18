@@ -558,6 +558,12 @@ class NpcFields implements NpcField {
     return this.parts.some((p) => p.escorting(id));
   }
 
+  reconcile(): void {
+    for (const p of this.parts) {
+      p.reconcile();
+    }
+  }
+
   cancelEscorts(): void {
     for (const p of this.parts) {
       p.cancelEscorts();

@@ -1,14 +1,16 @@
 {
   "id": "story-seam",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "requires": [
     "story"
   ],
   "meta": {
     "title": "Act 4 — The Seam",
-    "note": "The finale of Bonds of Red (game-story.md §4, issue #146). Only the ENTRY ships today — the receiving half of the Act 3 -> Act 4 seam (issue #162) — with its ordering final and its cast reassembly, its guardian quests and the `seam` zone left to their own issues.",
-    "loading": "On `act-3-complete`, through ACT_PACKAGES in main.ts (issue #209): NOT at boot, because unlike the sea and the sky nothing of this act is part of the open world's geography — the act stages out of the Encampment, and its one new place is a zone entered in quest 5. Once loaded it stays for the session.",
-    "the-seam": "Given AND closed by npc:gain at the Encampment (core.json — an id is global and core may not depend on a package that arrives later, so his rows sit beside him). The prerequisite is the door for THIS quest; everything else in the act tests seam-known."
+    "note": "The finale of Bonds of Red (game-story.md §4, issue #146). Quest 1 ships (issue #162): the homecoming — the cast at the Encampment fire and the fork they send you down. The guardian quests (#163–#165) and the `seam` zone (#166) follow, one issue each.",
+    "loading": "On `act-3-complete`, through ACT_PACKAGES in main.ts (issue #209): NOT at boot, because unlike the sea and the sky nothing of this act is part of the open world's geography — the act stages out of the Encampment, and its one new place is a zone entered in quest 5. Once loaded it stays for the session. The people it brings are placed by `Npcs.reconcile` the moment the definitions land.",
+    "the-seam": "Given AND closed by npc:gain at the Encampment (core.json — an id is global and core may not depend on a package that arrives later, so his rows sit beside him). The prerequisite is the door for THIS quest; everything else in the act tests seam-known.",
+    "choose-a-road": "DROPPED (issue #146 comment, option a). The spec's `choose-a-road` was to be satisfied by STARTING a guardian quest, but 2–4 name this quest as a prerequisite and a prerequisite means COMPLETED — the objective could never tick. The fork itself is the choice: Three Roads closes on hearing the four out, and the order of 2–4 is the player's.",
+    "the-fire": "Four placements, one per recurring character (game-story.md §2 — one body, one name key, a talk list gated on flags), `present` on act-3-complete. They STAY for the act: Coil is at Kelphold and Pell in the Orrery at the same time, the way Gain is at three fires, and their lines after seam-known say which road each of them is waiting on."
   },
   "assets": [
     {
@@ -35,18 +37,44 @@
         "_seam": "THE ACT 3 -> ACT 4 SEAM, receiving half — the campaign's only homecoming: the balloon comes back down and the whole cast is at the Encampment fire.",
         "objectives": [
           {
-            "key": "hear-them-out",
+            "key": "hear-coil",
             "text": {
-              "key": "quest.seam.threeRoads.obj.hearThemOut"
+              "key": "quest.seam.threeRoads.obj.hearCoil"
             },
-            "_hear": "Gain's offer row marks it, as first-light's talk-to-gain: the fire is his."
+            "trigger": {
+              "kind": "npc-talk",
+              "npc": "npc:coil/encampment"
+            }
           },
           {
-            "key": "choose-a-road",
+            "key": "hear-vane",
             "text": {
-              "key": "quest.seam.threeRoads.obj.chooseARoad"
+              "key": "quest.seam.threeRoads.obj.hearVane"
             },
-            "_stub": "Meant to be satisfied by STARTING any of the three guardian quests (issue #162), which do not exist yet and want a quest-start trigger kind. Until then Gain's turn-in row marks it in the same breath it closes — the way Vane's offer marked the boarding before the balloon flew (issue #261)."
+            "trigger": {
+              "kind": "npc-talk",
+              "npc": "npc:sky-pilot/encampment"
+            }
+          },
+          {
+            "key": "hear-pell",
+            "text": {
+              "key": "quest.seam.threeRoads.obj.hearPell"
+            },
+            "trigger": {
+              "kind": "npc-talk",
+              "npc": "npc:sky-gardener/encampment"
+            }
+          },
+          {
+            "key": "hear-tobin",
+            "text": {
+              "key": "quest.seam.threeRoads.obj.hearTobin"
+            },
+            "trigger": {
+              "kind": "npc-talk",
+              "npc": "npc:sky-lamplighter/encampment"
+            }
           }
         ],
         "onComplete": [
@@ -59,6 +87,235 @@
           "xp": 500,
           "shard": 150
         }
+      }
+    },
+
+    {
+      "id": "npc:coil/encampment",
+      "schema": 1,
+      "name": {
+        "key": "npc.coil.name"
+      },
+      "tags": [
+        "resident",
+        "quest-giver",
+        "act4"
+      ],
+      "data": {
+        "town": "town:encampment",
+        "body": "coil",
+        "homeOffset": 3,
+        "acrossFocus": false,
+        "atFocus": true,
+        "present": {
+          "test": "flag",
+          "flag": "act-3-complete"
+        },
+        "_role": "The Warden's fourth placement — home, at the fire she once watched from a tower. One of the three voices in the Act 4 choice: hers is HOLD.",
+        "talk": [
+          {
+            "when": {
+              "test": "flag",
+              "flag": "guardian-sea-freed"
+            },
+            "line": {
+              "key": "npc.coil.seam1.freed"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "seam-known"
+            },
+            "line": {
+              "key": "npc.coil.seam1.after"
+            }
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:seam/three-roads",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.coil.seam1.hear"
+            }
+          },
+          {
+            "line": {
+              "key": "npc.coil.seam1.greeting"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "npc:sky-pilot/encampment",
+      "schema": 1,
+      "name": {
+        "key": "npc.skyPilot.name"
+      },
+      "tags": [
+        "resident",
+        "act4"
+      ],
+      "data": {
+        "town": "town:encampment",
+        "body": "sky-pilot",
+        "homeOffset": 3,
+        "acrossFocus": false,
+        "atFocus": true,
+        "present": {
+          "test": "flag",
+          "flag": "act-3-complete"
+        },
+        "_role": "The balloonist's third placement. He flew everyone down; his piece is that the three regions are one country seen from above.",
+        "talk": [
+          {
+            "when": {
+              "test": "flag",
+              "flag": "seam-known"
+            },
+            "line": {
+              "key": "npc.skyPilot.seam1.after"
+            }
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:seam/three-roads",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.skyPilot.seam1.hear"
+            }
+          },
+          {
+            "line": {
+              "key": "npc.skyPilot.seam1.greeting"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "npc:sky-gardener/encampment",
+      "schema": 1,
+      "name": {
+        "key": "npc.skyGardener.name"
+      },
+      "tags": [
+        "resident",
+        "quest-giver",
+        "act4"
+      ],
+      "data": {
+        "town": "town:encampment",
+        "body": "sky-gardener",
+        "homeOffset": 3,
+        "acrossFocus": false,
+        "atFocus": true,
+        "present": {
+          "test": "flag",
+          "flag": "act-3-complete"
+        },
+        "_role": "Mother Pell's second placement. The only one who can name the First Bond; at the fire she says what the guardians ARE and where each stands.",
+        "talk": [
+          {
+            "when": {
+              "test": "flag",
+              "flag": "guardian-sky-freed"
+            },
+            "line": {
+              "key": "npc.skyGardener.seam1.freed"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "seam-known"
+            },
+            "line": {
+              "key": "npc.skyGardener.seam1.after"
+            }
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:seam/three-roads",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.skyGardener.seam1.hear"
+            }
+          },
+          {
+            "line": {
+              "key": "npc.skyGardener.seam1.greeting"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "npc:sky-lamplighter/encampment",
+      "schema": 1,
+      "name": {
+        "key": "npc.skyLamplighter.name"
+      },
+      "tags": [
+        "resident",
+        "act4"
+      ],
+      "data": {
+        "town": "town:encampment",
+        "body": "sky-lamplighter",
+        "homeOffset": 3,
+        "acrossFocus": false,
+        "atFocus": true,
+        "present": {
+          "test": "flag",
+          "flag": "act-3-complete"
+        },
+        "_role": "Tobin's third placement — down to see his sister, stopped at the fire. No argument, only the lamps.",
+        "talk": [
+          {
+            "when": {
+              "test": "flag",
+              "flag": "guardian-land-freed"
+            },
+            "line": {
+              "key": "npc.skyLamplighter.seam1.freed"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "seam-known"
+            },
+            "line": {
+              "key": "npc.skyLamplighter.seam1.after"
+            }
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:seam/three-roads",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.skyLamplighter.seam1.hear"
+            }
+          },
+          {
+            "line": {
+              "key": "npc.skyLamplighter.seam1.greeting"
+            }
+          }
+        ]
       }
     }
   ]

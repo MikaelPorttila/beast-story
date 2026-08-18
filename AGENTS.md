@@ -348,6 +348,11 @@ Content is DATA; the engine implements reusable BEHAVIOUR.
   so a fourth GROUND settlement is reported and left unbuilt (three ship today;
   a carried town is sited by its carrier and takes no slot). A new settlement is
   budgeted 0 in `test-structures` until you baseline it.
+- **Who stands in a town is data too.** An `npc:` asset's `present` condition says
+  WHEN he is there (absent = always), `atFocus` rings him around the fire instead of
+  the town centre, and `Npcs.reconcile` places and removes people live — on a package
+  load, on a flag. A character who arrives with an act is a `present` row, not a
+  spawn call (issue #162).
 - **A body is code, and an asset points at it.** A beast is one file in
   `src/beasts/species/` exporting `species: BeastSpecies` and
   `skills: SkillDef[]`; a character is one file in `src/world/` registered in

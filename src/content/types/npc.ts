@@ -50,6 +50,14 @@ export interface NpcData {
   readonly homeOffset: number;
   /** Stand on the far side of the settlement's focus (the Encampment's fire). */
   readonly acrossFocus: boolean;
+  /** Measure `homeOffset` from the settlement's focus rather than its centre — a ring AROUND the fire. */
+  readonly atFocus: boolean;
+  /**
+   * WHEN he stands there at all — absent means always. Evaluated live, so a
+   * character can arrive on a flag and leave on another (the Act 4 homecoming,
+   * issue #162); a ground crew reconciles on every state change.
+   */
+  readonly present?: Condition;
   readonly talk: readonly NpcTalkLine[];
 }
 
@@ -95,6 +103,8 @@ function parse(body: unknown, ctx: ParseCtx): NpcData | null {
         num(v, c, { min: 0, max: 500, what: "a distance from the town centre" }),
       ) ?? 0,
     acrossFocus: opt(b.acrossFocus, r.at("acrossFocus"), bool) ?? false,
+    atFocus: opt(b.atFocus, r.at("atFocus"), bool) ?? false,
+    present: opt(b.present, r.at("present"), condition),
     talk: list(readTalkLine, { min: 1, max: 256 })(b.talk, r.at("talk")),
   };
 }
@@ -149,6 +159,7 @@ export const NPC_TYPE: ContentTypeDef<NpcData> = {
       body: "gain",
       homeOffset: 4,
       acrossFocus: false,
+      atFocus: false,
       talk: [{ line: { text: { en: "…" } } }],
     },
   },
