@@ -524,8 +524,58 @@
         "body": "sky-gardener",
         "homeOffset": 11,
         "acrossFocus": true,
+        "_seam": "Act 4's sky road (issue #165) stacks above her Act 3 rows: given from her garden, fought in the Orrery's frame, on the flying mount's FLAG.",
         "_role": "Keeps the ballast garden and, in Act 3, the Galebird in it (issue #158): nobody goes near the bird until she says so, and her saying so is what stands it up. Her rows live here beside her because an id is global (see npc:sky-pilot).",
         "talk": [
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/guardian-sky", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:seam/guardian-sky",
+                  "objective": "free-the-guardian"
+                }
+              ]
+            },
+            "line": { "key": "npc.skyGardener.seam4.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:seam/guardian-sky" }]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:seam/guardian-sky", "status": "active" },
+            "line": { "key": "npc.skyGardener.seam4.busy" }
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/three-roads", "status": "completed" },
+                { "test": "flag", "flag": "mount-flying" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:seam/guardian-sky", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:seam/guardian-sky", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.skyGardener.seam4.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:seam/guardian-sky" }],
+            "_gate": "The sky road (issue #165): three-roads done and the flying mount's FLAG — repeated here as every offer row repeats its quest's door."
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/three-roads", "status": "completed" },
+                { "not": { "test": "flag", "flag": "mount-flying" } },
+                { "test": "quest", "quest": "quest:seam/guardian-sky", "status": "unknown" }
+              ]
+            },
+            "line": { "key": "npc.skyGardener.seam4.noMount" }
+          },
+          {
+            "when": { "test": "flag", "flag": "guardian-sky-freed" },
+            "line": { "key": "npc.skyGardener.seam4.after" }
+          },
           {
             "when": {
               "all": [

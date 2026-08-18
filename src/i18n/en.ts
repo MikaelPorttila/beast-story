@@ -357,6 +357,11 @@ export const en = {
     "The second thread is held under the water, in the ring at Maw's Rest where the Brineholder went down. Coil gives it from Kelphold's quay. Swim out to the ring on the water mount and stay in the saddle — the guardian answers a bonded pair and nothing else, and it will not answer a swimmer. Then tell Coil.",
   "quest.seam.guardianSea.obj.reachMawsRest": "Ride the water mount out to the ring at Maw's Rest",
   "quest.seam.guardianSea.obj.freeTheGuardian": "Let the Sea Guardian go — from the saddle of the water mount",
+  "quest.seam.guardianSky.name": "The Sky Guardian",
+  "quest.seam.guardianSky.desc":
+    "The third thread is held in the air, over the Orrery's open frame where the Choirguard kept time. Mother Pell gives it from her garden on Skyhaven. Fly to the Orrery and meet it on the wing — the guardian answers a bonded pair and nothing else, and it hovers where nothing on foot can reach: stay in the saddle of the flying mount and let it go. Then tell Pell.",
+  "quest.seam.guardianSky.obj.reachTheOrrery": "Fly to the Orrery",
+  "quest.seam.guardianSky.obj.freeTheGuardian": "Let the Sky Guardian go — from the saddle of the flying mount, over the open frame",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -705,9 +710,21 @@ export const en = {
   "npc.skyGardener.seam1.hear":
     "Between. I said it in the garden and I will say it plain now, because we are all here: the first bond is held between the land, the sea and the sky by three guardians on three threads, and every red thread you have cut was a strand of one of theirs. Let them go — the ground one on Stonewatch's drove ground, the sea one in the trench at Maw's Rest, the sky one in my own Orrery frame — and the Seam opens. What is in it is not a monster, and it is not innocent. When you have three slack threads, come and find me. I am the only one who can name it.",
   "npc.skyGardener.seam1.after":
-    "The Orrery, when you want the sky's. The frame has no floor; bring wings. And go gently at all three — they were guardians before they were anyone's ropes.",
+    "When you want the sky's, come up to my garden on Skyhaven and I will send you on to the Orrery's frame. It has no floor; bring wings. And go gently at all three — they were guardians before they were anyone's ropes.",
   "npc.skyGardener.seam1.freed":
     "The frame is quiet. I felt the thread go from here — one of three. Land and sea, child, and then come and find me.",
+  // The sky road (issue #165), from her garden: the frame is where the cutting
+  // came from, and the guardian over it is the one she has watched longest.
+  "npc.skyGardener.seam4.offer":
+    "You came up. Then hear the sky's, from the woman who has watched it longest: it hangs over the Orrery's open frame, where the Choirguard kept time — the frame was built round it, not the other way about. It answers a PAIR, child, and it will not come down to you: stay on the wing and go up to it. Meet it in the air, let it go, and then come back to my garden. I will know before you do.",
+  "npc.skyGardener.seam4.busy":
+    "The Orrery. On the wing — the frame has no floor, and it will not come down to a person standing on brass.",
+  "npc.skyGardener.seam4.done":
+    "I felt it — the whole garden did; the cable went slack and the bird sat down on it. That is the sky's. When all three hang loose, come and find me: the Seam opens, and I am the only one who can name what is in it.",
+  "npc.skyGardener.seam4.noMount":
+    "The sky road wants wings, and the garden's bird has not chosen you yet. Wingbroken is where that is learned; come back when you can sit a flyer.",
+  "npc.skyGardener.seam4.after":
+    "The frame hangs empty and the cable hangs slack, and I find I sleep better for both. Two more or none — you know which.",
   // Tobin has no argument, only the lamps.
   "npc.skyLamplighter.seam1.greeting":
     "Came down to see my sister and stopped at Gain's fire on the way. Ten years of rim after dark and I had forgotten what warm was. He is about to say something important; let him.",

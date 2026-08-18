@@ -4144,14 +4144,22 @@ function tickDeckStages(dt: number): void {
       }
     }
   }
-  const orrery = content.get<QuestData>("quest:sky/the-orrery");
-  if (orrery && content.state.questStatus(orrery.id) === "active") {
-    const isle = nearIsland("orrery");
-    if (isle) {
-      stageDeckBoss(isle, orrery.id, "defeat-choirguard", "choirguard");
+  // The Orrery's open frame: Act 3's Choirguard and Act 4's sky guardian (issue #165),
+  // one at a time — a quest that is not active stages nothing.
+  for (const [questId, objective, boss] of ORRERY_STAGES) {
+    const q = content.get<QuestData>(questId);
+    if (q && content.state.questStatus(q.id) === "active") {
+      const isle = nearIsland("orrery");
+      if (isle) {
+        stageDeckBoss(isle, q.id, objective, boss);
+      }
     }
   }
 }
+const ORRERY_STAGES: readonly (readonly [string, string, string])[] = [
+  ["quest:sky/the-orrery", "defeat-choirguard", "choirguard"],
+  ["quest:seam/guardian-sky", "free-the-guardian", "guardian/sky"],
+];
 
 // THE SHARDS' WILDS (issue #271). A cluster the hero is UP AT — within its reach and
 // its own height band, not on the ground under it — keeps `wilds` sky beasts on its

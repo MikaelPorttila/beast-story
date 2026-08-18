@@ -1096,7 +1096,9 @@ export class Enemy implements Damageable {
       bond === "water"
         ? Math.max(ground + GUARDIAN_BED_CLEAR, ctx.world.waterLevel - GUARDIAN_SWIM_DEPTH)
         : bond === "flying"
-          ? Math.max(ground, ctx.world.waterLevel) + GUARDIAN_HOVER
+          ? // ...and never under where it was stood up: circling a hero off a deck's rim
+            // must not dive it to the country a hundred units below the island.
+            Math.max(ground, ctx.world.waterLevel, this.home.y - GUARDIAN_HOVER) + GUARDIAN_HOVER
           : ground;
     // The walker snaps to its ground like the Snortle; the others settle.
     this.position.y += (restY - this.position.y) * Math.min(1, (bond === "ground" ? 14 : 5) * dt);

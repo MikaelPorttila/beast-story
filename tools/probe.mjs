@@ -138,6 +138,9 @@ const SOLO = new Set([
   // Act 4's sea road (issue #164): the guardian under the ring at Maw's Rest, swum
   // at and ridden at — a hero, motion, presses, a mount.
   "sea-guardian",
+  // Act 4's sky road (issue #165): the guardian hovering over the Orrery's frame,
+  // struck from the deck and from a flyer's saddle — a hero, decks, a mount.
+  "sky-guardian",
   // The vent under Cinderhelm (issue #265): crosses a gateway that RIDES a deck,
   // both ways, and reads where the hero lands — a crossing's wall clock and motion.
   "vent",
