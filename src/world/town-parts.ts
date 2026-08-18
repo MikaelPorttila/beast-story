@@ -1011,7 +1011,12 @@ export class TownParts {
   readonly bollard = bollard();
   readonly ship = ship();
   /** The fence kit in the shape world/fences.ts stamps from. */
-  readonly fence: FenceParts = {
+  readonly fence: FenceParts = fenceKit();
+}
+
+/** The camp's fence on its own: the Seam (world/seam.ts) lays a run of it without the rest of the kit. */
+export function fenceKit(): FenceParts {
+  return {
     post: fencePost(),
     tall: fencePostTall(),
     lantern: fenceLanternPost(),

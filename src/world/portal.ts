@@ -120,6 +120,23 @@ export class Gateway {
     scene.add(this.group);
   }
 
+  /** Whether it can be crossed right now; a shut arch is stone with no light in it. See `GateSpec.open`. */
+  private open = true;
+
+  /**
+   * SHUT (issue #166): the pillars and lintel stay — the arch is a landmark either
+   * way — and the pad and shaft go out, so "there is nothing to walk into" is what
+   * the eye reads before the hint says it. Idempotent; the breathing below is skipped.
+   */
+  setOpen(on: boolean): void {
+    if (this.open === on) {
+      return;
+    }
+    this.open = on;
+    this.pad.visible = on;
+    this.shaft.visible = on;
+  }
+
   /** Stand it somewhere else — an arch on a MOVING deck is re-placed every slice (issue #265). */
   moveTo(x: number, y: number, z: number, yaw: number): void {
     this.position.set(x, y, z);
@@ -133,6 +150,9 @@ export class Gateway {
    * is frame-rate independent that way instead.
    */
   update(dt: number): void {
+    if (!this.open) {
+      return;
+    }
     this.t += dt;
     const pulse = 0.5 + 0.5 * Math.sin(this.t * 1.9);
     // Kept LOW on purpose. These are additive and depth-write-free, and you

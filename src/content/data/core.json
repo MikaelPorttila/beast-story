@@ -204,6 +204,19 @@
             "line": { "key": "npc.gain.q3.busy" }
           },
           {
+            "when": { "test": "flag", "flag": "ending-severed" },
+            "line": { "key": "npc.gain.seam5.severed" }
+          },
+          {
+            "when": { "test": "flag", "flag": "ending-held" },
+            "line": { "key": "npc.gain.seam5.held" }
+          },
+          {
+            "when": { "test": "flag", "flag": "ending-shared" },
+            "line": { "key": "npc.gain.seam5.shared" },
+            "_epilogue": "The campaign's terminal fact is the ENDING FLAG (issue #166): whoever reads the outcome reads it here, never a counter."
+          },
+          {
             "when": {
               "all": [
                 { "test": "quest", "quest": "quest:seam/guardian-land", "status": "active" },

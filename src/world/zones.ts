@@ -33,6 +33,13 @@ export interface GateSpec {
   hex: number;
   frame?: LocalFrame;
   y?: number;
+  /**
+   * OPENED BY THE PLAYER rather than found (issue #166): asked every slice, and
+   * while it answers false the arch is stone — no light, no prompt but a shut
+   * one, no preload, no crossing. Absent means always open, which is every
+   * earlier gateway. The `Ferry`'s `enabled` is the same idea on the water.
+   */
+  open?: () => boolean;
 }
 
 export interface ZoneDef {
@@ -96,6 +103,10 @@ interface GateState {
   requested: boolean;
   /** False until the hero has left EXIT_R of THIS pad at least once. */
   armed: boolean;
+  /** See `GateSpec.open`; null is always open. */
+  open: (() => boolean) | null;
+  /** The last answer, so a shut arch's hint can say so without asking twice. */
+  shut: boolean;
 }
 
 interface ZoneState {
@@ -207,6 +218,8 @@ export class ZoneManager {
       ly: g.y ?? 0,
       requested: false,
       armed: false,
+      open: g.open ?? null,
+      shut: false,
     }));
     const state = { def, world, gates, warm: 0, warmWait: 0 };
     this.placeGates(state);
@@ -242,6 +255,9 @@ export class ZoneManager {
     active.world.update(focus, dt, newFrame);
     this.placeGates(active);
     for (const g of active.gates) {
+      // A shut arch answers no press and pulls no preload; its light is out.
+      g.shut = g.open !== null && !g.open();
+      g.gateway.setOpen(!g.shut);
       g.gateway.update(dt);
     }
 
@@ -264,7 +280,7 @@ export class ZoneManager {
         g.armed = true;
         g.requested = false;
       }
-      if (inside && engaged === null) {
+      if (inside && engaged === null && !g.shut) {
         engaged = g;
       }
       if (d2 < nearD2) {
@@ -288,7 +304,7 @@ export class ZoneManager {
     const d3 = nearD2 + nearRise * nearRise;
     const puller = wantResident
       ? (active.gates[0] ?? null)
-      : near !== null && near.armed && d3 < PRELOAD_R2
+      : near !== null && near.armed && !near.shut && d3 < PRELOAD_R2
         ? near
         : null;
     if (puller !== null && this.pendingId === null && puller.to !== this.activeId) {
@@ -344,11 +360,13 @@ export class ZoneManager {
       const g = near !== null && nearD2 < EXIT_R2 && inRise(0, nearRise, GATE_EXIT_RISE) ? near : null;
       const zone = g ? (this.defs.get(g.to)?.name ?? g.to) : "";
       this.opts.onHint(
-        g !== null && g.armed
-          ? g.requested
-            ? t("hint.zoneEntering", { zone })
-            : t("hint.zoneUse", { zone, key: this.opts.interactKey?.() ?? "E" })
-          : null,
+        g !== null && g.shut
+          ? t("hint.zoneShut", { zone })
+          : g !== null && g.armed
+            ? g.requested
+              ? t("hint.zoneEntering", { zone })
+              : t("hint.zoneUse", { zone, key: this.opts.interactKey?.() ?? "E" })
+            : null,
       );
     }
 
@@ -417,7 +435,7 @@ export class ZoneManager {
    */
   requestCrossing(): boolean {
     const g = this.engaged;
-    if (g === null || !g.armed || g.requested) {
+    if (g === null || g.shut || !g.armed || g.requested) {
       return false;
     }
     g.requested = true;
@@ -488,6 +506,7 @@ export class ZoneManager {
         carried: g.frame !== null,
         requested: g.requested,
         armed: g.armed,
+        shut: g.shut,
       })),
       pending: p && {
         id: p.def.id,

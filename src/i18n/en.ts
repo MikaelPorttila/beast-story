@@ -362,6 +362,29 @@ export const en = {
     "The third thread is held in the air, over the Orrery's open frame where the Choirguard kept time. Mother Pell gives it from her garden on Skyhaven. Fly to the Orrery and meet it on the wing — the guardian answers a bonded pair and nothing else, and it hovers where nothing on foot can reach: stay in the saddle of the flying mount and let it go. Then tell Pell.",
   "quest.seam.guardianSky.obj.reachTheOrrery": "Fly to the Orrery",
   "quest.seam.guardianSky.obj.freeTheGuardian": "Let the Sky Guardian go — from the saddle of the flying mount, over the open frame",
+  "quest.seam.theFirstBond.name": "The First Bond",
+  "quest.seam.theFirstBond.desc":
+    "Three threads hang slack, and the arch outside the Encampment — stone since the day you first walked past it — has light in it. Inside is the Seam: the meadow, the tide and the cloud deck in one sky, and at its heart the engine, and what it holds. Rhune. Not a monster, and not innocent. The fight is real, and it wants all three mounts. What comes after is not a fight. It is a choice, and all three answers are honest.",
+  "quest.seam.theFirstBond.obj.openTheSeam": "Enter the Seam through the arch outside the Encampment",
+  "quest.seam.theFirstBond.obj.defeatRhune": "Face Rhune — on the ground, in the tide, and in the air",
+  "quest.seam.theFirstBond.obj.decide": "Decide, at the engine: sever, hold, or share",
+  "enemy.rhune.name": "Rhune",
+  // The three endings (issue #166): the panel's words. All three are honest.
+  "ending.severed.name": "Sever",
+  "ending.severed.detail":
+    "Cut every bond, human and beast, for good. Nobody is ever compelled again — and nobody is ever companioned again.",
+  "ending.held.name": "Hold",
+  "ending.held.detail":
+    "Repair the engine and keep holding, as Vess has. The world stays as it is, and someone must always be at the lever.",
+  "ending.shared.name": "Share",
+  "ending.shared.detail":
+    "Let Rhune loose and bond it, taking on what the machine was carrying. The Red Bond ends; what replaces it is unproven.",
+  "choice.decide.title": "The engine waits. What is a bond between a person and a beast to be?",
+  "hint.decide": "Press {key} to decide",
+  "toast.rhune.tide": "Rhune sinks into the tide — the water mount",
+  "toast.rhune.air": "Rhune takes to the air — the flying mount",
+  "toast.seamOpened": "Three threads hang slack. The Seam is open.",
+  "zone.seam.name": "The Seam",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -725,6 +748,47 @@ export const en = {
     "The sky road wants wings, and the garden's bird has not chosen you yet. Wingbroken is where that is learned; come back when you can sit a flyer.",
   "npc.skyGardener.seam4.after":
     "The frame hangs empty and the cable hangs slack, and I find I sleep better for both. Two more or none — you know which.",
+  // THE FIRST BOND (issue #166), from the fire: the only one who can name it,
+  // and the one who will not choose for you.
+  "npc.skyGardener.seam5.offer":
+    "Three slack threads. Then it has a name, and you had better hear it from me before you hear it from the thing itself. Rhune. The first bond there ever was — before the cities, before the Bridle, before anyone thought a rope was a kindness. The engine holds it between the land, the sea and the sky, and the guardians were the ropes, and you have cut them. The arch outside the palisade has light in it now; it did not yesterday. Go through. It will fight you across all three — take every mount you own — and when it is down, the engine will ask you a question I cannot answer for you. Sever, hold, or share. Come back to this fire afterwards. Whatever you choose, come back.",
+  "npc.skyGardener.seam5.busy":
+    "The arch outside the palisade — it is open now. Ground, water, wings; it will want all three. And then the lever.",
+  "npc.skyGardener.seam5.decide":
+    "It is down. Now the harder half: the engine will ask, and it will take any answer you give it. I have thought about this for sixty years and I will not tell you what I would say. Go and stand at the lever.",
+  "npc.skyGardener.seam5.done":
+    "So. It is decided, and the world is already the shape you made it — you can feel it from here, if you stand still. Sit. There is nothing to run to tonight, for the first time since Gain put a rope in your hand.",
+  "npc.skyGardener.seam5.severed":
+    "Severed. My garden's bird sat on the cable this morning and did not know me, and I did not call it. That is what we chose: nobody compelled, nobody companioned. I am too old to say if it was right. I am old enough to say it was honest.",
+  "npc.skyGardener.seam5.held":
+    "Held. Someone is at the lever tonight — Vess, for now, and then whoever comes after her, and after them. The world stays as it is, which is more than most people ever get to say. Somebody always has to be at the lever, child. Tonight I am glad it is not you.",
+  "npc.skyGardener.seam5.shared":
+    "Shared. I felt it go out of the engine and into you, and I have watched you since, and you are still standing. The Red Bond is over. What you are carrying instead has no name yet. Give it a good one.",
+  // Gain's, Coil's, Vane's and Tobin's last words, one per ending, at the fire.
+  "npc.gain.seam5.severed":
+    "No ropes. I keep reaching for one and it is not there, and the animals do not mind, and I am learning not to. I taught you to tame. I did not know I was teaching you to stop.",
+  "npc.gain.seam5.held":
+    "Held. Coil is insufferable about it and I do not care. The valley is quiet, the herd is grazing, and somebody I trust is at the lever. I will go up and spell her, one of these days. I will get there first.",
+  "npc.gain.seam5.shared":
+    "You are carrying it. I can see it in the way the beasts look at you — like you are one of them now, and I suppose you are. Whatever it turns into, you have the whole camp behind you. Sit down. That is an order from a man with no rank.",
+  "npc.coil.seam5.severed":
+    "Severed. Then my order is finished, and I find I do not mind as much as I should. There is nothing left to hold. I will keep the tower anyway. Somebody should watch.",
+  "npc.coil.seam5.held":
+    "Held. I was right, and I am trying very hard not to say so, and failing. Someone will always be at the lever. I have already put my name down for the first watch.",
+  "npc.coil.seam5.shared":
+    "Shared. I would have held it. You carried it instead, and I have watched you for a week now and you have not turned red, and I have stopped waiting for it. My order will need a new word for what you are.",
+  "npc.skyPilot.seam5.severed":
+    "No bond, no thread, no red. The birds still ride the balloon's warm air, mind — they just do it for their own reasons now. So do I, come to that.",
+  "npc.skyPilot.seam5.held":
+    "The lamps up top are lit again. Vess is at the lever, and Coil goes up on the second watch, and I fly them both and complain about it. Nothing has changed, and I have never been so glad of nothing.",
+  "npc.skyPilot.seam5.shared":
+    "I flew over the Seam yesterday and there was nothing in it but weather. Whatever you took on, you took it out of the sky. Up is simple again. Up has lamps.",
+  "npc.skyLamplighter.seam5.severed":
+    "I let the galleries go dark. There is nothing to hide any more, and the rim looks fine by starlight, it turns out. Mera says I should have come down years ago.",
+  "npc.skyLamplighter.seam5.held":
+    "The lamps stay lit. Somebody has to dim what the engine leaks, and I would rather it be me than nobody. Mera comes up on the balloon on Sundays. That is enough.",
+  "npc.skyLamplighter.seam5.shared":
+    "The engine has nothing to leak now, so I light the galleries because they are beautiful, which is the first honest reason I have ever had. Come and see them lit. Bring your — whatever it is you have now.",
   // Tobin has no argument, only the lamps.
   "npc.skyLamplighter.seam1.greeting":
     "Came down to see my sister and stopped at Gain's fire on the way. Ten years of rim after dark and I had forgotten what warm was. He is about to say something important; let him.",
@@ -1109,6 +1173,10 @@ export const en = {
   // past 100% while a player stood in an arch that had not fired.
   "hint.zoneUse": "Press {key} to enter {zone}",
   "hint.zoneEntering": "Entering {zone}…",
+  // The one arch the player OPENS rather than finds (issue #166): stone until three threads hang slack.
+  "hint.zoneShut": "{zone} is shut — three threads still hold it",
+  // The choice panel (issue #166): the digits are the shortcut, the buttons the answer.
+  "choice.hint": "1–3, arrows and Enter, or click — Escape steps back",
   "hint.ferry": "Press {key} to sail to {place}",
   "hint.sailing": "Sailing to {place}…",
   "hint.balloon": "Press {key} to ride the balloon to {place}",

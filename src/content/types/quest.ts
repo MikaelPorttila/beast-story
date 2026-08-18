@@ -45,7 +45,8 @@ export type ObjectiveTriggerKind =
   | "waypoint-lit"
   | "escort"
   | "ride"
-  | "npc-talk";
+  | "npc-talk"
+  | "decide";
 
 const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "orb-thrown",
@@ -59,6 +60,7 @@ const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "escort",
   "ride",
   "npc-talk",
+  "decide",
 ];
 
 /**
@@ -89,6 +91,18 @@ export interface ObjectiveTrigger {
 }
 
 /**
+ * ONE ANSWER to a `decide` objective (issue #166): what it says, one line of what
+ * it costs, and what picking it DOES. The panel shows the words; the host runs
+ * the actions and then counts the fact (`decide`, id = the choice's id).
+ */
+export interface QuestChoice {
+  readonly id: string;
+  readonly text: ContentText;
+  readonly detail?: ContentText;
+  readonly actions?: readonly Action[];
+}
+
+/**
  * `key` is a saved IDENTIFIER and may not contain `/`: the progress key is
  * `questId + '/' + objective` split at its LAST slash, and quest ids carry slashes.
  */
@@ -99,6 +113,8 @@ export interface QuestObjective {
   readonly count?: number;
   /** Absent = advanced by `progress.add` only. */
   readonly trigger?: ObjectiveTrigger;
+  /** The answers, on a `decide` trigger only. Two to six. */
+  readonly choices?: readonly QuestChoice[];
 }
 
 /** Amounts granted on completion, keyed by what is granted (`xp`, an item id). */
@@ -181,6 +197,20 @@ function readTrigger(value: unknown, ctx: Reader): ObjectiveTrigger | undefined 
   };
 }
 
+function readChoice(value: unknown, ctx: Reader): QuestChoice {
+  const v: Record<string, unknown> = isRecord(value) ? value : {};
+  if (!isRecord(value)) {
+    ctx.report("error", "bad-field", "expected a choice object", 'write { "id": "severed", "text": { "key": "…" } }');
+  }
+  const acts = readActions(v.actions, ctx.at("actions"));
+  return {
+    id: str(v.id, ctx.at("id"), { min: 1, max: 64, pattern: /^[a-z][a-z0-9-]*$/, what: "a choice id" }),
+    text: text(v.text, ctx.at("text")),
+    detail: opt(v.detail, ctx.at("detail"), text),
+    ...(acts.length > 0 ? { actions: acts } : {}),
+  };
+}
+
 function readObjective(value: unknown, ctx: Reader): QuestObjective {
   const v: Record<string, unknown> = isRecord(value) ? value : {};
   if (!isRecord(value)) {
@@ -202,13 +232,29 @@ function readObjective(value: unknown, ctx: Reader): QuestObjective {
         'printable, no spaces, and no "/" — the progress key is "<quest>/<objective>"',
       );
   }
+  const trigger = opt(v.trigger, ctx.at("trigger"), readTrigger);
+  const choices = opt(v.choices, ctx.at("choices"), list(readChoice, { min: 2, max: 6 }));
+  // A decision with no answers, or answers with no decision, is a panel that cannot open.
+  if ((trigger?.kind === "decide") !== (choices !== undefined)) {
+    ctx
+      .at("choices")
+      .report(
+        "error",
+        "bad-field",
+        trigger?.kind === "decide"
+          ? "a decide objective needs `choices`"
+          : "`choices` belongs on a decide objective only",
+        'pair `"trigger": { "kind": "decide" }` with a `choices` list of two to six',
+      );
+  }
   return {
     key: isObjectiveName(key) ? key : "",
     text: text(v.text, ctx.at("text")),
     count: opt(v.count, ctx.at("count"), (n, c) =>
       int(n, c, { min: 1, max: 1_000_000, what: "how many" }),
     ),
-    trigger: opt(v.trigger, ctx.at("trigger"), readTrigger),
+    trigger,
+    choices,
   };
 }
 

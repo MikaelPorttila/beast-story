@@ -1,17 +1,19 @@
 {
   "id": "story-seam",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "requires": [
     "story"
   ],
   "meta": {
     "title": "Act 4 — The Seam",
-    "note": "The finale of Bonds of Red (game-story.md §4, issue #146). Quest 1 ships (issue #162): the homecoming — the cast at the Encampment fire and the fork they send you down. The guardian quests (#163–#165) and the `seam` zone (#166) follow, one issue each.",
+    "note": "The finale of Bonds of Red (game-story.md §4, issue #146): the homecoming (#162), the three guardian roads (#163–#165) and the First Bond (#166) — the campaign's terminal seam.",
     "loading": "On `act-3-complete`, through ACT_PACKAGES in main.ts (issue #209): NOT at boot, because unlike the sea and the sky nothing of this act is part of the open world's geography — the act stages out of the Encampment, and its one new place is a zone entered in quest 5. Once loaded it stays for the session. The people it brings are placed by `Npcs.reconcile` the moment the definitions land.",
     "the-seam": "Given AND closed by npc:gain at the Encampment (core.json — an id is global and core may not depend on a package that arrives later, so his rows sit beside him). The prerequisite is the door for THIS quest; everything else in the act tests seam-known.",
     "choose-a-road": "DROPPED (issue #146 comment, option a). The spec's `choose-a-road` was to be satisfied by STARTING a guardian quest, but 2–4 name this quest as a prerequisite and a prerequisite means COMPLETED — the objective could never tick. The fork itself is the choice: Three Roads closes on hearing the four out, and the order of 2–4 is the player's.",
     "the-fire": "Four placements, one per recurring character (game-story.md §2 — one body, one name key, a talk list gated on flags), `present` on act-3-complete. They STAY for the act: Coil is at Kelphold and Pell in the Orrery at the same time, the way Gain is at three fires, and their lines after seam-known say which road each of them is waiting on.",
-    "the-guardians": "Three bosses, one rhythm (`behaviour: guardian` in combat/enemies.ts) in three elements: `bond` names the mount kind that can hurt it AND how it moves — the walker on Stonewatch's drove ground, the swimmer under Maw's Rest, the flyer over the Orrery's open frame. Each quest tests its mount FLAG (§6) and the fight itself refuses anyone not in that saddle. Any order; each sets its `guardian-*-freed` thread."
+    "the-guardians": "Three bosses, one rhythm (`behaviour: guardian` in combat/enemies.ts) in three elements: `bond` names the mount kind that can hurt it AND how it moves — the walker on Stonewatch's drove ground, the swimmer under Maw's Rest, the flyer over the Orrery's open frame. Each quest tests its mount FLAG (§6) and the fight itself refuses anyone not in that saddle. Any order; each sets its `guardian-*-freed` thread.",
+    "the-first-bond": "Given AND closed by Pell at the FIRE (her Encampment placement): the arch stands outside the camp and the cast is home for the epilogue. `open-the-seam` is the zone arrival; the arch is stone until the three `guardian-*-freed` threads hang slack (`open` on the overworld's gate to `seam`, main.ts). `defeat-rhune` is a phased fight — `enemy:rhune` changes bond at 66% and 33%, ground -> water -> flying, and the seam stage moves it to the sector of each — and `decide` is the choice panel at the engine, whose three answers each run `ending.set`, the ONE place the ending flags' exclusivity lives.",
+    "after-the-ending": "What survives an ending: the world stays open and every reader of the outcome reads the ENDING FLAG — the fire's epilogue lines here, the title's save summary if it ever wants one — never a counter, never `arc`, never quests completed. Nothing is torn down: the guardians stay freed, the Seam stays open, and Rhune's fate is a flag."
   },
   "assets": [
     {
@@ -210,6 +212,123 @@
         "rewards": {
           "xp": 800,
           "shard": 200
+        }
+      }
+    },
+    {
+      "id": "quest:seam/the-first-bond",
+      "schema": 1,
+      "name": {
+        "key": "quest.seam.theFirstBond.name"
+      },
+      "description": {
+        "key": "quest.seam.theFirstBond.desc"
+      },
+      "tags": [
+        "story",
+        "act4"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "seam",
+        "giver": "npc:sky-gardener/encampment",
+        "location": "town:encampment",
+        "prerequisites": [
+          "quest:seam/guardian-land",
+          "quest:seam/guardian-sea",
+          "quest:seam/guardian-sky"
+        ],
+        "_seam": "THE CAMPAIGN'S TERMINAL SEAM. Three parallel prerequisites converging on one, any order. Nothing after it: it sets act-4-complete and exactly one ending flag.",
+        "objectives": [
+          {
+            "key": "open-the-seam",
+            "text": {
+              "key": "quest.seam.theFirstBond.obj.openTheSeam"
+            },
+            "trigger": {
+              "kind": "zone-arrival",
+              "zone": "seam"
+            }
+          },
+          {
+            "key": "defeat-rhune",
+            "text": {
+              "key": "quest.seam.theFirstBond.obj.defeatRhune"
+            },
+            "trigger": {
+              "kind": "enemy-killed",
+              "enemies": [
+                "enemy:rhune"
+              ],
+              "zone": "seam"
+            }
+          },
+          {
+            "key": "decide",
+            "text": {
+              "key": "quest.seam.theFirstBond.obj.decide"
+            },
+            "trigger": {
+              "kind": "decide"
+            },
+            "choices": [
+              {
+                "id": "severed",
+                "text": {
+                  "key": "ending.severed.name"
+                },
+                "detail": {
+                  "key": "ending.severed.detail"
+                },
+                "actions": [
+                  {
+                    "do": "ending.set",
+                    "ending": "severed"
+                  }
+                ]
+              },
+              {
+                "id": "held",
+                "text": {
+                  "key": "ending.held.name"
+                },
+                "detail": {
+                  "key": "ending.held.detail"
+                },
+                "actions": [
+                  {
+                    "do": "ending.set",
+                    "ending": "held"
+                  }
+                ]
+              },
+              {
+                "id": "shared",
+                "text": {
+                  "key": "ending.shared.name"
+                },
+                "detail": {
+                  "key": "ending.shared.detail"
+                },
+                "actions": [
+                  {
+                    "do": "ending.set",
+                    "ending": "shared"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "flag.set",
+            "flag": "act-4-complete"
+          }
+        ],
+        "rewards": {
+          "xp": 1500,
+          "shard": 500
         }
       }
     },
@@ -422,6 +541,69 @@
       }
     },
     {
+      "id": "enemy:rhune",
+      "schema": 1,
+      "name": {
+        "key": "enemy.rhune.name"
+      },
+      "tags": [
+        "story",
+        "act4",
+        "boss"
+      ],
+      "data": {
+        "model": "rhune",
+        "behaviour": "guardian",
+        "flying": false,
+        "hp": 3000,
+        "atk": 24,
+        "speed": 4.6,
+        "xp": 1500,
+        "radius": 1.8,
+        "height": 2.8,
+        "aggro": 40,
+        "phases": [
+          {
+            "hp": 1,
+            "bond": "ground"
+          },
+          {
+            "hp": 0.66,
+            "bond": "water"
+          },
+          {
+            "hp": 0.33,
+            "bond": "flying"
+          }
+        ],
+        "_phases": "One fight, three mounts (issue #166): the ground third on the meadow, the water third in the tide, the air third over the cloud deck. The bond it answers changes with its health; the seam stage in main.ts moves it to each sector as it does.",
+        "_model": "A chimera of the three guardians (enemy-models.ts): the stag's mass and legs, the ray's fins and tail, the kite's wings, the thread through all of it.",
+        "variants": [
+          {
+            "element": "dragon",
+            "main": "#6f6a78",
+            "dark": "#4a3f52",
+            "belly": "#cfc7d6",
+            "accent": "#ff3b3b"
+          },
+          {
+            "element": "dragon",
+            "main": "#6a6573",
+            "dark": "#453a4d",
+            "belly": "#c9c1d0",
+            "accent": "#ff3b3b"
+          },
+          {
+            "element": "dragon",
+            "main": "#74707d",
+            "dark": "#4f4457",
+            "belly": "#d5cddc",
+            "accent": "#ff3b3b"
+          }
+        ]
+      }
+    },
+    {
       "id": "npc:coil/encampment",
       "schema": 1,
       "name": {
@@ -444,6 +626,33 @@
         },
         "_role": "The Warden's fourth placement — home, at the fire she once watched from a tower. One of the three voices in the Act 4 choice: hers is HOLD.",
         "talk": [
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-severed"
+            },
+            "line": {
+              "key": "npc.coil.seam5.severed"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-held"
+            },
+            "line": {
+              "key": "npc.coil.seam5.held"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-shared"
+            },
+            "line": {
+              "key": "npc.coil.seam5.shared"
+            }
+          },
           {
             "when": {
               "test": "flag",
@@ -505,6 +714,33 @@
           {
             "when": {
               "test": "flag",
+              "flag": "ending-severed"
+            },
+            "line": {
+              "key": "npc.skyPilot.seam5.severed"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-held"
+            },
+            "line": {
+              "key": "npc.skyPilot.seam5.held"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-shared"
+            },
+            "line": {
+              "key": "npc.skyPilot.seam5.shared"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
               "flag": "seam-known"
             },
             "line": {
@@ -552,6 +788,130 @@
         },
         "_role": "Mother Pell's second placement. The only one who can name the First Bond; at the fire she says what the guardians ARE and where each stands.",
         "talk": [
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:seam/the-first-bond",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:seam/the-first-bond",
+                  "objective": "decide"
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.skyGardener.seam5.done"
+            },
+            "actions": [
+              {
+                "do": "quest.complete",
+                "quest": "quest:seam/the-first-bond"
+              }
+            ],
+            "_epilogue": "FIRST, above the ending rows: the ending flag is set the moment the lever is pulled, and she must still close the quest before the epilogue starts. Her line does not name the ending — the three rows below do — because what she says here is about the deciding."
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-severed"
+            },
+            "line": {
+              "key": "npc.skyGardener.seam5.severed"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-held"
+            },
+            "line": {
+              "key": "npc.skyGardener.seam5.held"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-shared"
+            },
+            "line": {
+              "key": "npc.skyGardener.seam5.shared"
+            }
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "quest",
+                  "quest": "quest:seam/the-first-bond",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:seam/the-first-bond",
+                  "objective": "defeat-rhune"
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.skyGardener.seam5.decide"
+            }
+          },
+          {
+            "when": {
+              "test": "quest",
+              "quest": "quest:seam/the-first-bond",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.skyGardener.seam5.busy"
+            }
+          },
+          {
+            "when": {
+              "all": [
+                {
+                  "test": "flag",
+                  "flag": "guardian-land-freed"
+                },
+                {
+                  "test": "flag",
+                  "flag": "guardian-sea-freed"
+                },
+                {
+                  "test": "flag",
+                  "flag": "guardian-sky-freed"
+                },
+                {
+                  "any": [
+                    {
+                      "test": "quest",
+                      "quest": "quest:seam/the-first-bond",
+                      "status": "unknown"
+                    },
+                    {
+                      "test": "quest",
+                      "quest": "quest:seam/the-first-bond",
+                      "status": "available"
+                    }
+                  ]
+                }
+              ]
+            },
+            "line": {
+              "key": "npc.skyGardener.seam5.offer"
+            },
+            "actions": [
+              {
+                "do": "quest.start",
+                "quest": "quest:seam/the-first-bond"
+              }
+            ],
+            "_seam": "THE CAMPAIGN'S TERMINAL SEAM, given at the fire: three slack threads and the woman who can name what they held. The three freed flags ARE the prerequisites' flags; repeated here as every offer row repeats its door."
+          },
           {
             "when": {
               "test": "flag",
@@ -613,6 +973,33 @@
           {
             "when": {
               "test": "flag",
+              "flag": "ending-severed"
+            },
+            "line": {
+              "key": "npc.skyLamplighter.seam5.severed"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-held"
+            },
+            "line": {
+              "key": "npc.skyLamplighter.seam5.held"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
+              "flag": "ending-shared"
+            },
+            "line": {
+              "key": "npc.skyLamplighter.seam5.shared"
+            }
+          },
+          {
+            "when": {
+              "test": "flag",
               "flag": "guardian-land-freed"
             },
             "line": {
@@ -644,6 +1031,20 @@
             }
           }
         ]
+      }
+    },
+    {
+      "id": "music:seam",
+      "schema": 1,
+      "tags": [
+        "area",
+        "act4"
+      ],
+      "data": {
+        "tracks": [
+          "seam"
+        ],
+        "fallback": false
       }
     }
   ]

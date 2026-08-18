@@ -958,6 +958,8 @@ export type GameEvent =
   | { type: "itemPicked"; itemId: string; byBeast: boolean }
   /** A blow a BONDED enemy refused (issue #163): the hero was not riding the mount its bond names. */
   | { type: "hitHeld"; species: string; bond: MountKind }
+  /** A phased enemy (issue #166) crossed into phase `phase`; `bond` is what it answers now. */
+  | { type: "enemyPhase"; species: string; phase: number; bond: MountKind }
   /** `species` is the IDENTITY a cull objective filters on; `nameKey` is display. */
   | { type: "enemyKilled"; species: string; nameKey: StringKey; xp: number }
   | { type: "shopOpened"; shopIndex: number }
