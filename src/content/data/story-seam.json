@@ -151,6 +151,69 @@
       }
     },
     {
+      "id": "quest:seam/guardian-sky",
+      "schema": 1,
+      "name": {
+        "key": "quest.seam.guardianSky.name"
+      },
+      "description": {
+        "key": "quest.seam.guardianSky.desc"
+      },
+      "tags": [
+        "story",
+        "act4"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "seam",
+        "giver": "npc:sky-gardener",
+        "location": "town:orrery",
+        "prerequisites": [
+          "quest:seam/three-roads"
+        ],
+        "available": {
+          "test": "flag",
+          "flag": "mount-flying"
+        },
+        "_gate": "The FLAG, never the mount system (game-story.md §6): mount-flying was set by quest:sky/wingbroken. Pell's offer row (core.json, her Skyhaven garden — the shipped asset) repeats it. The fight is in the Orrery's open frame, kept empty for it (sky-island.ts).",
+        "objectives": [
+          {
+            "key": "reach-the-orrery",
+            "text": {
+              "key": "quest.seam.guardianSky.obj.reachTheOrrery"
+            },
+            "trigger": {
+              "kind": "town-arrival",
+              "town": "town:orrery"
+            }
+          },
+          {
+            "key": "free-the-guardian",
+            "text": {
+              "key": "quest.seam.guardianSky.obj.freeTheGuardian"
+            },
+            "trigger": {
+              "kind": "enemy-killed",
+              "enemies": [
+                "enemy:guardian/sky"
+              ],
+              "town": "town:orrery"
+            }
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "flag.set",
+            "flag": "guardian-sky-freed"
+          }
+        ],
+        "rewards": {
+          "xp": 800,
+          "shard": 200
+        }
+      }
+    },
+    {
       "id": "enemy:guardian/land",
       "schema": 1,
       "name": {
