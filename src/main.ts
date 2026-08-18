@@ -1043,10 +1043,13 @@ const contentBootMs = performance.now() - contentBootStart;
 // AN ACT'S PACKAGE LOADS ON THE FLAG THAT OPENS THE ACT (issue #209) — unless the act is part of
 // the open world, in which case its settlements must exist when the world is planned and the
 // package moves to the boot list above (issues #144, #145: `story-sea` and `story-sky` both did).
-// The door stays for an act with a zone of its own — the Seam (issue #146). Loaded ONCE and never
-// released mid-session: progress lives in ContentState either way, and `exitToTitle` clears the
-// FACTS, after which nothing gates on the resident definitions.
-const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [];
+// The Seam (issue #146) is the act the door was kept for: nothing of it is geography the world is
+// planned around, and it opens on Act 3's closing flag. Loaded ONCE and never released
+// mid-session: progress lives in ContentState either way, and `exitToTitle` clears the FACTS,
+// after which nothing gates on the resident definitions.
+const ACT_PACKAGES: readonly { flag: string; pkg: string }[] = [
+  { flag: "act-3-complete", pkg: "story-seam" },
+];
 const actPackagesLoaded = new Set<string>();
 function syncActPackages(): void {
   for (const act of ACT_PACKAGES) {

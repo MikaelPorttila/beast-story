@@ -1,0 +1,65 @@
+{
+  "id": "story-seam",
+  "version": "0.1.0",
+  "requires": [
+    "story"
+  ],
+  "meta": {
+    "title": "Act 4 — The Seam",
+    "note": "The finale of Bonds of Red (game-story.md §4, issue #146). Only the ENTRY ships today — the receiving half of the Act 3 -> Act 4 seam (issue #162) — with its ordering final and its cast reassembly, its guardian quests and the `seam` zone left to their own issues.",
+    "loading": "On `act-3-complete`, through ACT_PACKAGES in main.ts (issue #209): NOT at boot, because unlike the sea and the sky nothing of this act is part of the open world's geography — the act stages out of the Encampment, and its one new place is a zone entered in quest 5. Once loaded it stays for the session.",
+    "the-seam": "Given AND closed by npc:gain at the Encampment (core.json — an id is global and core may not depend on a package that arrives later, so his rows sit beside him). The prerequisite is the door for THIS quest; everything else in the act tests seam-known."
+  },
+  "assets": [
+    {
+      "id": "quest:seam/three-roads",
+      "schema": 1,
+      "name": {
+        "key": "quest.seam.threeRoads.name"
+      },
+      "description": {
+        "key": "quest.seam.threeRoads.desc"
+      },
+      "tags": [
+        "story",
+        "act4"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "seam",
+        "giver": "npc:gain",
+        "location": "town:encampment",
+        "prerequisites": [
+          "quest:sky/the-orrery"
+        ],
+        "_seam": "THE ACT 3 -> ACT 4 SEAM, receiving half — the campaign's only homecoming: the balloon comes back down and the whole cast is at the Encampment fire.",
+        "objectives": [
+          {
+            "key": "hear-them-out",
+            "text": {
+              "key": "quest.seam.threeRoads.obj.hearThemOut"
+            },
+            "_hear": "Gain's offer row marks it, as first-light's talk-to-gain: the fire is his."
+          },
+          {
+            "key": "choose-a-road",
+            "text": {
+              "key": "quest.seam.threeRoads.obj.chooseARoad"
+            },
+            "_stub": "Meant to be satisfied by STARTING any of the three guardian quests (issue #162), which do not exist yet and want a quest-start trigger kind. Until then Gain's turn-in row marks it in the same breath it closes — the way Vane's offer marked the boarding before the balloon flew (issue #261)."
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "flag.set",
+            "flag": "seam-known"
+          }
+        ],
+        "rewards": {
+          "xp": 500,
+          "shard": 150
+        }
+      }
+    }
+  ]
+}

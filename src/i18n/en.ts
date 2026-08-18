@@ -310,7 +310,7 @@ export const en = {
   "quest.sea.whatTheTideKept.obj.reachMawsRest": "Ride the dark water out to Maw's Rest",
   "quest.sea.whatTheTideKept.obj.defeatBrineholder": "Defeat the Brineholder",
   "quest.sea.whatTheTideKept.obj.assembleTheDevice": "Bring the components to Coil and assemble the device",
-  // ---- Act 3, Sky (issue #145). Only the entry ships today — see story-sky.json.
+  // ---- Act 3, Sky (issue #145) — see story-sky.json.
   "quest.sky.theLongAscent.name": "The Long Ascent",
   "quest.sky.theLongAscent.desc":
     "The instrument points up, steadily and stupidly. Corwin Vane says he can get you there and that you will not like it. Coil says she is coming whether you like it or not.",
@@ -339,6 +339,12 @@ export const en = {
   "quest.sky.theOrrery.obj.reachTheOrrery": "Fly to the Orrery",
   "quest.sky.theOrrery.obj.defeatChoirguard": "Defeat the Choirguard in the Orrery's open frame",
   "quest.sky.theOrrery.obj.hearVessOut": "Hear Vess out",
+  // ---- Act 4, The Seam (issue #146). Only the entry ships today — see story-seam.json.
+  "quest.seam.threeRoads.name": "Three Roads",
+  "quest.seam.threeRoads.desc":
+    "Everyone you have met is at the Encampment fire, Coil included, and they agree on exactly one thing: the three guardians have to be let go — one on the ground, one in the water, one in the air. Gain got there first, of course. Nobody is laughing about that any more.",
+  "quest.seam.threeRoads.obj.hearThemOut": "Hear them out at the Encampment fire",
+  "quest.seam.threeRoads.obj.chooseARoad": "Choose a road — land, sea or sky",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -480,6 +486,14 @@ export const en = {
     "There. Look at the wing — it was never broken, only held. That is the whole Shelf open to you now: every island the wind keeps, and the ones it does not. Ride it. Off the rim, on purpose.",
   "npc.gain.sky2.after":
     "Lanterns one way, cinders the other, and I would not tell you which first — that is the point of having wings.",
+  // THE ENCAMPMENT, AGAIN — Act 4 stages out of the fire he never left (issue #162).
+  // He was there before you came down; this time he does not make the joke.
+  "npc.gain.seam1.offer":
+    "Sit. Everyone is here — Coil too, and she has not drawn on anyone yet, so hear that as the courtesy it is. Between, Pell says. Held there by three guardians and a machine, and the three of them are what we can reach. Nobody at this fire agrees about anything else, so I will give you the one thing we do: they have to be let go, and it does not matter in what order. Ground, water, air. You have the mount for each. Choose.",
+  "npc.gain.seam1.done":
+    "Good. Do not tell me which — I would only try to get there first, and I have a feeling that trick has run out. Go on. I will keep the fire.",
+  "npc.gain.seam1.after":
+    "Three roads out of this camp, and for once I do not know the end of any of them. That is new. I find I do not mind it.",
 
   // Saltrest's boatwright, met minding Kelphold's flooded market (issue #154).
   "npc.brack.name": "Brack Tulley",
