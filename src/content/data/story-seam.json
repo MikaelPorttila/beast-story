@@ -91,6 +91,66 @@
       }
     },
     {
+      "id": "quest:seam/guardian-sea",
+      "schema": 1,
+      "name": {
+        "key": "quest.seam.guardianSea.name"
+      },
+      "description": {
+        "key": "quest.seam.guardianSea.desc"
+      },
+      "tags": [
+        "story",
+        "act4"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "seam",
+        "giver": "npc:coil/kelphold",
+        "location": "town:kelphold",
+        "prerequisites": [
+          "quest:seam/three-roads"
+        ],
+        "available": {
+          "test": "flag",
+          "flag": "mount-water"
+        },
+        "_gate": "The FLAG, never the mount system (game-story.md §6): mount-water was set by quest:sea/dark-water. Coil's offer row repeats it. `location` is Kelphold, the harbour she gives it from; the fight is at Maw's Rest, a landmark the engine derives (`site: maws-rest`), which is where the compass points.",
+        "objectives": [
+          {
+            "key": "reach-maws-rest",
+            "text": {
+              "key": "quest.seam.guardianSea.obj.reachMawsRest"
+            },
+            "_stage": "Marked by the Maw's Rest stage in main.ts when the hero swims within reach of the ring — the Brineholder's own arena (issue #156), and the guardian rises in the same breath."
+          },
+          {
+            "key": "free-the-guardian",
+            "text": {
+              "key": "quest.seam.guardianSea.obj.freeTheGuardian"
+            },
+            "trigger": {
+              "kind": "enemy-killed",
+              "enemies": [
+                "enemy:guardian/sea"
+              ],
+              "site": "maws-rest"
+            }
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "flag.set",
+            "flag": "guardian-sea-freed"
+          }
+        ],
+        "rewards": {
+          "xp": 800,
+          "shard": 200
+        }
+      }
+    },
+    {
       "id": "enemy:guardian/land",
       "schema": 1,
       "name": {

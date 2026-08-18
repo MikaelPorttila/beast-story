@@ -352,6 +352,11 @@ export const en = {
     "The first of the three threads is held on the ground, out on Stonewatch's drove ground where the Bellwether fell. Ride out to it — the guardian answers a bonded pair and nothing else, so it cannot be fought on foot: stay in the saddle of the ground mount and let it go. Then tell Gain at the fire.",
   "quest.seam.guardianLand.obj.reachTheDroveGround": "Ride out to the drove ground beyond Stonewatch",
   "quest.seam.guardianLand.obj.freeTheGuardian": "Let the Land Guardian go — from the saddle of the ground mount",
+  "quest.seam.guardianSea.name": "The Sea Guardian",
+  "quest.seam.guardianSea.desc":
+    "The second thread is held under the water, in the ring at Maw's Rest where the Brineholder went down. Coil gives it from Kelphold's quay. Swim out to the ring on the water mount and stay in the saddle — the guardian answers a bonded pair and nothing else, and it will not answer a swimmer. Then tell Coil.",
+  "quest.seam.guardianSea.obj.reachMawsRest": "Ride the water mount out to the ring at Maw's Rest",
+  "quest.seam.guardianSea.obj.freeTheGuardian": "Let the Sea Guardian go — from the saddle of the water mount",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -675,6 +680,18 @@ export const en = {
     "The trench, then. Maw's Rest, where the Brineholder went down. I will be at Kelphold before you — do not tell Gain I said that. Bring the water mount; there is no floor down there for anything else.",
   "npc.coil.seam1.freed":
     "Slack. I felt it from the quay. That is one of three, and I still say hold — but I say it quieter.",
+  // The sea road (issue #164), given from her post at Kelphold: the trench is
+  // hers because the Brineholder was, and because HOLD is her word.
+  "npc.coil.seam3.offer":
+    "You came. Good — I said I would be here first and I meant it. The sea one is under the ring at Maw's Rest, where the Brineholder went down; it has held its thread since before there was a Reach, and every collared beast on this water was a strand of it. Hear the rule before you swim: it answers a PAIR. Take the water mount out and stay in the saddle — a swimmer may as well be shouting at the tide. Let it go, and then come back and tell me to my face that holding was wrong.",
+  "npc.coil.seam3.busy":
+    "The ring at Maw's Rest, on the water mount. In the saddle. I will not say it a third time.",
+  "npc.coil.seam3.done":
+    "I felt it from the quay — the whole harbour did; every rope on the water went slack at once. Two of the three, or one, depending which order you took. I still say hold. I say it quieter than I did. Go on: the sky's is Pell's, and Gain is keeping the fire.",
+  "npc.coil.seam3.noMount":
+    "The sea road wants the water mount, and you have not been taught it. Dark Water is where that is learned; come back when you can sit a swimmer.",
+  "npc.coil.seam3.after":
+    "The ring is quiet. I have stood on this quay every morning since and the water has not once turned red. I am not saying I was wrong. I am saying I noticed.",
   // Vane's piece is the view from above: the three regions are one country.
   "npc.skyPilot.seam1.greeting":
     "Never thought I would moor her at a forge-fire. She is by the gate, and she goes UP whenever you say — same as she came down. Gain first; he has been rehearsing.",

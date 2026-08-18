@@ -3845,7 +3845,21 @@ function tickRookeryStage(dt: number): void {
 // the site is the fourth anchor down the lobe, in water a swimmer can fight in.
 // Kill the Brineholder and the ring is a place again; guardian-sea (Act 4)
 // fights on the same ground, which is why the site helper knows no quest.
-const MAWS_BOSS = "brineholder";
+/** Who rises in the ring and for which quest — Act 2's boss and Act 4's guardian (issue #164), one at a time; see DROVE_STAGES. */
+const MAWS_STAGES: readonly { quest: string; reach: string; objective: string; enemy: string }[] = [
+  {
+    quest: "quest:sea/what-the-tide-kept",
+    reach: "reach-maws-rest",
+    objective: "defeat-brineholder",
+    enemy: "brineholder",
+  },
+  {
+    quest: "quest:seam/guardian-sea",
+    reach: "reach-maws-rest",
+    objective: "free-the-guardian",
+    enemy: "guardian/sea",
+  },
+];
 const MAWS_STAGE_REACH = 55;
 /** The ring's water: deep enough to dive a fight in, never the unswimmable dark. */
 const MAWS_BED_MIN = 4.2;
@@ -3893,38 +3907,40 @@ function tickMawsStage(dt: number): void {
   if (zones.id !== "overworld") {
     return;
   }
-  const asset = content.get<QuestData>("quest:sea/what-the-tide-kept");
-  if (!asset || content.state.questStatus(asset.id) !== "active") {
-    return;
-  }
-  const ring = mawsRest();
-  if (!ring) {
-    return;
-  }
-  const near = inReach(
-    ring.x,
-    ring.y,
-    ring.z,
-    player.position.x,
-    player.position.y,
-    player.position.z,
-    MAWS_STAGE_REACH,
-    30,
-    30,
-  );
-  if (!near) {
-    return;
-  }
-  // ARRIVAL: a landmark is not a town, so the stage's own reach test marks it —
-  // the same inReach rule town-arrival uses, pointed at a ring of water.
-  if (content.state.progress(asset.id, "reach-maws-rest") < 1) {
-    content.run([{ do: "progress.add", quest: asset.id, objective: "reach-maws-rest" }]);
-  }
-  if (
-    content.state.progress(asset.id, "defeat-brineholder") < 1 &&
-    !combat.enemies.some((e) => e.targetable && e.species === MAWS_BOSS)
-  ) {
-    combat.spawnOne(MAWS_BOSS, ring.x + 4, ring.z);
+  for (const stage of MAWS_STAGES) {
+    const asset = content.get<QuestData>(stage.quest);
+    if (!asset || content.state.questStatus(asset.id) !== "active") {
+      continue;
+    }
+    const ring = mawsRest();
+    if (!ring) {
+      return;
+    }
+    const near = inReach(
+      ring.x,
+      ring.y,
+      ring.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      MAWS_STAGE_REACH,
+      30,
+      30,
+    );
+    if (!near) {
+      continue;
+    }
+    // ARRIVAL: a landmark is not a town, so the stage's own reach test marks it —
+    // the same inReach rule town-arrival uses, pointed at a ring of water.
+    if (content.state.progress(asset.id, stage.reach) < 1) {
+      content.run([{ do: "progress.add", quest: asset.id, objective: stage.reach }]);
+    }
+    if (
+      content.state.progress(asset.id, stage.objective) < 1 &&
+      !combat.enemies.some((e) => e.targetable && e.species === stage.enemy)
+    ) {
+      combat.spawnOne(stage.enemy, ring.x + 4, ring.z);
+    }
   }
 }
 
