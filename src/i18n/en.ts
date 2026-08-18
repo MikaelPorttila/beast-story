@@ -339,12 +339,14 @@ export const en = {
   "quest.sky.theOrrery.obj.reachTheOrrery": "Fly to the Orrery",
   "quest.sky.theOrrery.obj.defeatChoirguard": "Defeat the Choirguard in the Orrery's open frame",
   "quest.sky.theOrrery.obj.hearVessOut": "Hear Vess out",
-  // ---- Act 4, The Seam (issue #146). Only the entry ships today — see story-seam.json.
+  // ---- Act 4, The Seam (issue #146) — see story-seam.json.
   "quest.seam.threeRoads.name": "Three Roads",
   "quest.seam.threeRoads.desc":
-    "Everyone you have met is at the Encampment fire, Coil included, and they agree on exactly one thing: the three guardians have to be let go — one on the ground, one in the water, one in the air. Gain got there first, of course. Nobody is laughing about that any more.",
-  "quest.seam.threeRoads.obj.hearThemOut": "Hear them out at the Encampment fire",
-  "quest.seam.threeRoads.obj.chooseARoad": "Choose a road — land, sea or sky",
+    "Everyone you have met is at the Encampment fire, Coil included, and they agree on exactly one thing: the three guardians have to be let go — one on the ground, one in the water, one in the air. Hear each of them out, then tell Gain you are ready. Which road first is yours to choose. Gain got there before you, of course. Nobody is laughing about that any more.",
+  "quest.seam.threeRoads.obj.hearCoil": "Hear Warden Coil out at the fire",
+  "quest.seam.threeRoads.obj.hearVane": "Hear Corwin Vane out at the fire",
+  "quest.seam.threeRoads.obj.hearPell": "Hear Mother Pell out at the fire",
+  "quest.seam.threeRoads.obj.hearTobin": "Hear Tobin Ashgrove out at the fire",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -489,7 +491,9 @@ export const en = {
   // THE ENCAMPMENT, AGAIN — Act 4 stages out of the fire he never left (issue #162).
   // He was there before you came down; this time he does not make the joke.
   "npc.gain.seam1.offer":
-    "Sit. Everyone is here — Coil too, and she has not drawn on anyone yet, so hear that as the courtesy it is. Between, Pell says. Held there by three guardians and a machine, and the three of them are what we can reach. Nobody at this fire agrees about anything else, so I will give you the one thing we do: they have to be let go, and it does not matter in what order. Ground, water, air. You have the mount for each. Choose.",
+    "Sit. Everyone is here — Coil too, and she has not drawn on anyone yet, so hear that as the courtesy it is. Between, Pell says. Held there by three guardians and a machine, and the three of them are what we can reach. Nobody at this fire agrees about anything else, so I will give you the one thing we do: they have to be let go, and it does not matter in what order. Ground, water, air. You have the mount for each. But hear the four of them first — every one has a piece I do not — and then come back to me and choose.",
+  "npc.gain.seam1.busy":
+    "Round the fire. Coil, Vane, Pell, Tobin — I will not send you down any road until you have heard the lot, and neither would you, if you were me.",
   "npc.gain.seam1.done":
     "Good. Do not tell me which — I would only try to get there first, and I have a feeling that trick has run out. Go on. I will keep the fire.",
   "npc.gain.seam1.after":
@@ -639,6 +643,42 @@ export const en = {
     "So the cities built it. I read your minutes over your shoulder — I read everything over people's shoulders. It worked, once. That is my whole case, and I notice it is also hers.",
   "npc.coil.sky5.after":
     "Between. Then it can be reached, and if it can be reached it can be held better than this. Down to the Encampment; we finish this where it started, and this time you hear me out.",
+
+  // THE FIRE (Act 4, issue #162): the four who came home, and what each says
+  // when it is finally their turn. Coil's voice is HOLD; the trench is hers.
+  "npc.coil.seam1.greeting":
+    "I came down the hard way, and I do not intend to discuss it. Gain has the floor. When he has finished with his one thing, ask me for mine.",
+  "npc.coil.seam1.hear":
+    "Hold. That is my whole case and I will make it once, at this fire, where you first saw my order and did not like it. The engine was built by people who had seen what a loose bond does, and it worked for an age. Free the guardians — yes; they are ropes, and a rope can be cut. But when the three of them hang slack, whatever they were holding is held by nothing but us. I intend to be there. So should you, with something under you that can swim.",
+  "npc.coil.seam1.after":
+    "The trench, then. Maw's Rest, where the Brineholder went down. I will be at Kelphold before you — do not tell Gain I said that. Bring the water mount; there is no floor down there for anything else.",
+  "npc.coil.seam1.freed":
+    "Slack. I felt it from the quay. That is one of three, and I still say hold — but I say it quieter.",
+  // Vane's piece is the view from above: the three regions are one country.
+  "npc.skyPilot.seam1.greeting":
+    "Never thought I would moor her at a forge-fire. She is by the gate, and she goes UP whenever you say — same as she came down. Gain first; he has been rehearsing.",
+  "npc.skyPilot.seam1.hear":
+    "I will not argue about what to do with it — I fly the thing. But hear this from the one who has seen all three from above: the ground, the reef and the Shelf are one country, and the seam runs through the middle of it. When Pell says between, she means somewhere I could not fly to on the best day I ever had. So free the guardians, and while you do, ride everything they gave you. You will need the practice.",
+  "npc.skyPilot.seam1.after":
+    "The balloon runs both ways from here. Sky when you want it; I will be at the mooring.",
+  // Pell names the guardians and where each stands — the act's map, said aloud.
+  "npc.skyGardener.seam1.greeting":
+    "Thin soil down here too, child; it only pretends otherwise. Let Gain speak. He has earned one uninterrupted sentence.",
+  "npc.skyGardener.seam1.hear":
+    "Between. I said it in the garden and I will say it plain now, because we are all here: the first bond is held between the land, the sea and the sky by three guardians on three threads, and every red thread you have cut was a strand of one of theirs. Let them go — the ground one on Stonewatch's drove ground, the sea one in the trench at Maw's Rest, the sky one in my own Orrery frame — and the Seam opens. What is in it is not a monster, and it is not innocent. When you have three slack threads, come and find me. I am the only one who can name it.",
+  "npc.skyGardener.seam1.after":
+    "The Orrery, when you want the sky's. The frame has no floor; bring wings. And go gently at all three — they were guardians before they were anyone's ropes.",
+  "npc.skyGardener.seam1.freed":
+    "The frame is quiet. I felt the thread go from here — one of three. Land and sea, child, and then come and find me.",
+  // Tobin has no argument, only the lamps.
+  "npc.skyLamplighter.seam1.greeting":
+    "Came down to see my sister and stopped at Gain's fire on the way. Ten years of rim after dark and I had forgotten what warm was. He is about to say something important; let him.",
+  "npc.skyLamplighter.seam1.hear":
+    "I have no argument, only the lamps. Every gallery I lit was dimming the engine's overflow, and every one of you talking about cutting or holding is talking about whether I light them tomorrow. So I will say the small thing: whatever you choose at the end, choose it with the three of them free. Nobody should be a rope. I have lit lamps to hide one.",
+  "npc.skyLamplighter.seam1.after":
+    "Go on, then. I am staying down a while — the lamps can keep themselves for a season. Stonewatch is where the ground one waits; tell it a lamplighter says sorry for the light.",
+  "npc.skyLamplighter.seam1.freed":
+    "The drove ground went quiet — I heard it from the mill road. One of three. Mera says to tell you the herd is grazing again.",
 
   // ---- beast species -------------------------------------------------------
   // Keyed by the species id in src/beasts/species/*.ts. The id is what the roster,

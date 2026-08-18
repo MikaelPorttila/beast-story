@@ -129,6 +129,9 @@ const SOLO = new Set([
   // Act 3's fork and closer: oil, two guardians and a record, all on decks the
   // hero is teleported between — presses, spawns and motion.
   "orrery",
+  // Act 4's opener (issue #162): stages Act 3 done, watches the cast arrive at
+  // the fire, and talks the four of them through — presses, teleports, state.
+  "three-roads",
   // The vent under Cinderhelm (issue #265): crosses a gateway that RIDES a deck,
   // both ways, and reads where the hero lands — a crossing's wall clock and motion.
   "vent",

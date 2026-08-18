@@ -44,7 +44,8 @@ export type ObjectiveTriggerKind =
   | "zone-arrival"
   | "waypoint-lit"
   | "escort"
-  | "ride";
+  | "ride"
+  | "npc-talk";
 
 const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "orb-thrown",
@@ -57,6 +58,7 @@ const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
   "waypoint-lit",
   "escort",
   "ride",
+  "npc-talk",
 ];
 
 /**
@@ -74,7 +76,7 @@ export interface ObjectiveTrigger {
   readonly zone?: string;
   /** A derived standing-stone id — not a content ref, because roads site these. */
   readonly waypoint?: string;
-  /** On `escort`: WHO is walked. The `escort.start` action names the same id. */
+  /** On `escort`: WHO is walked (the `escort.start` action names the same id). On `npc-talk`: who was heard. */
   readonly npc?: ContentId;
   /**
    * A STAGED SITE the engine derives and content cannot place — the wreck, the

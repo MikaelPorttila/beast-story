@@ -3007,6 +3007,17 @@ content.state.onChange((change) => {
 content.onDefinitionsChange(refreshQuests);
 refreshQuests();
 
+// WHO STANDS IN A TOWN IS A CONTENT FACT TOO (issue #162): a package that loads mid-session brings
+// people with it, and `NpcData.present` lets one arrive on a flag and leave on another. Same two
+// doors as the quests above; the field compares before it moves anyone.
+content.state.onChange((change) => {
+  if (change.kind === "flag" || change.kind === "quest" || change.kind === "reset") {
+    world.npcs?.reconcile();
+  }
+});
+content.onDefinitionsChange(() => world.npcs?.reconcile());
+world.npcs?.reconcile();
+
 // What makes a quest MOVE — game-story.md §7, issue #143. `id` is whatever the kind identifies, absent for a kind that identifies nothing.
 interface QuestFact {
   readonly kind: ObjectiveTriggerKind;
@@ -3063,7 +3074,11 @@ function advanceObjectives(fact: QuestFact): void {
       ) {
         continue;
       }
-      if (fact.kind === "escort" && trigger.npc !== undefined && trigger.npc !== fact.id) {
+      if (
+        (fact.kind === "escort" || fact.kind === "npc-talk") &&
+        trigger.npc !== undefined &&
+        trigger.npc !== fact.id
+      ) {
         continue;
       }
       if (fact.kind === "ride" && trigger.site !== undefined && trigger.site !== fact.id) {
@@ -6672,7 +6687,10 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       if (npcField?.talking) {
         npcField.endTalk();
       } else if (nearNpc) {
-        npcField?.talk(nearNpc.id);
+        // The row's own actions run first (an offer may START the quest the fact is for), then the fact.
+        if (npcField?.talk(nearNpc.id)) {
+          advanceObjectives({ kind: "npc-talk", id: `npc:${nearNpc.id}` });
+        }
       } else if (nearShop) {
         tryOpenShop();
       } else if (nearLamp && bag.count(OIL_ITEM) > 0) {

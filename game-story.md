@@ -441,8 +441,14 @@ mount is not optional.
 
 **1 · Three Roads.** Everyone the player has met is at the Encampment fire, including
 Coil, and they do not agree about anything except that the three guardians have to be
-let go. Objectives: `hear-them-out`, `choose-a-road` (×1 — starting any of 2–4 satisfies
-it). `onComplete`: `flag.set seam-known`. Rewards 500 xp, 150 shard.
+let go. Objectives: `hear-coil`, `hear-vane`, `hear-pell`, `hear-tobin` — one per voice
+at the fire, each an `npc-talk` trigger on that character's Encampment placement
+(`npc:coil/encampment` and so on, `present` on `act-3-complete`, standing `atFocus`).
+Gain closes it once all four are heard. `onComplete`: `flag.set seam-known`. Rewards
+500 xp, 150 shard. _The `choose-a-road` objective this document first specified was
+dropped when the quest was built (issue #162): quests 2–4 name this one as a
+prerequisite, and a prerequisite means completed, so an objective satisfied by starting
+one of them could never tick. The fork itself is the choice._
 
 **2 · The Land Guardian.** `enemy:guardian/land` on Stonewatch's drove ground, where
 the Bellwether died. Ground mount. `onComplete`: `flag.set guardian-land-freed`.
@@ -589,7 +595,8 @@ as much as the list: the top group blocks every quest, the bottom group blocks o
   in `main.ts` joins the engine's events to it — so a kind is engine work and a quest
   that uses one is data. `orb-thrown` is wired; `tamed`, `enemy-killed`, `item-picked`,
   `town-arrival` and `zone-arrival` are declared and land with the quests that need
-  them (#148 – #151).
+  them (#148 – #151). `npc-talk` (issue #162) counts hearing a named character out,
+  and puts the target ring over him for free.
 - **`mount.unlock`** action (`kind: 'ground' | 'water' | 'flying'`), plus a mount gate
   that reads it — with #149.
 - **`discover`-on-arrival**: the action exists; nothing calls it when a player walks

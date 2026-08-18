@@ -24,7 +24,7 @@
 //      and the frame outlives its boss: re-enterable, nothing respawns.
 //   5. THE SEAM RECEIVES (issue #162): act-3-complete loads `story-seam`,
 //      Three Roads is the one main quest offered, and Gain back at the
-//      Encampment offers and closes it — seam-known set, 150 paid.
+//      Encampment offers it. The fire itself is test-three-roads' claim.
 //
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from "./browser.mjs";
@@ -495,27 +495,19 @@ await adv(0.3);
     `the act closed with its own quests still on the shelf: ${JSON.stringify(skyLeft)}`,
   );
 
-  // And the receiving half plays: back down at the Encampment, Gain offers it
-  // (hear-them-out is his) and closes it — seam-known set, 150 paid.
+  // And the receiving half plays: back down at the Encampment, Gain offers it.
+  // Hearing the four out and closing it is test-three-roads' claim.
   const Q1 = "quest:seam/three-roads";
   await dbg(() => {
     const s = window.__dbgTowns().spawn;
     window.__dbgTp(s.x, s.z);
   });
   await streamed();
-  const before = await shards();
   const offer = await talkTo("gain");
-  const started = await facts(Q1, ["hear-them-out", "choose-a-road"], []);
+  const started = await facts(Q1, [], []);
+  results.threeRoads = { offer, ...started };
   check(offer !== null, "Gain has no Three Roads offer at the fire");
   check(started.status === "active", `Gain's offer left Three Roads "${started.status}"`);
-  check(started["hear-them-out"] >= 1, "hear-them-out was not marked by the offer");
-  const done = await talkTo("gain");
-  const closed = await facts(Q1, ["choose-a-road"], ["seam-known"]);
-  const paid = (await shards()) - before;
-  results.threeRoads = { offer, done, ...closed, paid };
-  check(closed.status === "completed", `Gain's turn-in left Three Roads "${closed.status}"`);
-  check(closed["seam-known"] === true, "seam-known was not set — Act 4 has no key");
-  check(paid === 150, `Three Roads paid ${paid}, not the promised 150`);
 }
 
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));
