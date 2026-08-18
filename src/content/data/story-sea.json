@@ -293,8 +293,57 @@
         "body": "coil",
         "homeOffset": 6,
         "acrossFocus": false,
-        "_role": "The rival, already here (game-story.md §2). Her case — a leashed beast hurts nobody — lands once the player has seen the collared guardian; her act-closer rows stand above it, and her Act 4 gate (guardian-sea, on mount-water) stacks above these later.",
+        "_role": "The rival, already here (game-story.md §2). Her case — a leashed beast hurts nobody — lands once the player has seen the collared guardian; her act-closer rows stand above it, and her Act 4 gate (guardian-sea, on mount-water) stacks above those.",
         "talk": [
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/guardian-sea", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:seam/guardian-sea",
+                  "objective": "free-the-guardian"
+                }
+              ]
+            },
+            "line": { "key": "npc.coil.seam3.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:seam/guardian-sea" }]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:seam/guardian-sea", "status": "active" },
+            "line": { "key": "npc.coil.seam3.busy" }
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/three-roads", "status": "completed" },
+                { "test": "flag", "flag": "mount-water" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:seam/guardian-sea", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:seam/guardian-sea", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.coil.seam3.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:seam/guardian-sea" }],
+            "_gate": "The sea road (issue #164): three-roads done and the water mount's FLAG — repeated here as every offer row repeats its quest's door. Same woman as the fire's placement (story-seam.json); this is her post."
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/three-roads", "status": "completed" },
+                { "not": { "test": "flag", "flag": "mount-water" } },
+                { "test": "quest", "quest": "quest:seam/guardian-sea", "status": "unknown" }
+              ]
+            },
+            "line": { "key": "npc.coil.seam3.noMount" }
+          },
+          {
+            "when": { "test": "flag", "flag": "guardian-sea-freed" },
+            "line": { "key": "npc.coil.seam3.after" }
+          },
           {
             "when": {
               "all": [
