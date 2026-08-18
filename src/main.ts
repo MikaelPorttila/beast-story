@@ -102,6 +102,7 @@ import {
 } from "./world/town-parts";
 import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./world/nature";
 import { CINDER_VENT, SUNKEN_HOLD, createDungeon, dungeonFloorSpot } from "./world/dungeon";
+import { createSeam, seamSites } from "./world/seam";
 import { Ferry, type FerryStop } from "./world/ferry";
 import { ShardCluster } from "./world/sky-shards";
 import { SURFACE_Y } from "./world/water";
@@ -147,6 +148,7 @@ import {
   type JournalModel,
   type JournalTab,
 } from "./ui/journal";
+import { ChoicePanel } from "./ui/choice";
 import { entryIconHtml, type TipContent } from "./ui/tooltip";
 import { FLAG_ICON, QUEST_STAR_ICON } from "./ui/icons";
 import { MapPanel, type MapTerrain } from "./ui/map";
@@ -425,6 +427,7 @@ function exitToTitle(): void {
   refreshOrbHud();
   inventory.close();
   journal.close();
+  choice.close();
   map.close();
   // The flag is the character's, and the chip goes with it.
   setPlayerMarker(null);
@@ -908,6 +911,21 @@ content.defineAction("mount.unlock", (params) => {
   mountUnlocks.set(kind, true);
   bus.emit({ type: "toast", text: t(MOUNT_UNLOCK_KEYS[kind]) });
 });
+// THE ENDING (issue #166): exactly one of three flags, enforced HERE where the choice is applied and
+// nowhere else — the panel shows words, the content names an ending, and this handler is the only writer
+// of the three, so two set at once is impossible by construction. Reading the outcome anywhere else
+// reads the flag: never a counter, never `arc`, never quests completed.
+const ENDINGS = ["severed", "held", "shared"] as const;
+content.defineAction("ending.set", (params) => {
+  const ending = ENDINGS.find((e) => e === params.ending);
+  if (ending === undefined) {
+    return;
+  }
+  content.run(
+    ENDINGS.filter((e) => e !== ending).map((e) => ({ do: "flag.clear", flag: `ending-${e}` })),
+  );
+  content.run([{ do: "flag.set", flag: `ending-${ending}` }]);
+});
 // THE ESCORT SEAM (issue #234). The action names WHO walks; WHERE TO lives on the
 // quest objective's own `escort` trigger (a `site` or a `town`), so the walk and
 // the objective it completes cannot disagree about the destination. The engine
@@ -1072,6 +1090,17 @@ content.state.onChange((change) => {
 });
 syncActPackages();
 
+// The Seam opening is a BEAT: the third thread going slack is told once, from the flag that did it.
+let seamAnnounced = false;
+content.state.onChange((change) => {
+  if (change.kind === "reset") {
+    seamAnnounced = false;
+  } else if (change.kind === "flag" && !seamAnnounced && seamOpen()) {
+    seamAnnounced = true;
+    bus.emit({ type: "toast", text: t("toast.seamOpened") });
+  }
+});
+
 // Derived from content facts, never pushed by quest actions, so a load recomputes the same answer.
 let reportedTimeConflict = "";
 const refreshQuestTime = (): void => {
@@ -1135,16 +1164,27 @@ const GATE_PROBES: ReadonlyArray<readonly [number, number]> = [
 // In preference order. The lower bound is load-bearing — the preload band is 30 wide, so anything
 // closer builds the dungeon at boot — and 150+ makes the arch somewhere you SET OUT for.
 const GATE_RADII = [170, 195, 150, 210] as const;
+/**
+ * The Seam's arch (issue #166): CLOSER than the Hold's — the act stages out of the
+ * Encampment and the arch is part of that view — on level ground the same scoring
+ * finds, at a bearing of its own so the two never share a hillside.
+ */
+const SEAM_RADII = [70, 85, 60, 100] as const;
+const SEAM_PHASE = 3.6;
 
 // Where the overworld's gateway stands: scored on level, dry ground clear of the dens and towns — half an arch
 // buried in a hillside reads as a bug rather than a landmark.
-function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
+function findGateSpot(
+  w: LandmarkProbe,
+  radii: readonly number[] = GATE_RADII,
+  phase = 0.9,
+): { x: number; z: number } {
   const base = w.spawnPoint;
-  let best = { x: base.x + GATE_RADII[0] + 0.5, z: base.z + 0.5 };
+  let best = { x: base.x + radii[0] + 0.5, z: base.z + 0.5 };
   let bestScore = Infinity;
-  for (const radius of GATE_RADII) {
+  for (const radius of radii) {
     for (let k = 0; k < 16; k++) {
-      const a = (k / 16) * Math.PI * 2 + 0.9;
+      const a = (k / 16) * Math.PI * 2 + phase;
       const x = Math.round(base.x + Math.cos(a) * radius) + 0.5;
       const z = Math.round(base.z + Math.sin(a) * radius) + 0.5;
       const h = w.getHeight(x, z);
@@ -1311,6 +1351,12 @@ function findPierSpot(w: LandmarkProbe): { x: number; z: number } {
 // Chosen inside createWorld (so the terrain can be flattened and props kept off) and read back by `gates` and the ferry; a handoff rather than two scans that could disagree.
 let gateSite: { x: number; z: number } | null = null;
 let pierSite: { x: number; z: number } | null = null;
+let seamGateSite: { x: number; z: number } | null = null;
+/** THE PLAYER OPENS IT: three slack threads, tested as flags every slice by the arch itself. */
+const seamOpen = (): boolean =>
+  content.state.flag("guardian-land-freed") &&
+  content.state.flag("guardian-sea-freed") &&
+  content.state.flag("guardian-sky-freed");
 
 // The zone id is the identity; only `name` is display, and a GETTER because the language can change after these are built.
 const OVERWORLD: ZoneDef = {
@@ -1325,16 +1371,20 @@ const OVERWORLD: ZoneDef = {
       (probe) => {
         gateSite = findGateSpot(probe);
         pierSite = findPierSpot(probe);
+        seamGateSite = findGateSpot(probe, SEAM_RADII, SEAM_PHASE);
         // Both landmarks ask for a keep-out: an animal spawning beside a player held at the threshold by a preload is an ambush the game arranged.
         return [
           { ...gateSite, id: "landmark:gateway", noSpawnRadius: 12 },
           { ...pierSite, id: "landmark:pier", noSpawnRadius: 12 },
+          { ...seamGateSite, id: "landmark:the-seam", noSpawnRadius: 12 },
         ];
       },
       Number(storedGfx("terrainDistance")),
     ),
   gates: (w) => [
     { to: "hold", x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff },
+    // The one arch the player OPENS (issue #166): stone until the three guardians' threads hang slack.
+    { to: "seam", x: seamGateSite!.x, z: seamGateSite!.z, hex: 0xff3b3b, open: seamOpen },
     // A carried town's shaft is an arch ON ITS DECK (issue #265): frame-local, re-placed
     // every slice by the zone manager. The town's data names the zone it opens on.
     ...w.descents.map((d) => ({ to: d.to, x: d.x, z: d.z, y: d.y, frame: d.frame, hex: 0xff8a4a })),
@@ -1365,6 +1415,18 @@ const VENT: ZoneDef = {
   keepReturn: true,
 };
 
+// THE SEAM (game-story.md §4): Act 4's arena, `landmark:the-seam`. The way in is the
+// player-opened gateway; the way back is the arch on the gate spot, the thread's red.
+const SEAM: ZoneDef = {
+  id: "seam",
+  get name() {
+    return t("zone.seam.name");
+  },
+  create: (scene) => createSeam(scene),
+  gates: (w) => [{ to: "overworld", x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xff3b3b }],
+  keepReturn: true,
+};
+
 /** Everything that captured a World at construction; rebound on every switch. */
 const bound: WorldBound[] = [];
 /** Set by the zone manager each slice; consumed by the HUD hint below. */
@@ -1372,10 +1434,11 @@ let portalHint: string | null = null;
 
 // Hoisted: `t(key, vars)` allocates and the loop shows this every frame near a den. `composeKeyHints()` is the one writer.
 let skillDenHint = "";
+let decideHint = "";
 
 const zones = new ZoneManager({
   scene: engine.scene,
-  zones: [OVERWORLD, HOLD, VENT],
+  zones: [OVERWORLD, HOLD, VENT, SEAM],
   start: "overworld",
   bind: bound,
   warm: (stage, lights) => warmUpFrame(stage, lights),
@@ -2602,6 +2665,20 @@ function questTrackRows(): QuestTrackRow[] {
     }));
 }
 
+// THE CHOICE PANEL (issue #166): the campaign's `decide` objective. Owns the screen while it is up;
+// what a pick MEANS is `openDecide` below — the choice's own content actions, then the fact.
+const choice = new ChoicePanel({
+  onOpen: () => input.releaseLock(),
+  onClose: (by) => {
+    if (isTouchPrimary()) {
+      return;
+    }
+    if (by !== "escape" || escapeIsLocked()) {
+      input.requestLock();
+    }
+  },
+});
+
 const journal = new JournalPanel({
   model: journalModel,
   onToggleHud: (id) => {
@@ -3093,6 +3170,7 @@ function advanceObjectives(fact: QuestFact): void {
       if (fact.kind === "ride" && trigger.site !== undefined && trigger.site !== fact.id) {
         continue;
       }
+      // `decide` filters on nothing: the objective IS the decision, whichever answer it was.
       // `zone` ON ANY OTHER KIND IS WHERE IT HAPPENED, not what it identifies — the one filter that is
       // about the fact's PLACE rather than its subject. It is what separates "bond a beast" (quest 2,
       // true anywhere) from "free the one held down in the Hold" (quest 4) with no second trigger kind.
@@ -4161,6 +4239,113 @@ const ORRERY_STAGES: readonly (readonly [string, string, string])[] = [
   ["quest:seam/guardian-sky", "free-the-guardian", "guardian/sky"],
 ];
 
+// THE SEAM (issue #166) — the finale's arena, staged the way every other fight is: a quest that is
+// active, a place, and something stood up. Rhune stands up on the meadow when the hero arrives; its
+// phases (content, `enemy:rhune`) change what it answers, and this stage moves it to the sector of
+// each — the tide, then the cloud deck — because the arena is the one thing the enemy cannot know.
+// After it, THE LEVER: E at the engine opens the choice panel with the quest's own `choices`.
+const SEAM_QUEST = "quest:seam/the-first-bond";
+const SEAM_BOSS = "rhune";
+/** How close to the lever the hero must stand for the prompt; a cylinder, like every reach. */
+const DECIDE_REACH = 3.2;
+const DECIDE_RISE = 2.5;
+let seamStagePollIn = 0;
+let nearDecide = false;
+
+function tickSeamStage(dt: number): void {
+  seamStagePollIn -= dt;
+  if (seamStagePollIn > 0) {
+    return;
+  }
+  seamStagePollIn = PRACTICE_POLL;
+  if (zones.id !== "seam") {
+    return;
+  }
+  const asset = content.get<QuestData>(SEAM_QUEST);
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  if (
+    content.state.progress(asset.id, "defeat-rhune") < 1 &&
+    !combat.enemies.some((e) => e.targetable && e.species === SEAM_BOSS)
+  ) {
+    const s = seamSites().land;
+    combat.spawnOne(SEAM_BOSS, s.x, s.z);
+  }
+}
+
+/** Per slice, cheap: one reach test against a derived spot. Only with Rhune down and the decision owed. */
+function syncNearDecide(): void {
+  nearDecide = false;
+  if (zones.id !== "seam" || choice.isOpen) {
+    return;
+  }
+  const asset = content.get<QuestData>(SEAM_QUEST);
+  if (
+    !asset ||
+    content.state.questStatus(asset.id) !== "active" ||
+    content.state.progress(asset.id, "defeat-rhune") < 1 ||
+    content.state.progress(asset.id, "decide") >= 1
+  ) {
+    return;
+  }
+  const s = seamSites().engine;
+  nearDecide = inReach(
+    s.x,
+    s.y,
+    s.z,
+    player.position.x,
+    player.position.y,
+    player.position.z,
+    DECIDE_REACH,
+    DECIDE_RISE,
+  );
+}
+
+/** The panel is handed the objective's choices as words; a pick runs that choice's actions, then counts. */
+function openDecide(): void {
+  const asset = content.get<QuestData>(SEAM_QUEST);
+  const objective = asset?.data.objectives.find((o) => o.trigger?.kind === "decide");
+  if (!asset || !objective?.choices) {
+    return;
+  }
+  choice.open(
+    t("choice.decide.title"),
+    objective.choices.map((c) => ({
+      id: c.id,
+      label: resolveText(c.text),
+      detail: c.detail ? resolveText(c.detail) : undefined,
+    })),
+    (id) => {
+      const picked = objective.choices?.find((c) => c.id === id);
+      if (!picked) {
+        return;
+      }
+      content.run(picked.actions ?? []);
+      advanceObjectives({ kind: "decide", id });
+    },
+  );
+}
+
+/** Rhune's element changes with its phase; the arena's sector for it is the stage's to know. */
+bus.on((e) => {
+  if (e.type !== "enemyPhase" || e.species !== SEAM_BOSS || zones.id !== "seam") {
+    return;
+  }
+  const rhune = combat.enemies.find((x) => x.species === SEAM_BOSS && x.targetable);
+  if (!rhune) {
+    return;
+  }
+  const sites = seamSites();
+  if (e.bond === "water") {
+    rhune.relocate(sites.sea.x, world.waterLevel - 1.6, sites.sea.z);
+    bus.emit({ type: "toast", text: t("toast.rhune.tide") });
+  } else if (e.bond === "flying") {
+    rhune.relocate(sites.sky.x, sites.sky.y + 3.4, sites.sky.z);
+    bus.emit({ type: "toast", text: t("toast.rhune.air") });
+  }
+});
+
 // THE SHARDS' WILDS (issue #271). A cluster the hero is UP AT — within its reach and
 // its own height band, not on the ground under it — keeps `wilds` sky beasts on its
 // turf, rolled from `biome:sky`'s table, counted inside the cluster's cylinder and
@@ -4960,16 +5145,19 @@ const degShortest = (r: number): number => deg(shortest(r));
 // counted next slice, which is what a probe must advance for.
 (
   window as unknown as {
-    __dbgKillEnemy: (species: string) => unknown;
+    __dbgKillEnemy: (species: string, toFraction?: number) => unknown;
   }
-).__dbgKillEnemy = (species) => {
+).__dbgKillEnemy = (species, toFraction) => {
   const e = nearestEnemyOfSpecies(species);
   if (!e) {
     return { ok: false, why: `no live "${species}" nearby` };
   }
   _hurtFrom.set(e.position.x, e.position.y, e.position.z - 1);
-  e.takeDamage(e.maxHp * 4, _hurtFrom);
-  return { ok: true, id: e.root.id, species, hp: e.hp, dead: e.isDead };
+  // `toFraction` HURTS rather than kills — down to that share of max, through the real path, so a
+  // phased boss (issue #166) can be walked through its phases by a probe.
+  const amount = toFraction === undefined ? e.maxHp * 4 : Math.max(0, e.hp - e.maxHp * toFraction);
+  e.takeDamage(amount, _hurtFrom);
+  return { ok: true, id: e.root.id, species, hp: e.hp, dead: e.isDead, bond: e.bond, stage: e.stage };
 };
 
 (
@@ -5104,13 +5292,12 @@ const refitHero = (): void => {
   player.velocity.set(0, 0, 0);
 };
 
-// THE TRAIL TO THE GATEWAY — issue #142's third profile doing real work: narrow, no lamps, no bridging.
-// Laid through `World.addPath` because the gate's spot is chosen from the FINISHED world and cannot be
-// known inside `planSettlements`; the rebuild is nine chunks at boot.
-{
-  // Read through a call: `gateSite` IS set by now, but flow analysis narrows it to null. `as` would say "trust me" about the one thing worth checking.
-  const gate = ((): { x: number; z: number } | null => gateSite)();
-  if (gate !== null) {
+// THE TRAIL TO A GATEWAY — issue #142's third profile doing real work: narrow, no lamps, no bridging.
+// Laid through `World.addPath` because a gate's spot is chosen from the FINISHED world and cannot be
+// known inside `planSettlements`; the rebuild is nine chunks at boot. Two arches get one each — the
+// Hold's and the Seam's (issue #166) — because a landmark you are sent to has a way to it.
+function layGatewayTrail(gate: { x: number; z: number }): void {
+  {
     // IT LEAVES THE ROAD AT THE NEAREST POINT TO THE GATE: from the spawn it would cross whatever
     // carriageway is in the way (issue #45), and this reads better besides. And not from INSIDE a town —
     // the nearest road point is the end of a spur, so the trail set off through the middle of Stonewatch.
@@ -5168,12 +5355,24 @@ const refitHero = (): void => {
     }
   }
 }
+// Read through calls: both ARE set by now, but flow analysis narrows them to null, and `as` would
+// say "trust me" about the one thing worth checking.
+for (const gate of [gateSite, seamGateSite].map((g) => ((): { x: number; z: number } | null => g)())) {
+  if (gate !== null) {
+    layGatewayTrail(gate);
+  }
+}
 
 // THE ONE WAY TO MOVE THE HERO ACROSS THE WORLD — the saddle first (while
 // mounted his position is rewritten from the mount every slice, so setting the
 // fields alone was a teleport that did nothing), then the ground that is there
 // NOW. The map's waystone travel and `__dbgTp` share it.
 function teleportTo(x: number, z: number, y?: number): void {
+  // LOUD, not silent: a non-finite coordinate here writes `undefined` into the hero's position and the
+  // next probe reads `toFixed` of undefined three calls later, far from the cause.
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    throw new Error(`teleportTo(${x}, ${z}, ${y}): not a place`);
+  }
   mount.teleport(x, z, y);
   player.position.x = x;
   player.position.z = z;
@@ -5747,6 +5946,7 @@ function updateCursorMode(): void {
     hud.isControlsOpen() ||
     inventory.isOpen ||
     journal.isOpen ||
+    choice.isOpen ||
     map.isOpen;
   const want = altHeld || (menuUp && input.lastSource === "kbm");
   if (want === cursorFree) {
@@ -6490,6 +6690,7 @@ function composeKeyHints(): void {
   const key = hud.interactPrompt;
   skillDenHint = t("hint.skillDen", { key });
   lampPourHint = t("hint.lampPour", { key });
+  decideHint = t("hint.decide", { key });
   dialogueFoot = t("npc.dialogue.close", { key });
   npcHints.clear();
 }
@@ -6581,11 +6782,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     pauseMenu.isOpen ||
     inventory.isOpen ||
     journal.isOpen ||
+    choice.isOpen ||
     map.isOpen ||
     !!devConsole?.isOpen ||
     perfPanel.isTyping;
   nearShop = false;
   nearNpc = null;
+  nearDecide = false;
 
   // THE SAVE CLOCK IS GAME TIME, and above the modal branch: a player reading the controls sheet has not stopped playing. On the slice, so `__dbgAdvance` drives it.
   tickAutosave(dt);
@@ -6600,6 +6803,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickMawsStage(dt);
   tickWingStage(dt);
   tickDeckStages(dt);
+  tickSeamStage(dt);
+  syncNearDecide();
   tickShardWilds(dt);
   tickWaypoints(dt);
   // Where he has been, for the map's fog: cheap until he crosses a cell.
@@ -6757,6 +6962,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
         tryOpenShop();
       } else if (nearLamp && bag.count(OIL_ITEM) > 0) {
         pourOil(nearLamp);
+      } else if (nearDecide) {
+        openDecide();
       } else {
         // LAST, and each refuses the press itself when the hero is not standing on
         // its own pad — the pier and the arch stand in open country, so they must
@@ -6798,6 +7005,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
           pauseMenu.onEscape();
         } else {
           pauseMenu.activate(input.lastSource === "gamepad");
+        }
+      } else if (choice.isOpen) {
+        // A dismissal is not an answer: the engine waits, and E at the lever asks again.
+        if (cancel) {
+          choice.onEscape();
+        } else {
+          choice.activate();
         }
       } else if (inventory.isOpen) {
         // Same shape as the menu: cancel asks the panel to spend the press, X (KeyE on the pad) confirms the
@@ -6900,7 +7114,9 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
           ? bag.count(OIL_ITEM) > 0
             ? lampPourHint
             : t("hint.lampNeedsOil")
-          : pierOffer
+          : nearDecide
+            ? decideHint
+            : pierOffer
             ? t(pierOffer.ride === balloon ? "hint.balloon" : "hint.ferry", {
                 place: t(pierOffer.to.nameKey),
                 key: hud.interactPrompt,
@@ -6955,6 +7171,7 @@ function frame(): void {
     pauseMenu.isOpen ||
     inventory.isOpen ||
     journal.isOpen ||
+    choice.isOpen ||
     map.isOpen ||
     perfPanel.isTyping;
   // A modal does not turn the camera, and the controls sheet keeps pointer lock, so unlike the shop it
@@ -8569,6 +8786,8 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
 // from Stonewatch's own gate — so a probe walks to whatever the game chose instead of keeping a second
 // copy of the arithmetic that put it there.
 (window as unknown as { __dbgQuestSites: () => unknown }).__dbgQuestSites = () => ({
+  theSeam: seamGateSite,
+  seamArena: zones.id === "seam" ? seamSites() : null,
   holdFloor: dungeonFloorSpot(SUNKEN_HOLD),
   ventFloor: dungeonFloorSpot(CINDER_VENT),
   droveGround: droveGround(),
@@ -8716,6 +8935,9 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
       rigHeight: e.rigHeight === null ? null : +e.rigHeight.toFixed(2),
       /** Inside a taming orb right now. See `Enemy.setHeld`. */
       held: e.held,
+      // The bond it answers and the phase it is in (issues #163, #166); null / -1 for the unbonded.
+      bond: e.bond,
+      stage: e.stage,
     })),
   };
 };

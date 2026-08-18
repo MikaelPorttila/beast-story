@@ -47,6 +47,8 @@ export interface EnemyCtx {
     fromY: number,
     fromZ: number,
   ): void;
+  /** A phased enemy crossed into another phase (issue #166): its bond has already changed. */
+  phase?(enemy: Enemy, index: number): void;
 }
 
 export function variantForHeight(dh: number): number {
@@ -286,8 +288,10 @@ export class Enemy implements Damageable {
   readonly behaviour: string;
   /** On the instance, so taming.ts needs nothing but an `Enemy`. */
   readonly capture: EnemyCapture | null;
-  /** The mount kind that can hurt it, and the element it moves in. See `EnemyData.bond`. */
-  readonly bond: MountKind | null;
+  /** The mount kind that can hurt it, and the element it moves in. See `EnemyData.bond`; a phased enemy re-writes it. */
+  bond: MountKind | null;
+  /** Which of `EnemyData.phases` it is in, or -1 for an enemy without phases. See `updatePhase`. */
+  stage = -1;
   /** The species that got built, and the payout for bonding it. */
   readonly beastSpecies: BeastSpecies | null;
   private readonly beastRig: BeastRig | null;
@@ -400,7 +404,7 @@ export class Enemy implements Damageable {
     this.rigRadius = body.beast?.rig.radius ?? null;
     this.rigHeight = body.beast?.rig.height ?? null;
     this.capture = spec.capture;
-    this.bond = stats.bond ?? null;
+    this.bond = stats.bond ?? stats.phases?.[0]?.bond ?? null;
 
     this.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -587,6 +591,7 @@ export class Enemy implements Damageable {
     }
     this.retarget(ctx);
     this.atkCd -= dt;
+    this.updatePhase(ctx);
 
     // A BEAST BODY FIRST: the tests below are on a species ID, so the `else`
     // would send a wild Sproutle into Peckit's dive.
@@ -629,6 +634,44 @@ export class Enemy implements Damageable {
       this.drawBar();
       this.barSprite.visible = this.hp < this.maxHp;
     }
+  }
+
+  /**
+   * The phase its health puts it in — the last row whose `hp` fraction is still
+   * at or above the enemy's own — and, on a change, the bond that row names.
+   * Downward only: health does not come back, so neither does a phase.
+   */
+  private updatePhase(ctx: EnemyCtx): void {
+    const phases = speciesOf(this.species)?.data.phases;
+    if (!phases) {
+      return;
+    }
+    const frac = this.hp / this.maxHp;
+    let want = 0;
+    for (let i = 1; i < phases.length; i++) {
+      if (frac <= phases[i].hp) {
+        want = i;
+      }
+    }
+    if (want <= this.stage) {
+      return;
+    }
+    this.stage = want;
+    this.bond = phases[want].bond;
+    ctx.phase?.(this, want);
+  }
+
+  /**
+   * Stand it somewhere else — a phase's own element (issue #166): position AND
+   * home, so "hold your ground" holds the new one, and the deck attachment is
+   * re-resolved from the new column.
+   */
+  relocate(x: number, y: number, z: number): void {
+    this.position.set(x, y, z);
+    this.home.set(x, y, z);
+    this.goal.copy(this.home);
+    this.knock.set(0, 0, 0);
+    this.ride.clear();
   }
 
   // Terrain, or a carrier's deck. A deck IS the ground, where a settlement is a

@@ -145,7 +145,10 @@ if (!zone0?.gate) {
   await browser.close();
   process.exit(1);
 }
-const gate = zone0.gate;
+// THE HOLD'S ARCH, by destination: the nearest arch to the spawn is the Seam's now (issue #166),
+// which is SHUT until three story flags are set and claims nobody by design — a shut pad refusing
+// a hero on it is the rule, not the height gate under test here.
+const gate = zone0.gates.find((g) => g.to === "hold") ?? zone0.gate;
 
 // ---------- 1. the zone gateway, from the air ------------------------------
 //

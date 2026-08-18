@@ -2,6 +2,7 @@ import titleUrl from "./title.webm";
 import overworldUrl from "./overworld.webm";
 import brineUrl from "./brine.webm";
 import cirrusUrl from "./cirrus.webm";
+import seamUrl from "./seam.webm";
 
 /**
  * THE MUSIC — one track at a time, faded at both ends, unloaded on the way out.
@@ -18,7 +19,9 @@ import cirrusUrl from "./cirrus.webm";
  * the RENDERER draws is still generated in code; a composed song is not
  * something a few oscillators are a cheaper version of, it is a recording, and
  * `feedback/audio.ts`'s "whatever lands here should be generated" is about the
- * cues it owns — a sword hit, a level-up — and stays true of them.
+ * cues it owns — a sword hit, a level-up — and stays true of them. (`seam.webm`
+ * IS generated — `tools/gen-seam-track.mjs` — but offline, into a file, for the
+ * same streaming reasons as the rest; the rule below is about decoded memory.)
  *
  * WHY AN <audio> ELEMENT AND NOT THE WEB AUDIO API
  *
@@ -110,6 +113,7 @@ export const MUSIC_TRACKS: Readonly<Record<string, string>> = {
   overworld: overworldUrl,
   brine: brineUrl,
   cirrus: cirrusUrl,
+  seam: seamUrl,
 };
 
 /**

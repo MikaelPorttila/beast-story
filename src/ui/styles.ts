@@ -761,6 +761,37 @@ const CSS = `
    Narrower (520 against 710) because a line of prose sets this width and a measure
    past ~60 characters gets harder to read. Full screen below 720px, which the
    inventory does not do: a 520px drawer on a 390px screen is a sheet already. */
+/* ---- the choice panel (issue #166) --------------------------------------- */
+/* A sibling of the HUD root like .bs-journal (same reset, same caps), centred:
+   one question, a short list of answers, each with its line of consequence. */
+.bs-choice{position:fixed;inset:0;z-index:41;display:flex;align-items:center;justify-content:center;
+  pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#eef2f8;user-select:none;-webkit-user-select:none}
+.bs-choice *{box-sizing:border-box;margin:0;padding:0}
+.bs-choice .bs-scrim{opacity:0;background:rgba(4,6,12,.55)}
+.bs-choice.open .bs-scrim{opacity:1}
+.bs-choice .pane{position:relative;width:min(560px,calc(100vw - 24px));padding:22px 24px 16px;
+  display:flex;flex-direction:column;gap:14px;background:var(--pane);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+  opacity:0;transform:translateY(14px);transition:opacity .24s ease,transform .3s cubic-bezier(.22,1,.36,1)}
+.bs-choice.open .pane{opacity:1;transform:translateY(0)}
+.bs-choice h2{font-size:clamp(18px,2.4vw,24px);font-weight:900;letter-spacing:.03em;line-height:1.3;
+  text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.bs-choice .opts{display:flex;flex-direction:column;gap:10px}
+.bs-choice .opt{display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left;
+  padding:12px 14px;border-radius:12px;border:1px solid var(--stroke);
+  background:rgba(255,255,255,.05);color:inherit;font:inherit;cursor:pointer;
+  transition:background .12s ease,transform .12s ease}
+.bs-choice .opt:hover,.bs-choice .opt:focus-visible{background:rgba(255,255,255,.12);outline:none}
+.bs-choice .opt:focus-visible{box-shadow:inset 0 0 0 2px #ffd23f}
+.bs-choice .opt:active{transform:translateY(1px)}
+.bs-choice .opt .n{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(255,59,59,.22);border:1px solid rgba(255,120,120,.5);font-weight:900;font-size:16px}
+.bs-choice .opt .txt{display:flex;flex-direction:column;gap:4px;min-width:0}
+.bs-choice .opt b{font-size:clamp(16px,2vw,19px);font-weight:800}
+.bs-choice .opt small{font-size:16px;line-height:1.4;opacity:.8}
+.bs-choice .foot{font-size:16px;opacity:.6;text-align:center}
 .bs-journal{position:fixed;inset:0;z-index:40;display:flex;justify-content:flex-end;
   pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;

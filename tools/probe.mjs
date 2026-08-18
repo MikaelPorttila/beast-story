@@ -141,6 +141,14 @@ const SOLO = new Set([
   // Act 4's sky road (issue #165): the guardian hovering over the Orrery's frame,
   // struck from the deck and from a flyer's saddle — a hero, decks, a mount.
   "sky-guardian",
+  // Act 4's finale (issue #166): opens the arch, crosses into the Seam for real,
+  // walks Rhune through three phases, decides, and closes the campaign — a
+  // crossing's wall clock, a hero, presses, a modal.
+  "first-bond",
+  // Act 4's arena (game-story.md §4): `/zone seam` builds and warms a fourth
+  // world, then holds W into its balustrade for four simulated seconds and
+  // reads where the hero stopped — a zone switch, a hero, a held key.
+  "seam-zone",
   // The vent under Cinderhelm (issue #265): crosses a gateway that RIDES a deck,
   // both ways, and reads where the hero lands — a crossing's wall clock and motion.
   "vent",

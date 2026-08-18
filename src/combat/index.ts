@@ -172,6 +172,12 @@ export class CombatSystem {
       time: 0,
       hit: (target, amount, element, fx, fy, fz) =>
         this.onEnemyHit(target, amount, element, fx, fy, fz),
+      phase: (enemy, index) => {
+        // Announced with a burst in the thread's red: the change is a beat, not a stat.
+        this.vfx.burst(enemy.position.x, enemy.position.y + enemy.height * 0.5, enemy.position.z, HELD_HEX, 22, 6, 0.5, 0.3, -3, 0.5);
+        this.vfx.glowPulse(enemy.position.x, enemy.position.y + enemy.height * 0.5, enemy.position.z, HELD_HEX, 3, 0.4);
+        this.bus.emit({ type: "enemyPhase", species: enemy.species, phase: index, bond: enemy.bond ?? "ground" });
+      },
     };
   }
 

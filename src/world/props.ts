@@ -617,7 +617,8 @@ function oakTreeTall(): Template {
   return bake(v, 0.48, 1, H + 1);
 }
 
-function oakTree(big: boolean): Template {
+/** Exported, with `rock` and `grassTuft`, for the Seam (world/seam.ts): Act 1's kit on a disc of its own. */
+export function oakTree(big: boolean): Template {
   const v = new VoxelModel();
   const h = big ? 15 : 13;
   trunk(v, h, 0x7a5233, big ? 0x91c3 : 0x4b12, 2, 1);
@@ -875,7 +876,7 @@ function cactus(small: boolean): Template {
   return bake(v, small ? 0.16 : 0.18);
 }
 
-function rock(kind: 0 | 1 | 2, mossy = false): Template {
+export function rock(kind: 0 | 1 | 2, mossy = false): Template {
   const v = new VoxelModel();
   // A wide warm range. The dark end stays light: the shading pass takes another
   // 23% off it, and albedo painted dark ends up a hueless near-black chip.
@@ -929,7 +930,7 @@ function rock(kind: 0 | 1 | 2, mossy = false): Template {
  * Each shape is ASYMMETRIC — a symmetric footprint gains nothing from the random
  * per-instance yaw.
  */
-function grassTuft(dry: boolean, variant = 0): Template {
+export function grassTuft(dry: boolean, variant = 0): Template {
   const v = new VoxelModel();
   // Mid tone just UNDER the sward, only the tips brighter: a tuft lighter than the
   // grass reads as fuzz lying on it. Authored against `relight` above.

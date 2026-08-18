@@ -89,6 +89,18 @@ export interface EnemyData {
    * hovers. Content names the mount; nothing here asks the mount system.
    */
   readonly bond?: MountKind;
+  /**
+   * A BOND THAT CHANGES WITH ITS HEALTH (issue #166): the phase whose `hp` (a
+   * fraction of max, descending) is the largest still at or above the enemy's
+   * is the one it is in, and its `bond` replaces the field above. Rhune's three
+   * phases, one per mount, are three rows; the host is told of each change.
+   */
+  readonly phases?: readonly EnemyPhase[];
+}
+
+export interface EnemyPhase {
+  readonly hp: number;
+  readonly bond: MountKind;
 }
 
 /** Registered `enemy-model` names; null skips the check. See town.ts. */
@@ -137,6 +149,17 @@ function readCapture(value: unknown, ctx: Reader): EnemyCapture {
   };
 }
 
+function readPhase(value: unknown, ctx: Reader): EnemyPhase {
+  const v: Record<string, unknown> = isRecord(value) ? value : {};
+  if (!isRecord(value)) {
+    ctx.report("error", "bad-field", "expected a phase object", 'write { "hp": 0.66, "bond": "water" }');
+  }
+  return {
+    hp: num(v.hp, ctx.at("hp"), { min: 0, max: 1, what: "a health fraction" }),
+    bond: bond(v.bond, ctx.at("bond")),
+  };
+}
+
 function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
   const r = readerFor(ctx, { knownTextKey: isKnownTextKey });
   const b = obj(body, r);
@@ -178,6 +201,7 @@ function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
     variants,
     capture: opt(b.capture, r.at("capture"), readCapture),
     bond: opt(b.bond, r.at("bond"), bond),
+    phases: opt(b.phases, r.at("phases"), list(readPhase, { min: 2, max: 8 })),
   };
 }
 

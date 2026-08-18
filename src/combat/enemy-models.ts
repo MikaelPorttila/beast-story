@@ -1136,6 +1136,204 @@ function buildGuardianSky(root: THREE.Group, v: Variant): EnemyBody {
   return { parts: { body, head, thread, tail, ...wings } };
 }
 
+/**
+ * RHUNE — the first thing that was ever bonded (game-story.md §4), held for an
+ * age between the three worlds. Not a monster and not innocent, so not a fourth
+ * kind of body: it wears a piece of each guardian — the stag's mass and legs,
+ * the ray's fins and segmented tail, the kite's ribbed wings — and the thread
+ * runs through all of it, because every guardian's thread was a strand of its
+ * own. Every part the guardian rhythm knows how to move is here, which is what
+ * lets one body walk, swim and fly across its three phases (issue #166).
+ */
+function buildRhune(root: THREE.Group, v: Variant): EnemyBody {
+  const brass = shade(v.dark, 1.35);
+  const pale = shade(v.belly, 1.05);
+  const bm = new VoxelModel();
+  // The mass: longer than the stag, deeper in the chest, tapering behind.
+  bm.ellipsoid(0, 8, 1, 8, 7.5, 18, v.main);
+  bm.ellipsoid(0, 4, 4, 6, 3.6, 14, v.belly);
+  bm.ellipsoid(0, 12, -6, 6, 3.5, 9, v.dark);
+  // The mane ridge with the groove the thread lies in (x = 0 left empty).
+  for (let z = -16; z <= 15; z++) {
+    for (let x = -2; x <= 2; x++) {
+      bm.set(x, 15, z, brass);
+      if (x !== 0) {
+        bm.set(x, 16, z, brass);
+      }
+    }
+  }
+  // Brass plates over the shoulder and hip, worn INTO the hide.
+  const plate = new VoxelModel();
+  plate.ellipsoid(0, 12, 9, 9.5, 4, 6, v.dark);
+  plate.ellipsoid(0, 11, -11, 9.5, 4, 5, v.dark);
+  plate.forEachCell((x, y, z) => {
+    if (bm.has(x, y, z)) {
+      bm.set(x, y, z, v.dark);
+    }
+  });
+  // The neck, up and forward out of the shoulder plate.
+  bm.box(-3, 9, 15, 3, 15, 22, v.main);
+  bm.box(-3, 14, 15, 3, 15, 17, v.dark);
+  const bodyMesh = bm.build(0.1);
+  const body = new THREE.Group();
+  body.position.y = 1.0;
+  body.add(bodyMesh);
+  root.add(body);
+
+  // THE THREAD: the whole spine, two turns round the neck, and a knot on the chest.
+  const tm = new VoxelModel();
+  for (let z = -16; z <= 15; z++) {
+    tm.set(0, 16, z, v.accent);
+  }
+  for (const z of [17, 20]) {
+    for (let y = 9; y <= 15; y++) {
+      tm.set(-4, y, z, v.accent);
+      tm.set(4, y, z, v.accent);
+    }
+    for (let x = -3; x <= 3; x++) {
+      tm.set(x, 8, z, v.accent);
+      tm.set(x, 16, z, v.accent);
+    }
+  }
+  for (const [x, y] of [
+    [0, 4],
+    [-1, 5],
+    [1, 5],
+    [0, 6],
+  ] as const) {
+    tm.set(x, y, 17, v.accent);
+  }
+  const spine = bakeThread(tm, v, null, { model: bm, at: bodyMesh.position, centered: true });
+  const thread = new THREE.Group();
+  thread.add(spine.mesh);
+  body.add(thread);
+
+  // The head: the stag's crown over the ray's lens, and a brass jaw.
+  const hm = new VoxelModel();
+  hm.box(0, -3, 0, 3, 3, 8, v.main);
+  hm.box(0, -5, 6, 2, -2, 11, v.dark);
+  hm.box(0, 3, 5, 4, 3, 8, v.dark);
+  for (const [x, y, z] of [
+    [2, 4, 1],
+    [2, 5, 1],
+    [2, 6, 0],
+    [3, 7, 0],
+    [3, 8, -1],
+    [4, 9, -1],
+    [4, 10, -2],
+    [5, 11, -2],
+    [2, 7, 2],
+    [2, 8, 3],
+    [3, 9, 1],
+    [3, 10, 2],
+    [6, 12, -1],
+    [7, 13, -1],
+  ] as const) {
+    hm.set(x, y, z, brass);
+  }
+  hm.mirrorX();
+  const headMesh = hm.build(0.1);
+  headMesh.position.set(0, -0.33, 0.45);
+  const head = new THREE.Group();
+  head.position.set(0, 2.25, 2.35);
+  head.add(headMesh);
+  root.add(head);
+  head.add(
+    bakeLens(v, spine.mat, { model: hm, at: headMesh.position, centered: true }, [
+      [0, 1, 8],
+      [0, 0, 8],
+      [3, 1, 4],
+      [-3, 1, 4],
+    ]),
+  );
+
+  const parts: Record<string, THREE.Object3D> = { body, head, thread };
+  // The stag's legs, a size up: pillar, knee collar, hip collar.
+  for (const [key, lx, lz] of [
+    ["legFL", -0.62, 1.15],
+    ["legFR", 0.62, 1.15],
+    ["legBL", -0.62, -1.15],
+    ["legBR", 0.62, -1.15],
+  ] as Array<[string, number, number]>) {
+    const lm = new VoxelModel();
+    lm.box(-2, 0, -2, 2, 1, 2, v.dark);
+    lm.box(-1, 2, -1, 1, 9, 1, v.main);
+    lm.box(-2, 4, -2, 2, 4, 2, brass);
+    lm.box(-2, 8, -2, 2, 9, 2, brass);
+    const legMesh = lm.build(0.1);
+    legMesh.position.y = -0.96;
+    const leg = new THREE.Group();
+    leg.position.set(lx + Math.sign(lx) * 0.02, 0.96, lz);
+    leg.add(legMesh);
+    root.add(leg);
+    parts[key] = leg;
+  }
+  // The kite's wings: a brass spar frame with pale panes, pivoting at the shoulder.
+  for (const [key, sx] of [
+    ["wingL", -1],
+    ["wingR", 1],
+  ] as Array<[string, -1 | 1]>) {
+    const wm = new VoxelModel();
+    for (let x = 0; x <= 22; x++) {
+      wm.set(x, 0, 0, brass);
+      wm.set(x, 0, -6, brass);
+    }
+    for (const x of [0, 8, 15, 22]) {
+      wm.box(x, 0, -6, x, 0, 0, brass);
+    }
+    for (let x = 1; x <= 21; x++) {
+      for (let z = -5; z <= -1; z++) {
+        if (x % 8 !== 0 && x % 15 !== 0) {
+          wm.set(x, 0, z, pale);
+        }
+      }
+    }
+    const wingMesh = wm.build(0.1, false);
+    if (sx < 0) {
+      wingMesh.scale.x = -1;
+    }
+    wingMesh.position.set(sx * 0.03, 0.02, 0.3);
+    const wing = new THREE.Group();
+    wing.position.set(sx * 0.9, 2.55, 0.2);
+    wing.add(wingMesh);
+    root.add(wing);
+    parts[key] = wing;
+  }
+  // The ray's fins, low on the flanks, and its segmented tail.
+  for (const [key, sx] of [
+    ["finL", -1],
+    ["finR", 1],
+  ] as Array<[string, -1 | 1]>) {
+    const fm = new VoxelModel();
+    fm.ellipsoid(6, 0, 0, 7, 1, 5, v.dark);
+    fm.ellipsoid(5, 0, 0, 5, 1.2, 3.5, v.main);
+    const finMesh = fm.build(0.1, false);
+    if (sx < 0) {
+      finMesh.scale.x = -1;
+    }
+    finMesh.position.set(sx * 0.03, 0, -0.5);
+    const fin = new THREE.Group();
+    fin.position.set(sx * 0.82, 0.86, -0.4);
+    fin.add(finMesh);
+    root.add(fin);
+    parts[key] = fin;
+  }
+  const tm2 = new VoxelModel();
+  for (let i = 0; i < 6; i++) {
+    const r = 3 - i * 0.4;
+    tm2.ellipsoid(0, 0, -3 - i * 4, r, r * 0.8, 2.6, i % 2 ? v.dark : v.main);
+  }
+  tm2.box(-4, -1, -27, 4, 1, -25, brass);
+  const tailMesh = tm2.build(0.1, false);
+  tailMesh.position.set(0, 0.03, -0.03);
+  const tail = new THREE.Group();
+  tail.position.set(0, 1.35, -1.85);
+  tail.add(tailMesh);
+  root.add(tail);
+  parts.tail = tail;
+  return { parts };
+}
+
 export const ENEMY_MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
   ["gloopling", buildGloopling],
   ["snortle", buildSnortle],
@@ -1149,4 +1347,5 @@ export const ENEMY_MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, Ene
   ["guardian-land", buildGuardianLand],
   ["guardian-sea", buildGuardianSea],
   ["guardian-sky", buildGuardianSky],
+  ["rhune", buildRhune],
 ]);
