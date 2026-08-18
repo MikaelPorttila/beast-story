@@ -753,13 +753,20 @@ export const sections = [
         // streaming ground, which is all the layer readings below need.
         const APPROACH = 5;
         await fresh.evaluate((r) => {
-          const g = window.__dbgZone().gate;
+          // THE HOLD'S arch by destination, not the nearest: the Seam's stands nearer the spawn (issue
+          // #166) and is SHUT — it pulls no preload, which is the thing this section is about.
+          const g =
+            window.__dbgZone().gates.find((x) => x.to === "hold") ?? window.__dbgZone().gate;
           // ON THE TRAIL, facing back down it. Any other line into the gate is a
           // hillside: measured, a hero aimed straight at the gate from the open
           // side covered 2.8 units in eight seconds of KeyW, from three different
           // starting distances. The trail is the walkable approach — that is what
-          // it is for — so the walk uses it.
-          const t = window.__dbgPaths().paths.find((q) => q.profile === "path:trail");
+          // it is for — so the walk uses it. THE GATE'S OWN trail: two arches have
+          // one each now (the Seam's, issue #166), so it is the one that ends here.
+          const t = window
+            .__dbgPaths()
+            .paths.filter((q) => q.profile === "path:trail")
+            .sort((a, b) => Math.hypot(a.x1 - g.x, a.z1 - g.z) - Math.hypot(b.x1 - g.x, b.z1 - g.z))[0];
           const hx = t ? t.x0 : g.x - 1;
           const hz = t ? t.z0 : g.z;
           const len = Math.hypot(hx - g.x, hz - g.z) || 1;
@@ -771,11 +778,17 @@ export const sections = [
         await fresh.waitForFunction(() => !window.__dbgZone().streaming, { timeout: 60000 });
         await advance(fresh, 0.6);
         const gateAt = await fresh.evaluate(() => {
-          const g = window.__dbgZone().gate;
+          // THE HOLD'S arch by destination, not the nearest: the Seam's stands nearer the spawn (issue
+          // #166) and is SHUT — it pulls no preload, which is the thing this section is about.
+          const g =
+            window.__dbgZone().gates.find((x) => x.to === "hold") ?? window.__dbgZone().gate;
           const p = window.__dbgPlayerPos();
           // DOWN the trail, not at the gate: he is standing on it beside the
           // gateway and the walkable direction is the way he came.
-          const t = window.__dbgPaths().paths.find((q) => q.profile === "path:trail");
+          const t = window
+            .__dbgPaths()
+            .paths.filter((q) => q.profile === "path:trail")
+            .sort((a, b) => Math.hypot(a.x1 - g.x, a.z1 - g.z) - Math.hypot(b.x1 - g.x, b.z1 - g.z))[0];
           const hx = t ? t.x0 : g.x;
           const hz = t ? t.z0 : g.z;
           return {
@@ -805,7 +818,10 @@ export const sections = [
         await advance(fresh, 2);
         const afterWalk = await freshLayers();
         const ended = await fresh.evaluate(() => {
-          const g = window.__dbgZone().gate;
+          // THE HOLD'S arch by destination, not the nearest: the Seam's stands nearer the spawn (issue
+          // #166) and is SHUT — it pulls no preload, which is the thing this section is about.
+          const g =
+            window.__dbgZone().gates.find((x) => x.to === "hold") ?? window.__dbgZone().gate;
           const p = window.__dbgPlayerPos();
           return { d: +Math.hypot(g.x - p.x, g.z - p.z).toFixed(1), x: p.x, z: p.z };
         });

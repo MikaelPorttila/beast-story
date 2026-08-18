@@ -5292,13 +5292,12 @@ const refitHero = (): void => {
   player.velocity.set(0, 0, 0);
 };
 
-// THE TRAIL TO THE GATEWAY — issue #142's third profile doing real work: narrow, no lamps, no bridging.
-// Laid through `World.addPath` because the gate's spot is chosen from the FINISHED world and cannot be
-// known inside `planSettlements`; the rebuild is nine chunks at boot.
-{
-  // Read through a call: `gateSite` IS set by now, but flow analysis narrows it to null. `as` would say "trust me" about the one thing worth checking.
-  const gate = ((): { x: number; z: number } | null => gateSite)();
-  if (gate !== null) {
+// THE TRAIL TO A GATEWAY — issue #142's third profile doing real work: narrow, no lamps, no bridging.
+// Laid through `World.addPath` because a gate's spot is chosen from the FINISHED world and cannot be
+// known inside `planSettlements`; the rebuild is nine chunks at boot. Two arches get one each — the
+// Hold's and the Seam's (issue #166) — because a landmark you are sent to has a way to it.
+function layGatewayTrail(gate: { x: number; z: number }): void {
+  {
     // IT LEAVES THE ROAD AT THE NEAREST POINT TO THE GATE: from the spawn it would cross whatever
     // carriageway is in the way (issue #45), and this reads better besides. And not from INSIDE a town —
     // the nearest road point is the end of a spur, so the trail set off through the middle of Stonewatch.
@@ -5356,12 +5355,24 @@ const refitHero = (): void => {
     }
   }
 }
+// Read through calls: both ARE set by now, but flow analysis narrows them to null, and `as` would
+// say "trust me" about the one thing worth checking.
+for (const gate of [gateSite, seamGateSite].map((g) => ((): { x: number; z: number } | null => g)())) {
+  if (gate !== null) {
+    layGatewayTrail(gate);
+  }
+}
 
 // THE ONE WAY TO MOVE THE HERO ACROSS THE WORLD — the saddle first (while
 // mounted his position is rewritten from the mount every slice, so setting the
 // fields alone was a teleport that did nothing), then the ground that is there
 // NOW. The map's waystone travel and `__dbgTp` share it.
 function teleportTo(x: number, z: number, y?: number): void {
+  // LOUD, not silent: a non-finite coordinate here writes `undefined` into the hero's position and the
+  // next probe reads `toFixed` of undefined three calls later, far from the cause.
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    throw new Error(`teleportTo(${x}, ${z}, ${y}): not a place`);
+  }
   mount.teleport(x, z, y);
   player.position.x = x;
   player.position.z = z;
