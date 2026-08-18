@@ -9,6 +9,7 @@ import type {
   BeastSpecies,
   Damageable,
   ElementType,
+  MountKind,
   World,
 } from "../core/types";
 import type { StringKey } from "../i18n";
@@ -247,6 +248,18 @@ const WILD_CIRCLE_SECONDS = [0.7, 1.4] as const;
 const WILD_SPIN_FLIP = 0.35;
 /** Bite cooldown, `base + random * spread`; the average is tuned, the beat is not. */
 const WILD_BITE_CD = [0.85, 0.7] as const;
+// The guardian rhythm (issue #163). Ring: outside a sword's reach, inside a lunge's; the
+// swimmer sits one body under the surface and never in the bed; the flyer a body-and-a-half up,
+// which is over MELEE_UP_REACH from a hero on foot and level with one on a flying mount.
+const GUARDIAN_RING = 6;
+const GUARDIAN_LUNGE_MUL = 2.4;
+const GUARDIAN_LUNGE_S = 0.9;
+const GUARDIAN_RECOVER_S = 0.8;
+const GUARDIAN_LUNGE_CD = 3.2;
+const GUARDIAN_SWIM_DEPTH = 1.6;
+const GUARDIAN_BED_CLEAR = 0.8;
+const GUARDIAN_HOVER = 3.4;
+const GUARDIAN_TRAIL_HEX = 0xff5a4a;
 
 const _dir = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
@@ -273,6 +286,8 @@ export class Enemy implements Damageable {
   readonly behaviour: string;
   /** On the instance, so taming.ts needs nothing but an `Enemy`. */
   readonly capture: EnemyCapture | null;
+  /** The mount kind that can hurt it, and the element it moves in. See `EnemyData.bond`. */
+  readonly bond: MountKind | null;
   /** The species that got built, and the payout for bonding it. */
   readonly beastSpecies: BeastSpecies | null;
   private readonly beastRig: BeastRig | null;
@@ -325,6 +340,10 @@ export class Enemy implements Damageable {
   private divePoint = new THREE.Vector3();
   private diveHit = false;
   private flap = Math.random() * 10;
+  // guardian rhythm — see updateGuardian
+  private gMode: "circle" | "lunge" | "recover" = "circle";
+  private lungeCd = 2.5;
+  private circleDir: 1 | -1 = 1;
 
   private barSprite: THREE.Sprite;
   private barMat: THREE.SpriteMaterial;
@@ -381,6 +400,7 @@ export class Enemy implements Damageable {
     this.rigRadius = body.beast?.rig.radius ?? null;
     this.rigHeight = body.beast?.rig.height ?? null;
     this.capture = spec.capture;
+    this.bond = stats.bond ?? null;
 
     this.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -576,6 +596,8 @@ export class Enemy implements Damageable {
       this.updateGloopling(dt, ctx);
     } else if (this.behaviour === "snortle") {
       this.updateSnortle(dt, ctx);
+    } else if (this.behaviour === "guardian") {
+      this.updateGuardian(dt, ctx);
     } else if (this.behaviour === "thread-anchor") {
       // AN OBJECT (issue #202): no gait, no chase, no bite. It stands where
       // the story put it and takes what comes — killing it is the quest's
@@ -1055,6 +1077,183 @@ export class Enemy implements Damageable {
     (this.parts.legBL as THREE.Group).rotation.x = -swing;
     body.position.y = 0.3 + Math.abs(Math.sin(this.phase)) * 0.035 * gait;
     body.rotation.z = Math.sin(this.phase) * 0.04 * gait;
+  }
+
+  /**
+   * A GUARDIAN (Act 4, issues #163-#165): one rhythm for the three, in whatever
+   * element its bond names — the walker keeps to the ground, the swimmer a body
+   * under the surface, the flyer a body-and-a-half over ground or deck. It
+   * circles its target at ring distance, lunges on a cooldown, recovers, and
+   * poses whichever parts its body has (legs, wings, fins, tail); with nobody
+   * near it holds its ground. It cannot be hurt by anyone not riding its kind
+   * (`CombatSystem.dealSkillDamage`), so the numbers here are the fight's
+   * pressure, not its difficulty.
+   */
+  private updateGuardian(dt: number, ctx: EnemyCtx): void {
+    const bond = this.bond ?? "ground";
+    const ground = this.groundAt(ctx, this.position.x, this.position.z);
+    const restY =
+      bond === "water"
+        ? Math.max(ground + GUARDIAN_BED_CLEAR, ctx.world.waterLevel - GUARDIAN_SWIM_DEPTH)
+        : bond === "flying"
+          ? Math.max(ground, ctx.world.waterLevel) + GUARDIAN_HOVER
+          : ground;
+    // The walker snaps to its ground like the Snortle; the others settle.
+    this.position.y += (restY - this.position.y) * Math.min(1, (bond === "ground" ? 14 : 5) * dt);
+    this.lungeCd -= dt;
+    const t = this.target && !this.target.isDead ? this.target : null;
+    let moveAmt = 0;
+
+    if (this.gMode === "circle") {
+      if (t) {
+        _dir.set(t.position.x - this.position.x, 0, t.position.z - this.position.z);
+        const dist = _dir.length();
+        if (dist > 0.01) {
+          _dir.divideScalar(dist);
+        }
+        // Tangent plus a radial pull toward the ring — a stalking orbit rather than a chase.
+        const radial = Math.max(-1, Math.min(1, (dist - GUARDIAN_RING) * 0.5));
+        _tmp.set(
+          -_dir.z * this.circleDir + _dir.x * radial,
+          0,
+          _dir.x * this.circleDir + _dir.z * radial,
+        );
+        const len = _tmp.length();
+        if (len > 0.01) {
+          _tmp.divideScalar(len);
+          this.moveIn(bond, dt, _tmp.x, _tmp.z, this.speed, ctx);
+          moveAmt = this.speed;
+        }
+        this.faceToward(t.position.x, t.position.z, dt, 6);
+        if (this.lungeCd <= 0 && dist < GUARDIAN_RING * 1.8) {
+          this.gMode = "lunge";
+          this.stateT = GUARDIAN_LUNGE_S;
+          this.chargeDir.copy(_dir);
+          this.diveHit = false;
+        }
+      } else {
+        // Holding its ground: drift home, face the way it was placed.
+        _dir.set(this.home.x - this.position.x, 0, this.home.z - this.position.z);
+        const dist = _dir.length();
+        if (dist > 1.5) {
+          _dir.divideScalar(dist);
+          this.moveIn(bond, dt, _dir.x, _dir.z, this.speed * 0.4, ctx);
+          moveAmt = this.speed * 0.4;
+          this.faceToward(this.home.x, this.home.z, dt, 4);
+        }
+      }
+    } else if (this.gMode === "lunge") {
+      this.stateT -= dt;
+      const spd = this.speed * GUARDIAN_LUNGE_MUL;
+      this.moveIn(bond, dt, this.chargeDir.x, this.chargeDir.z, spd, ctx);
+      moveAmt = spd;
+      this.faceToward(
+        this.position.x + this.chargeDir.x,
+        this.position.z + this.chargeDir.z,
+        dt,
+        30,
+      );
+      ctx.vfx.trail(
+        this.position.x,
+        this.position.y + this.height * 0.5,
+        this.position.z,
+        GUARDIAN_TRAIL_HEX,
+        0.12,
+      );
+      // In the way at its own altitude: a squat cylinder, the same one every melee test is.
+      if (!this.diveHit) {
+        for (const tg of ctx.targets) {
+          if (tg.isDead) {
+            continue;
+          }
+          const dx = tg.position.x - this.position.x;
+          const dz = tg.position.z - this.position.z;
+          if (dx * dx + dz * dz < (this.radius + 0.9) ** 2 && this.inMeleeHeight(tg)) {
+            ctx.hit(
+              tg,
+              this.atk,
+              this.element,
+              this.position.x,
+              this.position.y + 0.6,
+              this.position.z,
+            );
+            this.diveHit = true;
+            break;
+          }
+        }
+      }
+      if (this.diveHit || this.stateT <= 0) {
+        this.gMode = "recover";
+        this.stateT = GUARDIAN_RECOVER_S;
+        this.lungeCd = GUARDIAN_LUNGE_CD + Math.random() * 1.5;
+      }
+    } else {
+      this.stateT -= dt;
+      if (this.stateT <= 0) {
+        this.gMode = "circle";
+        if (Math.random() < 0.4) {
+          this.circleDir = -this.circleDir as 1 | -1;
+        }
+      }
+    }
+
+    // POSE whatever the body has. Rates read off the gait so a hover breathes and a lunge strains.
+    const gait = Math.min(1, moveAmt / Math.max(0.01, this.speed));
+    this.phase += moveAmt * dt * (bond === "ground" ? 2.6 : 1.4);
+    const swing = Math.sin(this.phase) * 0.55 * Math.max(0.15, gait);
+    const p = this.parts;
+    if (p.legFL) {
+      (p.legFL as THREE.Group).rotation.x = swing;
+      (p.legBR as THREE.Group).rotation.x = swing;
+      (p.legFR as THREE.Group).rotation.x = -swing;
+      (p.legBL as THREE.Group).rotation.x = -swing;
+    }
+    if (p.wingL) {
+      this.flap += dt * (this.gMode === "lunge" ? 5 : 8 + gait * 4);
+      const flapAng = this.gMode === "lunge" ? 0.25 : Math.sin(this.flap) * 0.7 - 0.05;
+      (p.wingL as THREE.Group).rotation.z = -flapAng;
+      (p.wingR as THREE.Group).rotation.z = flapAng;
+    }
+    if (p.finL) {
+      const fin = Math.sin(ctx.time * 3.2 + this.seed) * (0.18 + gait * 0.25);
+      (p.finL as THREE.Group).rotation.z = fin;
+      (p.finR as THREE.Group).rotation.z = -fin;
+    }
+    if (p.tail) {
+      (p.tail as THREE.Group).rotation.y =
+        Math.sin(this.phase * 1.3 + ctx.time * 1.5) * (0.12 + gait * 0.3);
+    }
+    const body = p.body;
+    const lunging = this.gMode === "lunge";
+    body.rotation.x += ((lunging ? 0.22 : 0) - body.rotation.x) * Math.min(1, 6 * dt);
+    if (bond === "ground") {
+      body.rotation.z = Math.sin(this.phase) * 0.03 * gait;
+    } else {
+      // A hover breathes; the bob is on the ROOT so the whole body rides it.
+      this.position.y += Math.sin(ctx.time * 1.6 + this.seed) * 0.12 * dt;
+    }
+    const head = p.head;
+    head.rotation.x = (lunging ? 0.3 : 0) + Math.sin(ctx.time * 1.7 + this.seed) * 0.05;
+    head.rotation.y = 0;
+  }
+
+  /** One step in the guardian's own element: refused the way its walker, swimmer or flyer refuses. */
+  private moveIn(
+    bond: MountKind,
+    dt: number,
+    dirX: number,
+    dirZ: number,
+    spd: number,
+    ctx: EnemyCtx,
+  ): void {
+    if (bond === "ground") {
+      this.moveGround(dt, dirX, dirZ, spd, ctx);
+    } else if (bond === "water") {
+      this.moveWater(dt, dirX, dirZ, spd, ctx);
+    } else {
+      this.position.x += dirX * spd * dt;
+      this.position.z += dirZ * spd * dt;
+    }
   }
 
   private updatePeckit(dt: number, ctx: EnemyCtx): void {

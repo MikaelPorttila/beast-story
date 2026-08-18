@@ -206,6 +206,51 @@
           {
             "when": {
               "all": [
+                { "test": "quest", "quest": "quest:seam/guardian-land", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:seam/guardian-land",
+                  "objective": "free-the-guardian"
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.seam2.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:seam/guardian-land" }]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:seam/guardian-land", "status": "active" },
+            "line": { "key": "npc.gain.seam2.busy" }
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/three-roads", "status": "completed" },
+                { "test": "flag", "flag": "mount-ground" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:seam/guardian-land", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:seam/guardian-land", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.seam2.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:seam/guardian-land" }],
+            "_gate": "The land road (issue #163): the flag is the door, repeated here as every offer row repeats its quest's door — the journal would not shelve it either."
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/three-roads", "status": "completed" },
+                { "not": { "test": "flag", "flag": "mount-ground" } },
+                { "test": "quest", "quest": "quest:seam/guardian-land", "status": "unknown" }
+              ]
+            },
+            "line": { "key": "npc.gain.seam2.noMount" }
+          },
+          {
+            "when": {
+              "all": [
                 { "test": "quest", "quest": "quest:seam/three-roads", "status": "active" },
                 { "test": "progress", "quest": "quest:seam/three-roads", "objective": "hear-coil" },
                 { "test": "progress", "quest": "quest:seam/three-roads", "objective": "hear-vane" },

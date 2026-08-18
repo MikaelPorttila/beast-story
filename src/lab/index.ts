@@ -88,7 +88,9 @@ content.addProvider(new BundledProvider());
 // live (the two Act 3 guardians are in `story-sky`), and a lab that cannot stage
 // them is a lab nobody checks a new rig in (issue #263). Cheap — bundled JSON,
 // no world is built here.
-await bootstrapContent({ packages: ["story", "story-land", "story-sea", "story-sky"] });
+await bootstrapContent({
+  packages: ["story", "story-land", "story-sea", "story-sky", "story-seam"],
+});
 
 const params = new URLSearchParams(location.search);
 const num = (k: string, d: number): number => {

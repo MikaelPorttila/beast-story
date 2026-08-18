@@ -679,6 +679,463 @@ function buildChoirguard(root: THREE.Group, v: Variant): EnemyBody {
   return { parts };
 }
 
+/**
+ * THE GUARDIANS' THREAD (game-story.md §4). Every accent voxel on a guardian is
+ * the first bond, drawn as light: one emissive mesh per grid it runs over, all
+ * sharing ONE material so dimming `parts.thread` dims the loop on a swaying tail
+ * and the lens in a turning head as well. Its own grid, so it is parted from
+ * whatever it lies in by THREAD_PART on every axis — 0.03, not the 0.02 heads
+ * and legs use, so it cannot land back on a plane those already moved to.
+ */
+const THREAD_PART = 0.03;
+const THREAD_GLOW = 0.9;
+
+/** Where a mesh's grid sits: `build` re-bases on `bounds(center)`, so a host and
+ *  the thread laid over it need the same origin. `at` is the host mesh's position. */
+interface ThreadHost {
+  readonly model: VoxelModel;
+  readonly at: THREE.Vector3;
+  readonly centered: boolean;
+}
+
+function bakeThread(
+  m: VoxelModel,
+  v: Variant,
+  mat: THREE.Material | null,
+  host: ThreadHost,
+): { mesh: THREE.Mesh; mat: THREE.Material } {
+  m.markEmissive(v.accent, THREAD_GLOW);
+  const built = m.build(0.1, false);
+  // Every cell is emissive, so the plain batch is empty: keep only the glow.
+  const glow = built.children[0] as THREE.Mesh;
+  built.remove(glow);
+  built.geometry.dispose();
+  (built.material as THREE.Material).dispose();
+  if (mat) {
+    (glow.material as THREE.Material).dispose();
+    glow.material = mat;
+  }
+  // Same cell, same place: an uncentred build still re-bases y on its own minY.
+  const hb = host.model.bounds(host.centered);
+  const tb = m.bounds(false);
+  glow.position.set(
+    host.at.x + (tb.ox - hb.ox) * 0.1 + THREAD_PART,
+    host.at.y + (tb.oy - hb.oy) * 0.1 + THREAD_PART,
+    host.at.z + (tb.oz - hb.oz) * 0.1 + THREAD_PART,
+  );
+  return { mesh: glow, mat: glow.material as THREE.Material };
+}
+
+/** A lens the thread lights: accent cells in a head's own grid, on the shared material. */
+function bakeLens(
+  v: Variant,
+  mat: THREE.Material,
+  head: ThreadHost,
+  cells: ReadonlyArray<readonly [number, number, number]>,
+): THREE.Mesh {
+  const lm = new VoxelModel();
+  for (const [x, y, z] of cells) {
+    lm.set(x, y, z, v.accent);
+  }
+  return bakeThread(lm, v, mat, head).mesh;
+}
+
+/**
+ * THE LAND GUARDIAN — the first of the three (game-story.md §4): a stag of
+ * weathered stone with brass laid over its shoulders and hips, a crown of brass
+ * tines, and the thread wound twice round the neck before it runs the spine in
+ * a groove. Bigger than the Choirguard by half again and LOW: it is planted, and
+ * the mass sits between the pillars rather than over them.
+ */
+function buildGuardianLand(root: THREE.Group, v: Variant): EnemyBody {
+  const brass = shade(v.dark, 1.35);
+  const bm = new VoxelModel();
+  // The slab: an ellipsoid squared off by a box, so the silhouette is a block
+  // of stone that has been carved rather than an animal that has been fed.
+  bm.ellipsoid(0, 7, 0, 7.5, 6.5, 16, v.main);
+  bm.box(-6, 3, -12, 6, 12, 12, v.main);
+  bm.ellipsoid(0, 3.5, 1, 5.5, 3.2, 13, v.belly);
+  // Brass over the shoulder and the hip: two saddles, not a coat. Recoloured
+  // INTO the stone rather than laid on it, so the flank keeps its line, and a
+  // plate on the back where the saddle sits.
+  const saddle = new VoxelModel();
+  saddle.ellipsoid(0, 10, 7, 9, 3.5, 6, v.dark);
+  saddle.ellipsoid(0, 10, -10, 9, 3.5, 5, v.dark);
+  saddle.forEachCell((x, y, z) => {
+    if (bm.has(x, y, z)) {
+      bm.set(x, y, z, v.dark);
+    }
+  });
+  bm.box(-6, 13, 3, 6, 13, 11, v.dark);
+  bm.box(-6, 13, -13, 6, 13, -7, v.dark);
+  // The neck, out of the shoulder saddle.
+  bm.box(-3, 8, 13, 3, 13, 19, v.main);
+  bm.box(-3, 12, 13, 3, 13, 15, v.dark);
+  // The spine ridge, with the GROOVE the thread lies in: x=0 at the top row is
+  // left empty and the thread model fills it, so the light sits IN the brass.
+  for (let z = -14; z <= 13; z++) {
+    for (let x = -2; x <= 2; x++) {
+      bm.set(x, 13, z, brass);
+      if (x !== 0) {
+        bm.set(x, 14, z, brass);
+      }
+    }
+  }
+  // Weathering: lichen-pale flecks low on the flanks, a different set each side.
+  for (const [fx, fy, fz] of [
+    [-7, 5, 4],
+    [-7, 6, -6],
+    [-8, 8, 0],
+    [-6, 3, 9],
+    [-7, 7, 10],
+  ] as const) {
+    if (bm.has(fx, fy, fz)) {
+      bm.set(fx, fy, fz, shade(v.main, 1.18));
+    }
+    if (bm.has(-fx, fy - 1, fz - 3)) {
+      bm.set(-fx, fy - 1, fz - 3, shade(v.main, 0.8));
+    }
+  }
+  const bodyMesh = bm.build(0.1);
+  const body = new THREE.Group();
+  // 0.94 keeps every body plane off the legs' grid (0.00) and the thread's (0.07).
+  body.position.y = 0.94;
+  body.add(bodyMesh);
+  root.add(body);
+
+  // THE THREAD: the spine groove, then two turns round the neck.
+  const tm = new VoxelModel();
+  for (let z = -14; z <= 13; z++) {
+    tm.set(0, 14, z, v.accent);
+  }
+  for (const z of [15, 17]) {
+    for (let y = 8; y <= 13; y++) {
+      tm.set(-4, y, z, v.accent);
+      tm.set(4, y, z, v.accent);
+    }
+    for (let x = -3; x <= 3; x++) {
+      tm.set(x, 7, z, v.accent);
+      tm.set(x, 14, z, v.accent);
+    }
+  }
+  const spine = bakeThread(tm, v, null, { model: bm, at: bodyMesh.position, centered: true });
+  const thread = new THREE.Group();
+  thread.add(spine.mesh);
+  body.add(thread);
+
+  const hm = new VoxelModel();
+  hm.box(0, -3, 0, 3, 3, 7, v.main);
+  hm.box(0, -4, 7, 2, -1, 10, v.dark); // brass muzzle
+  hm.box(0, 3, 5, 3, 3, 7, v.dark); // brow plate
+  // The crown: a beam curling up and back, three tines off it. One side, mirrored.
+  for (const [x, y, z] of [
+    [2, 4, 2],
+    [2, 5, 2],
+    [2, 6, 1],
+    [3, 7, 1],
+    [3, 8, 0],
+    [4, 9, 0],
+    [4, 10, -1],
+    [5, 11, -1],
+    [5, 12, -2],
+    [2, 7, 2],
+    [2, 8, 3],
+    [2, 9, 4],
+    [3, 9, 1],
+    [3, 10, 2],
+    [3, 11, 3],
+    [6, 12, 0],
+    [7, 13, 0],
+  ] as const) {
+    hm.set(x, y, z, brass);
+  }
+  hm.mirrorX();
+  const headMesh = hm.build(0.1);
+  // -0.33: the skull's centre on the neck's, and 0.02 off the body's y-grid.
+  headMesh.position.set(0, -0.33, 0.4);
+  const head = new THREE.Group();
+  head.position.set(0, 1.89, 1.97);
+  head.add(headMesh);
+  root.add(head);
+  // Eyes on the thread's material: a dead machine's eyes go out with it.
+  head.add(
+    bakeLens(v, spine.mat, { model: hm, at: headMesh.position, centered: true }, [
+      [3, 1, 4],
+      [-3, 1, 4],
+    ]),
+  );
+
+  const parts: Record<string, THREE.Object3D> = { body, head, thread };
+  for (const [key, lx, lz] of [
+    ["legFL", -0.55, 1.05],
+    ["legFR", 0.55, 1.05],
+    ["legBL", -0.55, -1.05],
+    ["legBR", 0.55, -1.05],
+  ] as Array<[string, number, number]>) {
+    const lm = new VoxelModel();
+    lm.box(-2, 0, -2, 2, 1, 2, v.dark);
+    lm.box(-1, 2, -1, 1, 8, 1, v.main);
+    lm.box(-2, 4, -2, 2, 4, 2, brass); // knee collar
+    lm.box(-2, 7, -2, 2, 8, 2, brass); // hip collar
+    const legMesh = lm.build(0.1);
+    legMesh.position.y = -0.9;
+    const leg = new THREE.Group();
+    leg.position.set(lx + Math.sign(lx) * 0.02, 0.9, lz);
+    leg.add(legMesh);
+    root.add(leg);
+    parts[key] = leg;
+  }
+  return { parts };
+}
+
+/**
+ * THE SEA GUARDIAN — a ray of verdigris brass: a flat disc that thins to a
+ * segmented tail, two broad fins, one lens for an eye. It HOVERS: the body
+ * group's origin is its centre and the behaviour puts it in the water column,
+ * so nothing here stands on anything.
+ */
+function buildGuardianSea(root: THREE.Group, v: Variant): EnemyBody {
+  const brass = shade(v.dark, 1.3);
+  const bm = new VoxelModel();
+  bm.ellipsoid(0, 0, 5, 7, 3, 8, v.main);
+  bm.ellipsoid(0, -1.2, 4, 5.6, 2.2, 6.6, v.belly);
+  bm.ellipsoid(0, 2, 5, 5, 1.6, 7, v.dark);
+  // The dorsal ridge and its groove.
+  for (let z = -1; z <= 11; z++) {
+    bm.set(-1, 4, z, brass);
+    bm.set(1, 4, z, brass);
+    bm.box(-1, 3, z, 1, 3, z, brass);
+  }
+  // Verdigris: the pale bloom on old brass, in patches along the flanks.
+  for (const [fx, fy, fz] of [
+    [-6, 1, 3],
+    [-5, 2, 8],
+    [-6, 0, 9],
+    [-4, 2, 0],
+  ] as const) {
+    if (bm.has(fx, fy, fz)) {
+      bm.set(fx, fy, fz, shade(v.main, 1.3));
+    }
+    if (bm.has(-fx, fy - 1, fz - 2)) {
+      bm.set(-fx, fy - 1, fz - 2, shade(v.main, 1.3));
+    }
+  }
+  const bodyMesh = bm.build(0.1);
+  bodyMesh.position.y = -0.35;
+  const body = new THREE.Group();
+  body.add(bodyMesh);
+  root.add(body);
+
+  const tm = new VoxelModel();
+  for (let z = -1; z <= 11; z++) {
+    tm.set(0, 4, z, v.accent);
+  }
+  const spine = bakeThread(tm, v, null, { model: bm, at: bodyMesh.position, centered: true });
+  const thread = new THREE.Group();
+  thread.add(spine.mesh);
+  body.add(thread);
+
+  const hm = new VoxelModel();
+  hm.box(-4, -1, 0, 4, 1, 2, v.main);
+  hm.box(-3, -1, 3, 3, 0, 4, v.main);
+  hm.box(-2, 1, 3, 2, 1, 3, v.dark);
+  hm.box(-2, 2, 0, 2, 2, 1, v.dark);
+  const headMesh = hm.build(0.1);
+  headMesh.position.set(0, -0.25, 0.25);
+  const head = new THREE.Group();
+  head.position.set(0, 0.02, 0.87);
+  head.add(headMesh);
+  body.add(head);
+  head.add(
+    bakeLens(v, spine.mat, { model: hm, at: headMesh.position, centered: true }, [
+      [-1, 2, 1],
+      [0, 2, 1],
+      [1, 2, 1],
+    ]),
+  );
+
+  // THE FINS: a sheet, ribbed with brass at the third and two-thirds, thicker at
+  // the root where it meets the disc. Painted for one side, placed by sign.
+  const fins: Record<string, THREE.Group> = {};
+  for (const [key, sign] of [
+    ["finL", -1],
+    ["finR", 1],
+  ] as const) {
+    const fm = new VoxelModel();
+    for (let x = 0; x <= 12; x++) {
+      const cx = sign > 0 ? x : -x - 1;
+      const zBack = -5 + Math.round(x * 0.55);
+      const zFront = 5 - Math.round(x * 0.35);
+      for (let z = zBack; z <= zFront; z++) {
+        const rib = x === 4 || x === 8 || z === zFront;
+        fm.set(cx, 0, z, rib ? brass : v.main);
+        if (x <= 2) {
+          fm.set(cx, 1, z, v.dark);
+        }
+      }
+    }
+    const fin = new THREE.Group();
+    fin.position.set(sign * 0.77, 0, 0.5);
+    fin.add(fm.build(0.1, false));
+    body.add(fin);
+    fins[key] = fin;
+  }
+
+  // THE TAIL: segments that thin toward the tip, a brass ring every third one,
+  // the same groove down its top, and the thread's loop round the last ring.
+  const tlm = new VoxelModel();
+  const ttm = new VoxelModel();
+  for (let i = 0; i < 18; i++) {
+    const z = -1 - i;
+    const rw = i < 6 ? 2 : i < 13 ? 1 : 0;
+    const rh = i < 12 ? 1 : 0;
+    const col = i % 3 === 2 ? brass : i < 6 ? v.dark : v.main;
+    for (let x = -rw; x <= rw; x++) {
+      for (let y = -rh; y <= rh; y++) {
+        if (x === 0 && y === rh && rh > 0) {
+          ttm.set(0, rh, z, v.accent);
+        } else {
+          tlm.set(x, y, z, col);
+        }
+      }
+    }
+  }
+  // The fluke, and the loop: a ring one cell out from the last full segment.
+  tlm.box(-3, 0, -18, 3, 0, -17, brass);
+  tlm.box(-2, 0, -16, 2, 0, -16, brass);
+  for (let x = -2; x <= 2; x++) {
+    for (let y = -2; y <= 2; y++) {
+      if (Math.abs(x) === 2 !== (Math.abs(y) === 2)) {
+        ttm.set(x, y, -13, v.accent);
+      }
+    }
+  }
+  const tail = new THREE.Group();
+  tail.position.set(0, 0, -0.83);
+  const tailMesh = tlm.build(0.1, false);
+  tail.add(tailMesh);
+  tail.add(bakeThread(ttm, v, spine.mat, { model: tlm, at: tailMesh.position, centered: false }).mesh);
+  body.add(tail);
+
+  return { parts: { body, head, thread, tail, ...fins } };
+}
+
+/**
+ * THE SKY GUARDIAN — a kite of copper ribs and cloud-glass: a slim body, an
+ * armature head round a lens, two long ribbed wings with pale panes between the
+ * spars, a forked tail. The thread is stitched along each wing's leading edge
+ * and runs the spine. Hovers, origin at the body's centre.
+ */
+function buildGuardianSky(root: THREE.Group, v: Variant): EnemyBody {
+  const copper = shade(v.main, 1.2);
+  const bm = new VoxelModel();
+  bm.ellipsoid(0, 0, 0, 2.5, 2.5, 9, v.main);
+  bm.ellipsoid(0, -1, 1, 2, 1.6, 6, v.belly);
+  // Ribs round the barrel, and the ridge with the groove.
+  for (const z of [-7, -4, -1, 2, 5]) {
+    bm.box(-2, -2, z, 2, 2, z, v.dark);
+  }
+  for (let z = -6; z <= 6; z++) {
+    bm.set(-1, 3, z, copper);
+    bm.set(1, 3, z, copper);
+  }
+  const bodyMesh = bm.build(0.1);
+  bodyMesh.position.y = -0.25;
+  const body = new THREE.Group();
+  body.add(bodyMesh);
+  root.add(body);
+
+  const tm = new VoxelModel();
+  for (let z = -6; z <= 6; z++) {
+    tm.set(0, 3, z, v.accent);
+  }
+  const spine = bakeThread(tm, v, null, { model: bm, at: bodyMesh.position, centered: true });
+  const thread = new THREE.Group();
+  thread.add(spine.mesh);
+  body.add(thread);
+
+  // The head: two copper rings on four struts, the lens caged between them.
+  const hm = new VoxelModel();
+  for (let z = 0; z <= 4; z++) {
+    for (let x = -2; x <= 2; x++) {
+      for (let y = -2; y <= 2; y++) {
+        const ring = z === 0 || z === 4;
+        const frame = ring ? Math.abs(x) === 2 || Math.abs(y) === 2 : Math.abs(x) === 2 && Math.abs(y) === 2;
+        if (frame) {
+          hm.set(x, y, z, ring ? copper : v.dark);
+        } else if (z <= 1) {
+          hm.set(x, y, z, v.main);
+        }
+      }
+    }
+  }
+  hm.box(0, -1, 5, 0, 0, 7, v.dark); // the beak
+  const headMesh = hm.build(0.1);
+  headMesh.position.set(0, -0.25 + 0.02, 0.4);
+  const head = new THREE.Group();
+  head.position.set(0, 0.02, 0.97);
+  head.add(headMesh);
+  body.add(head);
+  const lensCells: Array<[number, number, number]> = [];
+  for (let x = -1; x <= 1; x++) {
+    for (let y = -1; y <= 1; y++) {
+      lensCells.push([x, y, 3]);
+    }
+  }
+  head.add(bakeLens(v, spine.mat, { model: hm, at: headMesh.position, centered: true }, lensCells));
+
+  // THE WINGS: a leading spar, ribs every fifth cell, pale panes between; the
+  // thread beaded along the front of the spar. Painted for one side, by sign.
+  const wings: Record<string, THREE.Group> = {};
+  for (const [key, sign] of [
+    ["wingL", -1],
+    ["wingR", 1],
+  ] as const) {
+    const wm = new VoxelModel();
+    const wtm = new VoxelModel();
+    for (let x = 0; x <= 22; x++) {
+      const cx = sign > 0 ? x : -x - 1;
+      const zLead = 3 - Math.floor(x / 6);
+      const zTrail = -7 + Math.floor(x / 3);
+      for (let z = zTrail; z <= zLead; z++) {
+        const spar = z === zLead || z === zTrail || x % 5 === 0 || x >= 21;
+        wm.set(cx, 0, z, spar ? v.dark : v.belly);
+        if (z === zLead || x % 5 === 0) {
+          wm.set(cx, 1, z, copper);
+        }
+      }
+      if (x % 2 === 1 && x < 21) {
+        wtm.set(cx, 0, zLead + 1, v.accent);
+      }
+    }
+    const wing = new THREE.Group();
+    wing.position.set(sign * 0.27, 0, 0);
+    const wingMesh = wm.build(0.1, false);
+    wing.add(wingMesh);
+    wing.add(bakeThread(wtm, v, spine.mat, { model: wm, at: wingMesh.position, centered: false }).mesh);
+    body.add(wing);
+    wings[key] = wing;
+  }
+
+  // The forked tail: two copper prongs opening as they go, glass between the roots.
+  const tlm = new VoxelModel();
+  for (let i = 0; i < 9; i++) {
+    const z = -1 - i;
+    const off = 1 + Math.floor(i / 2);
+    tlm.set(-off, 0, z, v.dark);
+    tlm.set(off, 0, z, v.dark);
+    if (i < 4) {
+      tlm.box(-off + 1, 0, z, off - 1, 0, z, v.belly);
+    }
+  }
+  const tail = new THREE.Group();
+  tail.position.set(0, 0, -0.93);
+  tail.add(tlm.build(0.1, false));
+  body.add(tail);
+
+  return { parts: { body, head, thread, tail, ...wings } };
+}
+
 export const ENEMY_MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
   ["gloopling", buildGloopling],
   ["snortle", buildSnortle],
@@ -689,4 +1146,7 @@ export const ENEMY_MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, Ene
   ["brineholder", buildBrineholder],
   ["cinderguard", buildCinderguard],
   ["choirguard", buildChoirguard],
+  ["guardian-land", buildGuardianLand],
+  ["guardian-sea", buildGuardianSea],
+  ["guardian-sky", buildGuardianSky],
 ]);

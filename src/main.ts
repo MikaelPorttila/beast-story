@@ -1751,6 +1751,9 @@ function seedMountUnlocks(): void {
 seedMountUnlocks();
 
 const mount = new MountController(player, world, input, bus, mountUnlocks);
+// WHAT THE HERO RIDES, asked by combat at each hit on a bonded enemy (issue #163). The one place
+// combat learns anything about mounts, and it learns a KIND, not a beast.
+combat.setRider(() => (mount.beast ? MOUNT_KIND_OF[mount.beast.species.locomotion] : null));
 
 // Contact particles, constructed above the frame loop so its mesh is in the scene for the boot warm-up: a pool
 // first appearing mid-game links a shader and stalls hundreds of ms.
@@ -1940,6 +1943,12 @@ bus.on((e) => {
     // XP goes to whoever is out there; with no beasts bonded it goes nowhere, correctly.
     primary()?.gainXp(e.xp);
     support()?.gainXp(Math.round(e.xp * 0.6));
+  }
+  // A held blow tells the player WHY, once per few seconds rather than per swing: the fight's rule
+  // is the mount, and a refusal with no words reads as a bug.
+  if (e.type === "hitHeld" && heldHintCd <= 0) {
+    heldHintCd = HELD_HINT_EVERY;
+    bus.emit({ type: "toast", text: t(HELD_KEYS[e.bond]) });
   }
   if (e.type === "beastTamed") {
     onBeastTamed(e.beastId, e.nameKey);
@@ -3527,7 +3536,22 @@ function tickHoldStage(dt: number): void {
 // of this quest: Act 4 fights `enemy:guardian/land` on the same ground (game-story.md §4), so nothing
 // about the terrain, the town or the roads knows a boss is standing here. Kill it and the ground is
 // what it was.
-const BOSS_STAGE_ENEMY = "bellwether";
+/**
+ * Who stands up on the drove ground and for which quest: Act 1's boss and Act 4's guardian
+ * (issue #163), on the same ground, one at a time — a row is skipped while its quest is not active
+ * or its objective is met, so the two never share the field. `reach` is the arrival objective the
+ * stage marks in the same breath, for a quest that has one; the guardian's tells the player they
+ * are there before it stands up.
+ */
+const DROVE_STAGES: readonly { quest: string; objective: string; enemy: string; reach?: string }[] = [
+  { quest: "quest:land/the-bellwether", objective: "defeat-bellwether", enemy: "bellwether" },
+  {
+    quest: "quest:seam/guardian-land",
+    objective: "free-the-guardian",
+    enemy: "guardian/land",
+    reach: "reach-the-drove-ground",
+  },
+];
 /**
  * How far out of Stonewatch it grazes, world units.
  *
@@ -3540,6 +3564,14 @@ const BOSS_STAGE_OUT = 90;
 /** How near the arena the hero must be for the animal to be put out. Under the despawn radius. */
 const BOSS_STAGE_REACH = 70;
 let bossStagePollIn = 0;
+/** Seconds between "ride the mount" toasts while a bonded enemy is refusing blows (issue #163). */
+const HELD_HINT_EVERY = 4;
+let heldHintCd = 0;
+const HELD_KEYS: Record<MountKind, StringKey> = {
+  ground: "combat.held.ground",
+  water: "combat.held.water",
+  flying: "combat.held.flying",
+};
 
 /** Where the herd is: a fixed bearing off the town, so the arena is the same place every session. */
 function droveGround(): { x: number; y: number; z: number } | null {
@@ -3564,38 +3596,43 @@ function tickBossStage(dt: number): void {
   if (zones.id !== "overworld") {
     return;
   }
-  const asset = content.get<QuestData>("quest:land/the-bellwether");
-  if (!asset || content.state.questStatus(asset.id) !== "active") {
-    return;
+  for (const stage of DROVE_STAGES) {
+    const asset = content.get<QuestData>(stage.quest);
+    if (!asset || content.state.questStatus(asset.id) !== "active") {
+      continue;
+    }
+    if (content.state.progress(asset.id, stage.objective) >= 1) {
+      continue;
+    }
+    const spot = droveGround();
+    if (!spot) {
+      return;
+    }
+    // Same rule as the Hold's floor: an enemy further than `DESPAWN_DIST` from the hero is swept the
+    // slice it is made, so the herd's leader is put out when somebody has come far enough to see it.
+    if (
+      !inReach(
+        spot.x,
+        spot.y,
+        spot.z,
+        player.position.x,
+        player.position.y,
+        player.position.z,
+        BOSS_STAGE_REACH,
+        30,
+        30,
+      )
+    ) {
+      continue;
+    }
+    if (stage.reach !== undefined && content.state.progress(asset.id, stage.reach) < 1) {
+      content.run([{ do: "progress.add", quest: asset.id, objective: stage.reach }]);
+    }
+    if (combat.enemies.some((e) => e.targetable && e.species === stage.enemy)) {
+      continue;
+    }
+    combat.spawnOne(stage.enemy, spot.x, spot.z);
   }
-  if (content.state.progress(asset.id, "defeat-bellwether") >= 1) {
-    return;
-  }
-  const spot = droveGround();
-  if (!spot) {
-    return;
-  }
-  // Same rule as the Hold's floor: an enemy further than `DESPAWN_DIST` from the hero is swept the
-  // slice it is made, so the herd's leader is put out when somebody has come far enough to see it.
-  if (
-    !inReach(
-      spot.x,
-      spot.y,
-      spot.z,
-      player.position.x,
-      player.position.y,
-      player.position.z,
-      BOSS_STAGE_REACH,
-      30,
-      30,
-    )
-  ) {
-    return;
-  }
-  if (combat.enemies.some((e) => e.targetable && e.species === BOSS_STAGE_ENEMY)) {
-    return;
-  }
-  combat.spawnOne(BOSS_STAGE_ENEMY, spot.x, spot.z);
 }
 
 // THE DROWNED MARKET — Kelphold's flooded flats (issue #154). Seaward of the quay,
@@ -6533,6 +6570,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   tickHoldStage(dt);
   tickVentStage(dt);
   tickBossStage(dt);
+  heldHintCd -= dt;
   tickMarketStage(dt);
   tickRookeryStage(dt);
   tickMawsStage(dt);

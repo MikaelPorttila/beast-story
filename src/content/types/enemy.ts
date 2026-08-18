@@ -8,7 +8,7 @@ import { bool, enumOf, hexColor, isRecord, list, num, obj, opt, readerFor, str }
 import type { Reader } from "../schema";
 import { isKnownTextKey } from "../text";
 // Type-only, so nothing at runtime imports core/types.ts — which pulls in three.js.
-import type { ElementType } from "../../core/types";
+import type { ElementType, MountKind } from "../../core/types";
 
 /** The factory kind an enemy's `model` selects. `enemy-model/gloopling`, … */
 export const ENEMY_MODEL_KIND = "enemy-model";
@@ -82,6 +82,13 @@ export interface EnemyData {
   /** Exactly three, in `variantForHeight` order. On a `beast-…` body only `element` is read. */
   readonly variants: readonly EnemyVariant[];
   readonly capture?: EnemyCapture;
+  /**
+   * HELD BY A BOND (Act 4, issue #163): only a rider on this KIND of mount can
+   * hurt it — the gate is `CombatSystem.dealSkillDamage` — and the kind is also
+   * its element: `ground` walks, `water` swims under the surface, `flying`
+   * hovers. Content names the mount; nothing here asks the mount system.
+   */
+  readonly bond?: MountKind;
 }
 
 /** Registered `enemy-model` names; null skips the check. See town.ts. */
@@ -92,6 +99,8 @@ export function setKnownEnemyModels(names: Iterable<string>): void {
 }
 
 const element = enumOf(ELEMENT_NAMES);
+/** Spelled out for the same reason `ELEMENT_NAMES` is; `MOUNT_KINDS` lives beside three.js. */
+const bond = enumOf(["ground", "water", "flying"] as const);
 
 function readVariant(value: unknown, ctx: Reader): EnemyVariant {
   if (!isRecord(value)) {
@@ -168,6 +177,7 @@ function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
     aggro: num(b.aggro, r.at("aggro"), { min: 0, max: 500, what: "an aggro radius" }),
     variants,
     capture: opt(b.capture, r.at("capture"), readCapture),
+    bond: opt(b.bond, r.at("bond"), bond),
   };
 }
 

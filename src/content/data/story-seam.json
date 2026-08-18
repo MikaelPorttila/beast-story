@@ -10,7 +10,8 @@
     "loading": "On `act-3-complete`, through ACT_PACKAGES in main.ts (issue #209): NOT at boot, because unlike the sea and the sky nothing of this act is part of the open world's geography — the act stages out of the Encampment, and its one new place is a zone entered in quest 5. Once loaded it stays for the session. The people it brings are placed by `Npcs.reconcile` the moment the definitions land.",
     "the-seam": "Given AND closed by npc:gain at the Encampment (core.json — an id is global and core may not depend on a package that arrives later, so his rows sit beside him). The prerequisite is the door for THIS quest; everything else in the act tests seam-known.",
     "choose-a-road": "DROPPED (issue #146 comment, option a). The spec's `choose-a-road` was to be satisfied by STARTING a guardian quest, but 2–4 name this quest as a prerequisite and a prerequisite means COMPLETED — the objective could never tick. The fork itself is the choice: Three Roads closes on hearing the four out, and the order of 2–4 is the player's.",
-    "the-fire": "Four placements, one per recurring character (game-story.md §2 — one body, one name key, a talk list gated on flags), `present` on act-3-complete. They STAY for the act: Coil is at Kelphold and Pell in the Orrery at the same time, the way Gain is at three fires, and their lines after seam-known say which road each of them is waiting on."
+    "the-fire": "Four placements, one per recurring character (game-story.md §2 — one body, one name key, a talk list gated on flags), `present` on act-3-complete. They STAY for the act: Coil is at Kelphold and Pell in the Orrery at the same time, the way Gain is at three fires, and their lines after seam-known say which road each of them is waiting on.",
+    "the-guardians": "Three bosses, one rhythm (`behaviour: guardian` in combat/enemies.ts) in three elements: `bond` names the mount kind that can hurt it AND how it moves — the walker on Stonewatch's drove ground, the swimmer under Maw's Rest, the flyer over the Orrery's open frame. Each quest tests its mount FLAG (§6) and the fight itself refuses anyone not in that saddle. Any order; each sets its `guardian-*-freed` thread."
   },
   "assets": [
     {
@@ -89,7 +90,214 @@
         }
       }
     },
-
+    {
+      "id": "enemy:guardian/land",
+      "schema": 1,
+      "name": {
+        "key": "enemy.guardianLand.name"
+      },
+      "tags": [
+        "story",
+        "act4",
+        "boss"
+      ],
+      "data": {
+        "model": "guardian-land",
+        "behaviour": "guardian",
+        "flying": false,
+        "hp": 1400,
+        "atk": 20,
+        "speed": 4.2,
+        "xp": 800,
+        "radius": 1.5,
+        "height": 2.4,
+        "aggro": 34,
+        "_model": "A stag of weathered stone under brass saddles (enemy-models.ts): a crown of brass tines, pillar legs with joint collars, and the thread wound twice round the neck before it runs the spine in a groove.",
+        "variants": [
+          {
+            "element": "rock",
+            "main": "#8a8f86",
+            "dark": "#6a5a3a",
+            "belly": "#c9c4b0",
+            "accent": "#ff3b3b"
+          },
+          {
+            "element": "rock",
+            "main": "#858a81",
+            "dark": "#655536",
+            "belly": "#c3beaa",
+            "accent": "#ff3b3b"
+          },
+          {
+            "element": "rock",
+            "main": "#8f948b",
+            "dark": "#6f5f3f",
+            "belly": "#cfcab6",
+            "accent": "#ff3b3b"
+          }
+        ],
+        "bond": "ground",
+        "_bond": "HELD BY A BOND: only a rider on the ground mount can hurt it (CombatSystem.dealSkillDamage), which is the mechanical statement of `mount-ground` being the gate — the flag opens the quest, the bond makes the mount the fight (issue #163)."
+      }
+    },
+    {
+      "id": "enemy:guardian/sea",
+      "schema": 1,
+      "name": {
+        "key": "enemy.guardianSea.name"
+      },
+      "tags": [
+        "story",
+        "act4",
+        "boss"
+      ],
+      "data": {
+        "model": "guardian-sea",
+        "behaviour": "guardian",
+        "flying": false,
+        "hp": 1400,
+        "atk": 20,
+        "speed": 4.2,
+        "xp": 800,
+        "radius": 1.3,
+        "height": 1.6,
+        "aggro": 34,
+        "_model": "A ray of verdigris brass: a flat disc thinning to a segmented tail, two broad fins, one lens for an eye; the thread in the dorsal groove and looped round the tail's last ring. Hovers — the body's origin is its centre.",
+        "variants": [
+          {
+            "element": "water",
+            "main": "#4f8f86",
+            "dark": "#2f5c58",
+            "belly": "#a9d8cf",
+            "accent": "#ff3b3b"
+          },
+          {
+            "element": "water",
+            "main": "#4a8a81",
+            "dark": "#2a5753",
+            "belly": "#a3d2c9",
+            "accent": "#ff3b3b"
+          },
+          {
+            "element": "water",
+            "main": "#54948b",
+            "dark": "#34615d",
+            "belly": "#afded5",
+            "accent": "#ff3b3b"
+          }
+        ],
+        "bond": "water"
+      }
+    },
+    {
+      "id": "enemy:guardian/sky",
+      "schema": 1,
+      "name": {
+        "key": "enemy.guardianSky.name"
+      },
+      "tags": [
+        "story",
+        "act4",
+        "boss"
+      ],
+      "data": {
+        "model": "guardian-sky",
+        "behaviour": "guardian",
+        "flying": true,
+        "hp": 1400,
+        "atk": 20,
+        "speed": 4.2,
+        "xp": 800,
+        "radius": 1.4,
+        "height": 1.6,
+        "aggro": 34,
+        "_model": "A kite of copper ribs and cloud-glass: a slim body, an armature head round a lens, ribbed wings with pale panes between the spars, a forked tail; the thread beaded along each leading edge and down the spine.",
+        "variants": [
+          {
+            "element": "wind",
+            "main": "#b07a45",
+            "dark": "#6e4a2a",
+            "belly": "#e6f2fa",
+            "accent": "#ff3b3b"
+          },
+          {
+            "element": "wind",
+            "main": "#ab7540",
+            "dark": "#694525",
+            "belly": "#e0ecf4",
+            "accent": "#ff3b3b"
+          },
+          {
+            "element": "wind",
+            "main": "#b57f4a",
+            "dark": "#734f2f",
+            "belly": "#ecf8ff",
+            "accent": "#ff3b3b"
+          }
+        ],
+        "bond": "flying"
+      }
+    },
+    {
+      "id": "quest:seam/guardian-land",
+      "schema": 1,
+      "name": {
+        "key": "quest.seam.guardianLand.name"
+      },
+      "description": {
+        "key": "quest.seam.guardianLand.desc"
+      },
+      "tags": [
+        "story",
+        "act4"
+      ],
+      "data": {
+        "category": "main",
+        "arc": "seam",
+        "giver": "npc:gain",
+        "location": "town:stonewatch",
+        "prerequisites": [
+          "quest:seam/three-roads"
+        ],
+        "available": {
+          "test": "flag",
+          "flag": "mount-ground"
+        },
+        "_gate": "The FLAG, never the mount system (game-story.md §6): mount-ground was set by quest:land/the-mill-road. Gain's offer row repeats it, as every row repeats its quest's door.",
+        "objectives": [
+          {
+            "key": "reach-the-drove-ground",
+            "text": {
+              "key": "quest.seam.guardianLand.obj.reachTheDroveGround"
+            },
+            "_stage": "Marked by the drove-ground stage in main.ts when the hero comes within reach of the arena — the same ground the Bellwether died on (issue #151), and the guardian stands up in the same breath."
+          },
+          {
+            "key": "free-the-guardian",
+            "text": {
+              "key": "quest.seam.guardianLand.obj.freeTheGuardian"
+            },
+            "trigger": {
+              "kind": "enemy-killed",
+              "enemies": [
+                "enemy:guardian/land"
+              ],
+              "site": "drove-ground"
+            }
+          }
+        ],
+        "onComplete": [
+          {
+            "do": "flag.set",
+            "flag": "guardian-land-freed"
+          }
+        ],
+        "rewards": {
+          "xp": 800,
+          "shard": 200
+        }
+      }
+    },
     {
       "id": "npc:coil/encampment",
       "schema": 1,
@@ -149,7 +357,6 @@
         ]
       }
     },
-
     {
       "id": "npc:sky-pilot/encampment",
       "schema": 1,
@@ -199,7 +406,6 @@
         ]
       }
     },
-
     {
       "id": "npc:sky-gardener/encampment",
       "schema": 1,
@@ -259,7 +465,6 @@
         ]
       }
     },
-
     {
       "id": "npc:sky-lamplighter/encampment",
       "schema": 1,

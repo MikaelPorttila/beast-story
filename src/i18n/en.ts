@@ -347,6 +347,11 @@ export const en = {
   "quest.seam.threeRoads.obj.hearVane": "Hear Corwin Vane out at the fire",
   "quest.seam.threeRoads.obj.hearPell": "Hear Mother Pell out at the fire",
   "quest.seam.threeRoads.obj.hearTobin": "Hear Tobin Ashgrove out at the fire",
+  "quest.seam.guardianLand.name": "The Land Guardian",
+  "quest.seam.guardianLand.desc":
+    "The first of the three threads is held on the ground, out on Stonewatch's drove ground where the Bellwether fell. Ride out to it — the guardian answers a bonded pair and nothing else, so it cannot be fought on foot: stay in the saddle of the ground mount and let it go. Then tell Gain at the fire.",
+  "quest.seam.guardianLand.obj.reachTheDroveGround": "Ride out to the drove ground beyond Stonewatch",
+  "quest.seam.guardianLand.obj.freeTheGuardian": "Let the Land Guardian go — from the saddle of the ground mount",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -498,6 +503,22 @@ export const en = {
     "Good. Do not tell me which — I would only try to get there first, and I have a feeling that trick has run out. Go on. I will keep the fire.",
   "npc.gain.seam1.after":
     "Three roads out of this camp, and for once I do not know the end of any of them. That is new. I find I do not mind it.",
+  // The land road (issue #163): his, because the drove ground is where he
+  // taught you to ride and the Bellwether is where you learned why.
+  "npc.gain.seam2.offer":
+    "The ground one, then. Stonewatch — the drove ground, where the Bellwether went down. It has stood there since before there was a town, and every herd that turned red was its thread pulling. Here is the thing Pell would not say plainly: it will not answer a person. It answers a PAIR. Go out to it in the saddle and stay there — on your own feet you may as well be shouting at a hill. Bring the thread back slack and I will hear about it from here.",
+  "npc.gain.seam2.busy":
+    "Past Stonewatch, out where the herd was. In the saddle — I mean it. It does not answer feet.",
+  "npc.gain.seam2.done":
+    "I felt it — the whole valley did; the herd lay down where it stood. One thread slack. That guardian kept a rope taut for longer than there have been mills, and you asked it to stop, from the back of an animal it could recognise. Two more. Coil is at Kelphold, Pell in the Orrery — you know the roads.",
+  "npc.gain.seam2.noMount":
+    "The land road wants the ground mount, and you have not been taught it. Come back when you have — I would take you out myself, but the whole point is that I cannot.",
+  "combat.held.ground":
+    "It does not answer you on foot. Ride the ground mount.",
+  "combat.held.water":
+    "It does not answer you above the water. Ride the water mount.",
+  "combat.held.flying":
+    "It does not answer you from the ground. Ride the flying mount.",
 
   // Saltrest's boatwright, met minding Kelphold's flooded market (issue #154).
   "npc.brack.name": "Brack Tulley",
@@ -958,6 +979,10 @@ export const en = {
   // Act 3's two guardians (issues #160, #161): the one that cannot stop, and the one that keeps time.
   "enemy.cinderguard.name": "The Cinderguard",
   "enemy.choirguard.name": "The Choirguard",
+  // Act 4's three guardians (game-story.md §4): what held the first bond's ends.
+  "enemy.guardianLand.name": "The Land Guardian",
+  "enemy.guardianSea.name": "The Sea Guardian",
+  "enemy.guardianSky.name": "The Sky Guardian",
   // The lead animal of a flock is the one wearing the bell, and the rest follow
   // it wherever it goes — which is the whole of what has gone wrong in the
   // valley, said in one word (issue #151).
