@@ -486,7 +486,7 @@ chain; nothing here loads at boot except `core`.
 | `story-land` | `data/story-land.json` | `story`  | At boot, after `story` — see the correction below                                                           |
 | `story-sea`  | `data/story-sea.json`  | `story`  | At boot — Act 2 is part of the open world (issue #144), so its islands must exist when the world is planned |
 | `story-sky`  | `data/story-sky.json`  | `story`, `story-sea` | At boot — the sky is part of the open world too (issue #145), and a carried town's island is built with the world |
-| `story-seam` | `data/story-seam.json` | `story`  | On entering `seam`                                                                                          |
+| `story-seam` | `data/story-seam.json` | `story`  | On `act-3-complete`, through `ACT_PACKAGES` in main.ts (issue #209) — the act stages out of the Encampment and nothing of it is geography the world is planned around; its one zone is entered in quest 5 |
 
 **Act 1's towns stay in `core`** — they are the shipped world and moving them would
 make the starting world depend on a package. `story-land` adds only quests and the two

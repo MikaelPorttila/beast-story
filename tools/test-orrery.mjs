@@ -22,6 +22,9 @@
 //   4. THE ORRERY: reaching the deck marks the arrival, the Choirguard stands
 //      up and falls, Vess closes it — vess-truth, act-3-complete, 250 paid —
 //      and the frame outlives its boss: re-enterable, nothing respawns.
+//   5. THE SEAM RECEIVES (issue #162): act-3-complete loads `story-seam`,
+//      Three Roads is the one main quest offered, and Gain back at the
+//      Encampment offers and closes it — seam-known set, 150 paid.
 //
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from "./browser.mjs";
@@ -178,8 +181,14 @@ async function until(fn, tries = 24, step = 0.5) {
 // ---------- stage to the fork's root -----------------------------------------
 await dbg(async () => {
   const { content } = await import("/src/content/index.ts");
+  // Every quest Gain gives in Act 1 is done: his rows are first-match, and
+  // section 5 talks to him at the fire again.
   for (const q of [
+    "quest:land/first-light",
+    "quest:land/the-blue-road",
+    "quest:land/the-first-bond",
     "quest:land/the-mill-road",
+    "quest:land/the-red-thread",
     "quest:land/the-bellwether",
     "quest:sea/salt-and-rope",
     "quest:sea/dark-water",
@@ -396,8 +405,10 @@ await adv(0.3);
   check(closed.status === "completed", `Pell's turn-in left Cinderhelm "${closed.status}"`);
   check(closed["knows-the-cities-built-it"] === true, "knows-the-cities-built-it was not set");
   check(paid === 160, `Cinderhelm paid ${paid}, not the promised 160`);
-  // The shelf outlives its boss (#160): enterable, and nothing stands up.
-  await tpDeck({ x: cinder.x + 20, y: cinder.y, z: cinder.z });
+  // The shelf outlives its boss (#160): enterable, and nothing stands up. The
+  // island has cruised since `cinder` was read — aim at where it is NOW.
+  const now = await isle("cinderhelm");
+  await tpDeck({ x: now.x + 20, y: now.y, z: now.z });
   const again = await isle("cinderhelm");
   const p1 = await dbg(() => window.__dbgPlayerPos());
   results.cinderReentry = { onDeck: p1.y > again.y - 1, cinderguards: (await enemies("cinderguard")).length };
@@ -435,14 +446,76 @@ await adv(0.3);
   check(closed["act-3-complete"] === true, "act-3-complete was not set");
   check(paid === 250, `The Orrery paid ${paid}, not the promised 250`);
 
-  // The frame outlives its boss.
-  await tpDeck({ x: orrery.x + 20, y: orrery.y, z: orrery.z });
+  // The frame outlives its boss (the island has cruised on — re-read it).
+  const now = await isle("orrery");
+  await tpDeck({ x: now.x + 20, y: now.y, z: now.z });
   await adv(3);
   const again = await enemies("choirguard");
   const p = await dbg(() => window.__dbgPlayerPos());
-  results.reentry = { choirguards: again.length, onDeck: p.y > orrery.y - 1 };
+  const later = await isle("orrery");
+  results.reentry = { choirguards: again.length, onDeck: p.y > later.y - 1 };
   check(again.length === 0, "the Choirguard respawned with the act closed");
-  check(p.y > orrery.y - 1, "the Orrery refused re-entry");
+  check(results.reentry.onDeck, "the Orrery refused re-entry");
+}
+
+// ---------- 5. the seam receives ------------------------------------------------
+// The other half of act-3-complete: `story-seam` was NOT resident at boot (the
+// act is no geography), it loads on the flag through ACT_PACKAGES, and Three
+// Roads is the one main quest left offered. Polled — the load is async and the
+// shelf refreshes on the store's own change.
+{
+  let seam = null;
+  for (let i = 0; i < 40 && seam?.tab !== "available"; i++) {
+    await wait(250);
+    seam = await dbg(() => {
+      const c = window.__dbgContent();
+      const main = window
+        .__dbgJournal()
+        .model.filter(
+          (e) => e.category === "main" && (e.tab === "active" || e.tab === "available"),
+        );
+      return {
+        packages: c.packages.map((p) => p.id),
+        diagnostics: c.diagnostics,
+        tab: main.find((e) => e.id === "quest:seam/three-roads")?.tab ?? null,
+        shelf: main.map((e) => e.id),
+      };
+    });
+  }
+  results.seam = seam;
+  check(seam.packages.includes("story-seam"), "story-seam did not load on act-3-complete");
+  check(seam.tab === "available", `three-roads is on the "${seam.tab}" shelf, not "available"`);
+  check(
+    seam.diagnostics.length === 0,
+    `the act's entry raised findings: ${JSON.stringify(seam.diagnostics)}`,
+  );
+  const skyLeft = seam.shelf.filter((id) => id.startsWith("quest:sky/"));
+  check(
+    skyLeft.length === 0,
+    `the act closed with its own quests still on the shelf: ${JSON.stringify(skyLeft)}`,
+  );
+
+  // And the receiving half plays: back down at the Encampment, Gain offers it
+  // (hear-them-out is his) and closes it — seam-known set, 150 paid.
+  const Q1 = "quest:seam/three-roads";
+  await dbg(() => {
+    const s = window.__dbgTowns().spawn;
+    window.__dbgTp(s.x, s.z);
+  });
+  await streamed();
+  const before = await shards();
+  const offer = await talkTo("gain");
+  const started = await facts(Q1, ["hear-them-out", "choose-a-road"], []);
+  check(offer !== null, "Gain has no Three Roads offer at the fire");
+  check(started.status === "active", `Gain's offer left Three Roads "${started.status}"`);
+  check(started["hear-them-out"] >= 1, "hear-them-out was not marked by the offer");
+  const done = await talkTo("gain");
+  const closed = await facts(Q1, ["choose-a-road"], ["seam-known"]);
+  const paid = (await shards()) - before;
+  results.threeRoads = { offer, done, ...closed, paid };
+  check(closed.status === "completed", `Gain's turn-in left Three Roads "${closed.status}"`);
+  check(closed["seam-known"] === true, "seam-known was not set — Act 4 has no key");
+  check(paid === 150, `Three Roads paid ${paid}, not the promised 150`);
 }
 
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));

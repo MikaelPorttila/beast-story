@@ -203,6 +203,55 @@
             "when": { "test": "quest", "quest": "quest:land/the-mill-road", "status": "active" },
             "line": { "key": "npc.gain.q3.busy" }
           },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:seam/three-roads", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:seam/three-roads",
+                  "objective": "hear-them-out"
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.seam1.done" },
+            "actions": [
+              {
+                "do": "progress.add",
+                "quest": "quest:seam/three-roads",
+                "objective": "choose-a-road"
+              },
+              { "do": "quest.complete", "quest": "quest:seam/three-roads" }
+            ],
+            "_stub": "choose-a-road is meant to be marked by STARTING a guardian quest (issue #162); until those exist he marks it as he closes. Drop the progress.add when they do."
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "flag", "flag": "act-3-complete" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:seam/three-roads", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:seam/three-roads", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.seam1.offer" },
+            "actions": [
+              { "do": "quest.start", "quest": "quest:seam/three-roads" },
+              {
+                "do": "progress.add",
+                "quest": "quest:seam/three-roads",
+                "objective": "hear-them-out"
+              }
+            ],
+            "_seam": "THE ACT 3 -> ACT 4 SEAM, receiving half (issue #162): the story-seam package loads on act-3-complete (ACT_PACKAGES in main.ts), and the same flag opens this row, so the quest is resident by the time he can offer it."
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:seam/three-roads", "status": "completed" },
+            "line": { "key": "npc.gain.seam1.after" }
+          },
           { "line": { "key": "npc.gain.greeting" } }
         ]
       }
