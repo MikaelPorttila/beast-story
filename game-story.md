@@ -452,6 +452,12 @@ one of them could never tick. The fork itself is the choice._
 
 **2 · The Land Guardian.** `enemy:guardian/land` on Stonewatch's drove ground, where
 the Bellwether died. Ground mount. `onComplete`: `flag.set guardian-land-freed`.
+_How "the mount is not optional" is built (issue #163): a guardian is `bond: ground` in
+its asset, and a bonded enemy REFUSES every blow from anyone not riding that kind of
+mount (`CombatSystem.dealSkillDamage`) — the thread lights, a toast says why, no
+number. The flag opens the quest; the bond makes the mount the fight. All three
+guardians share one behaviour (`guardian`) that circles, lunges and moves in the
+element its bond names._
 **3 · The Sea Guardian.** `enemy:guardian/sea` in the Maw's Rest trench. Water mount.
 `onComplete`: `flag.set guardian-sea-freed`.
 **4 · The Sky Guardian.** `enemy:guardian/sky` in the Orrery's open frame. Flying

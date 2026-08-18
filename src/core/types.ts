@@ -956,6 +956,8 @@ export type GameEvent =
   | { type: "shardsChanged"; total: number }
   /** A drop left the ground. `byBeast` is a support beast having fetched it — only the toast differs. */
   | { type: "itemPicked"; itemId: string; byBeast: boolean }
+  /** A blow a BONDED enemy refused (issue #163): the hero was not riding the mount its bond names. */
+  | { type: "hitHeld"; species: string; bond: MountKind }
   /** `species` is the IDENTITY a cull objective filters on; `nameKey` is display. */
   | { type: "enemyKilled"; species: string; nameKey: StringKey; xp: number }
   | { type: "shopOpened"; shopIndex: number }

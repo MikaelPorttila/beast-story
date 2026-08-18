@@ -132,6 +132,9 @@ const SOLO = new Set([
   // Act 4's opener (issue #162): stages Act 3 done, watches the cast arrive at
   // the fire, and talks the four of them through — presses, teleports, state.
   "three-roads",
+  // Act 4's land road (issue #163): stands the guardian up on the drove ground,
+  // swings at it on foot and from the saddle, reads its hp — a hero, motion, presses.
+  "land-guardian",
   // The vent under Cinderhelm (issue #265): crosses a gateway that RIDES a deck,
   // both ways, and reads where the hero lands — a crossing's wall clock and motion.
   "vent",

@@ -8,6 +8,7 @@ import {
   type EventBus,
   type FetchJob,
   type ItemDef,
+  type MountKind,
   type SkillDef,
   type World,
 } from "../core/types";
@@ -79,6 +80,8 @@ const PROJ_CAP = 14;
 const CRIT_CHANCE = 0.1;
 const CRIT_MULT = 1.5;
 const CRIT_HEX = 0xffd23f;
+/** The red of the thread: what a held blow lights instead of a number. */
+const HELD_HEX = 0xff3b3b;
 
 const SPAWN_MIN = 8;
 const SPAWN_MAX = 14;
@@ -133,6 +136,8 @@ export class CombatSystem {
   private primed = false;
   private targets: Damageable[] = [];
   private lastPlayer: Damageable | null = null;
+  /** What the hero RIDES right now, asked at each hit; the host installs it (`setRider`). */
+  private rider: () => MountKind | null = () => null;
   private enemyCtx: EnemyCtx;
   private projectiles: Projectile[] = [];
   private projCoreGeo: THREE.BoxGeometry;
@@ -471,6 +476,11 @@ export class CombatSystem {
     this.numbers.update(dt);
   }
 
+  /** The one question a bonded enemy asks of a hit. Combat never learns what a mount IS. */
+  setRider(fn: () => MountKind | null): void {
+    this.rider = fn;
+  }
+
   private skillBase(skill: SkillDef, attackStat: number): number {
     return skill.power * (attackStat / 10);
   }
@@ -484,6 +494,17 @@ export class CombatSystem {
     fromZ: number,
     bySkill: boolean,
   ): void {
+    const px = enemy.position.x,
+      py = enemy.position.y,
+      pz = enemy.position.z;
+    // HELD (issue #163): the thread takes the blow. A bonded thing answers a
+    // bonded pair — the rider on the mount its bond names — and nothing else;
+    // the blow is refused before it is rolled, so no number, no crit, no knock.
+    if (enemy.bond !== null && this.rider() !== enemy.bond) {
+      this.vfx.glowPulse(px, py + enemy.height * 0.5, pz, HELD_HEX, 1.8, 0.24);
+      this.bus.emit({ type: "hitHeld", species: enemy.species, bond: enemy.bond });
+      return;
+    }
     const mult = elementMultiplier(element, enemy.element);
     const crit = Math.random() < CRIT_CHANCE;
     const dmg = Math.max(1, Math.round(rawBase * mult * (crit ? CRIT_MULT : 1)));
@@ -492,9 +513,6 @@ export class CombatSystem {
       return;
     }
     const hex = crit ? CRIT_HEX : element ? ELEMENT_COLORS[element] : 0xf2f6ff;
-    const px = enemy.position.x,
-      py = enemy.position.y,
-      pz = enemy.position.z;
     this.numbers.spawn(px, py + enemy.height + 0.35, pz, String(dmg), hex, crit);
     this.vfx.burst(px, py + enemy.height * 0.5, pz, hex, crit ? 14 : 8, 3.6, 0.32, 0.22, -2, 0.4);
     if (mult > 1) {
