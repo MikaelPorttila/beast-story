@@ -67,12 +67,14 @@ function addNightWindow(
   yaw: number,
   front: number,
   height: number,
+  side = 0,
 ): void {
+  // `Accum.add` turns a template's +z to (sin yaw, cos yaw), so its +x is (cos yaw, -sin yaw).
   acc.add(
     NIGHT_WINDOW,
-    x + Math.sin(yaw) * front,
+    x + Math.sin(yaw) * front + Math.cos(yaw) * side,
     y + height,
-    z + Math.cos(yaw) * front,
+    z + Math.cos(yaw) * front - Math.sin(yaw) * side,
     yaw,
     1,
     1,
@@ -1626,7 +1628,8 @@ function buildEncampment(
     }
     const yaw = Math.atan2(fx - x, fz - z);
     solid.add(parts.huts[k], x, cy, z, yaw);
-    addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
+    const win = parts.hutWindows[k];
+    addNightWindow(night, x, cy, z, yaw, win.front, win.height, win.side);
     if (k === 2) {
       const dx = Math.sin(Math.atan2(fx - x, fz - z));
       const dz = Math.cos(Math.atan2(fx - x, fz - z));
@@ -1745,7 +1748,8 @@ function buildHamlet(
     }
     const yaw = Math.atan2(wx - x, wz - z);
     solid.add(parts.huts[k % parts.huts.length], x, cy, z, yaw);
-    addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
+    const win = parts.hutWindows[k % parts.huts.length];
+    addNightWindow(night, x, cy, z, yaw, win.front, win.height, win.side);
   }
   for (let k = 0; k < 3; k++) {
     const a = gateAngle - 0.5 - (k / 3) * 1.5;
@@ -1852,7 +1856,8 @@ function buildHarbour(
     }
     const yaw = Math.atan2(wx - x, wz - z);
     solid.add(parts.huts[k % parts.huts.length], x, cy, z, yaw);
-    addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
+    const win = parts.hutWindows[k % parts.huts.length];
+    addNightWindow(night, x, cy, z, yaw, win.front, win.height, win.side);
   }
   // The well stands INSIDE the huts' elbow room but clear of their timber by
   // construction: hut faces start 6.1 out, the well ends 5.2 out.

@@ -49,6 +49,14 @@ const CANVAS_RED = 0x9c4c3e;
 const CANVAS_BLUE = 0x4c6a8c;
 const THATCH = 0xb59a5c;
 const THATCH_DARK = 0x8f7745;
+/** The hut's straw: warmer than the well's pair, which went olive under the sky fill. */
+const THATCH_GOLD = 0xd2a650;
+const THATCH_SHADE = 0x8f6a34;
+/** The hut's masonry: ROCK is a cool grey that reads as ice under a warm wall. */
+const STONE = 0x7e705c;
+const STONE_DARK = 0x5e5245;
+/** Hut ironmongery: IRON goes slate-blue under the sky fill. */
+const IRON_DARK = 0x3a3532;
 const ROCK = 0x8b8c92;
 const ROCK_DARK = 0x6c6d73;
 const IRON = 0x4b4b53;
@@ -344,63 +352,227 @@ function bellTent(): Template {
   return bakeSolid(v, V);
 }
 
+/** Thatch value by two-voxel straw column; `+45` keeps the modulo positive on the -x half. */
+function strawStreak(x: number): number {
+  return 0.86 + (((Math.floor(x / 2) * 7 + 45) % 5) / 5) * 0.22;
+}
+
+/** Where a hut's night pane goes, in world units from the template origin: along the
+ *  hut's own +x, up from its base, and out along its +z to just inside the wall plane. */
+export interface HutWindow {
+  side: number;
+  height: number;
+  front: number;
+}
+
 /** Timber-framed hut with a thatch roof. `kind`: 0 stores, 1 quarters, 2 smithy
  *  (whose coals are a separate glow piece). */
-function hut(kind: 0 | 1 | 2): Template {
+function hut(kind: 0 | 1 | 2): { part: Template; window: HutWindow } {
   const v = new VoxelModel();
   const r = rnd(0x1d77 + kind * 613);
   const W = 8; // half-width
   const D = 7; // half-depth
   const H = 9;
+  const timber = (): number => shade(TIMBER, 0.9 + r() * 0.18);
+  // Horizontal boards: three quantised shades per course, so the wall reads as
+  // stacked planks at distance; per-voxel jitter only smears that.
+  const BOARD = [0.84, 0.96, 1.08];
+  const course: number[] = [];
+  for (let y = 0; y <= H; y++) {
+    course.push(y % 4 === 1 ? 0.76 : BOARD[Math.floor(r() * 3)]);
+  }
+  const doorHalf = kind === 2 ? 4 : 3; // the smithy's door is a workshop mouth
   for (let x = -W; x <= W; x++) {
     for (let z = -D; z <= D; z++) {
       if (x !== -W && x !== W && z !== -D && z !== D) {
         continue;
       }
+      const corner = (x === -W || x === W) && (z === -D || z === D);
+      const long = z === -D || z === D;
+      const stud = (long && (x === -4 || x === 4)) || (!long && z === 0);
+      const rail = long && Math.abs(x) < W && !(z === D && x >= -7 && x <= doorHalf);
       for (let y = 0; y <= H; y++) {
-        const corner = (x === -W || x === W) && (z === -D || z === D);
-        const c = corner || y === 0 || y === H ? TIMBER : PLANK;
-        v.set(x, y, z, shade(c, 0.84 + r() * 0.3));
+        // The door and window openings are left empty here; the leaf and the recess sit a
+        // voxel behind them.
+        const door = Math.abs(x) < doorHalf && y >= 1 && y <= 5;
+        const win = x >= -6 && x <= -5 && y >= 3 && y <= 5;
+        if (z === D && (door || win)) {
+          continue;
+        }
+        if (y === 0 || (corner && y === 1)) {
+          const block = y === 0 && Math.floor((x + z + 40) / 2) % 2 === 0;
+          v.set(x, y, z, shade(block ? STONE : STONE_DARK, 0.86 + r() * 0.26));
+        } else if (corner || stud || y === H || (rail && y === 5)) {
+          v.set(x, y, z, timber());
+        } else {
+          v.set(x, y, z, shade(PLANK, course[y]));
+        }
       }
     }
   }
-  for (let x = -2; x <= 2; x++) {
-    for (let y = 0; y <= 5; y++) {
-      v.set(x, y, D, SOOT);
+  // Wall plate one course above the wall, so no slot shows between wall and eave.
+  v.box(-W, H + 1, -D, W, H + 1, -D, shade(TIMBER, 0.95));
+  v.box(-W, H + 1, D, W, H + 1, D, shade(TIMBER, 0.95));
+  // Doorway: frame on the face, the leaf one voxel back so the opening has depth.
+  v.box(-doorHalf, 1, D, -doorHalf, 6, D, shade(TIMBER, 1.0));
+  v.box(doorHalf, 1, D, doorHalf, 6, D, shade(TIMBER, 1.0));
+  v.box(-doorHalf, 6, D, doorHalf, 6, D, shade(TIMBER, 1.15));
+  v.set(-doorHalf, 6, D, shade(LOG_PALE, 1.0));
+  v.set(doorHalf, 6, D, shade(LOG_PALE, 1.0));
+  v.box(-doorHalf, 0, D, doorHalf, 0, D, shade(STONE_DARK, 0.9));
+  // The smithy's leaf is the dark of an open workshop mouth; the others a ledged door of
+  // vertical boards, strapped on the hinge side.
+  for (let x = -doorHalf + 1; x <= doorHalf - 1; x++) {
+    const board = shade(PLANK_DARK, 0.88 + r() * 0.14);
+    for (let y = 1; y <= 5; y++) {
+      v.set(x, y, D - 1, kind === 2 ? SOOT : board);
     }
   }
-  v.box(-3, 6, D, 3, 6, D, shade(LOG, 1.05));
+  if (kind !== 2) {
+    v.box(-doorHalf + 1, 2, D - 1, 0, 2, D - 1, IRON_DARK);
+    v.box(-doorHalf + 1, 4, D - 1, 0, 4, D - 1, IRON_DARK);
+    v.set(1, 3, D - 1, shade(LOG_PALE, 0.9));
+  }
+  // A window beside the door: sill and lintel, both shutters swung back flat against the
+  // wall, the opening recessed on the dark. The night pane (`hutWindow`) sits in it.
+  v.box(-7, 2, D, -4, 2, D, timber());
+  v.box(-7, 6, D, -4, 6, D, timber());
+  v.box(-7, 3, D, -7, 5, D, shade(PLANK, 1.05));
+  v.box(-4, 3, D, -4, 5, D, shade(PLANK, 1.05));
+  v.box(-6, 3, D - 1, -5, 5, D - 1, SOOT);
+  // Gables: a tie beam, paired vertical boards, a king post with two struts — an A-truss
+  // drawn on the wall — filling the triangle up to the roof's underside.
+  for (const gx of [-W, W]) {
+    for (let z = -D; z <= D; z++) {
+      const pair = Math.floor((z + D) / 2);
+      const boardShade = (pair % 2 === 0 ? 0.84 : 1.02) + r() * 0.06;
+      const top = H + 1 + D - Math.abs(z);
+      for (let y = H + 1; y <= top; y++) {
+        const az = Math.abs(z);
+        const strut = az >= 1 && az <= 3 && (y === H + 1 + az || y === H + 2 + az);
+        const frame = z === 0 || az === D || strut;
+        const c = y === H + 1 ? shade(LOG_PALE, 0.95) : frame ? timber() : shade(PLANK, boardShade);
+        v.set(gx, y, z, c);
+      }
+    }
+  }
+  // What each gable carries tells the three kinds apart at distance: the stores' loft
+  // hatch, the quarters' lit pane, and a louvre where smoke has to get out.
+  const louvre = (gx: number): void => {
+    v.box(gx, H + 4, -2, gx, H + 7, 2, timber());
+    for (let y = H + 5; y <= H + 6; y++) {
+      v.box(gx, y, -1, gx, y, 1, y === H + 5 ? SOOT : shade(PLANK_DARK, 0.8));
+    }
+  };
+  if (kind === 0) {
+    v.box(W, H + 2, -2, W, H + 5, 2, timber());
+    v.box(W, H + 2, -1, W, H + 4, 1, shade(PLANK_DARK, 0.9));
+    v.set(W, H + 3, -2, IRON_DARK);
+    louvre(-W);
+  } else if (kind === 1) {
+    v.box(W, H + 2, -2, W, H + 5, 2, timber());
+    v.box(W, H + 3, -1, W, H + 4, 1, shade(FLAME_PALE, 0.95));
+  } else {
+    louvre(W);
+  }
   // Thatch bracketed: its collider is a ridge cylinder, not a box (`measureRidge`).
+  // Each course is a filled two-voxel band: one cell per step had daylight through it.
+  // Straw runs DOWN the slope, so value varies by column and never by course.
+  const slope = (x: number, y: number, z: number, edge: boolean): void => {
+    const s = strawStreak(x) * ((x * 5 + 43) % 7 === 0 ? 0.9 : 1.0);
+    // Both cells one colour: the baked shade already parts tread from riser.
+    const c = edge ? shade(THATCH_SHADE, 0.82 * s) : shade(THATCH_GOLD, s);
+    v.set(x, y, z, c);
+    v.set(x, y + 1, z, c);
+  };
   const thatch = v.region(() => {
     for (let k = 0; k <= D + 1; k++) {
-      const y = H + 1 + k;
-      const c = k % 2 === 0 ? THATCH : THATCH_DARK;
       for (let x = -W - 1; x <= W + 1; x++) {
-        v.set(x, y, -(D + 1 - k), shade(c, 0.86 + r() * 0.28));
-        v.set(x, y, D + 1 - k, shade(c, 0.86 + r() * 0.28));
+        slope(x, H + 1 + k, -(D + 1 - k), false);
+        slope(x, H + 1 + k, D + 1 - k, false);
       }
     }
+    // A rolled ridge with its spars flush in it: upright spars read as crenellations,
+    // dark ones on the golden slope read as holes, and a second course proud of the
+    // slope costs the ridge cylinder its fit (`test-structures` roofFit).
     for (let x = -W - 1; x <= W + 1; x++) {
-      v.set(x, H + D + 2, 0, shade(THATCH, 1.12));
+      v.set(x, H + D + 4, 0, shade(THATCH_SHADE, 0.96 + r() * 0.1));
+    }
+    for (let x = -W + 1; x <= W - 1; x += 4) {
+      v.set(x, H + D + 4, 0, shade(LOG_PALE, 1.0));
     }
   });
+  // The dark verge and the kicked eave course, one voxel proud of the bracket on every
+  // side: the cue that says thatch rather than tile. Painted OUTSIDE the region so the
+  // ridge cylinder keeps the extent it had, and with it every spot the camp's NPC ring
+  // search settled on (test-content pins Gain); a 0.28 lip nobody can stand on is not
+  // worth moving a character for.
+  for (let k = 0; k <= D + 1; k++) {
+    for (const gx of [-W - 2, W + 2]) {
+      slope(gx, H + 1 + k, -(D + 1 - k), true);
+      slope(gx, H + 1 + k, D + 1 - k, true);
+    }
+  }
+  v.set(-W - 2, H + D + 4, 0, shade(THATCH_SHADE, 0.82));
+  v.set(W + 2, H + D + 4, 0, shade(THATCH_SHADE, 0.82));
+  for (let x = -W - 2; x <= W + 2; x++) {
+    v.set(x, H + 1, -(D + 2), shade(THATCH_GOLD, 0.9 * strawStreak(x)));
+    v.set(x, H + 1, D + 2, shade(THATCH_GOLD, 0.9 * strawStreak(x)));
+  }
   if (kind === 0) {
     v.box(-6, 4, -D, -3, 6, -D, shade(PLANK_DARK, 1.0));
     v.box(3, 4, -D, 6, 6, -D, shade(PLANK_DARK, 1.0));
-    v.box(W + 1, 0, -3, W + 3, 2, 3, shade(LOG_PALE, 0.95));
-    v.box(W + 1, 3, -3, W + 4, 3, 3, shade(PLANK, 1.05));
-  } else {
-    for (let y = 0; y <= H + D + 4; y++) {
-      v.box(-W - 2, y, -2, -W - 1, y, 1, shade(y > H ? ROCK : ROCK_DARK, 0.86 + r() * 0.3));
+    // A firewood stack, one log per (y, z) as `woodpile` lays them, ragged on top, under
+    // boards held down by a pole.
+    for (let y = 0; y <= 2; y++) {
+      for (let z = -3; z <= 3; z++) {
+        if (y === 2 && (Math.abs(z) === 3 || r() < 0.25)) {
+          continue;
+        }
+        v.box(W + 1, y, z, W + 3, y, z, shade(y % 2 === 0 ? LOG : LOG_PALE, 0.82 + r() * 0.36));
+      }
     }
-    v.box(-W - 3, H + D + 5, -3, -W, H + D + 5, 2, shade(ROCK, 1.05));
+    v.box(W + 1, 3, -3, W + 3, 3, 3, shade(PLANK_DARK, 0.9));
+    v.box(W + 4, 3, -3, W + 4, 3, 3, shade(LOG, 0.95));
+  } else {
+    // Chimney: a breast below the eave, a stack above, in running-bond stone (one shade
+    // per stone, no jitter within one), damp at the foot, the smithy's blackened by its fire.
+    for (let y = 0; y <= H + D + 4; y++) {
+      const z1 = y > H + 1 ? 0 : 1;
+      // The stack lives on the shade side, where the sky fill eats its value.
+      const lift = y > H + 1 ? 1.15 : 1.0;
+      let stoneShade = lift * (0.76 + r() * 0.44);
+      let stoneId = -1;
+      for (let z = -1; z <= z1; z++) {
+        const id = Math.floor((z + 3 + (y % 2)) / 2);
+        if (id !== stoneId) {
+          stoneId = id;
+          stoneShade = lift * (0.76 + r() * 0.44);
+        }
+        for (let x = -W - 2; x <= -W - 1; x++) {
+          const soot = kind === 2 && y >= H + D + 2;
+          const c = soot ? SOOT : y <= 1 ? STONE_DARK : STONE;
+          v.set(x, y, z, shade(c, stoneShade));
+        }
+      }
+    }
+    v.box(-W - 3, H + D + 5, -2, -W, H + D + 5, 1, shade(kind === 2 ? SOOT : STONE, 1.2));
+    v.box(-W - 2, H + D + 5, -1, -W - 1, H + D + 5, 0, SOOT);
   }
   if (kind === 2) {
-    v.box(4, 0, D + 3, 6, 1, D + 5, shade(TIMBER, 0.9));
-    v.box(4, 2, D + 3, 6, 2, D + 5, shade(IRON, 1.0));
-    v.box(4, 3, D + 4, 7, 3, D + 4, shade(IRON, 1.15));
+    v.box(4, 0, D + 3, 6, 0, D + 5, shade(TIMBER, 0.9));
+    v.box(4, 1, D + 3, 6, 2, D + 5, shade(IRON_DARK, 1.1));
+    v.box(4, 3, D + 4, 7, 3, D + 4, shade(IRON_DARK, 1.3));
   }
-  return bakeSolid(v, V, thatch);
+  // The origin is the bounds' centre and each kind's bounds differ (lean-to, anvil), so
+  // the pane's seat is measured here rather than guessed at the call site.
+  const b = v.bounds();
+  const window: HutWindow = {
+    side: (-5 - b.ox) * V,
+    height: 4.5 * V - 0.22,
+    front: (D + 1 - b.oz) * V - 0.16,
+  };
+  return { part: bakeSolid(v, V, thatch), window };
 }
 
 function cart(hooded: boolean): Template {
@@ -987,7 +1159,9 @@ export class TownParts {
   readonly watch = watchPost();
   readonly tents = [ridgeTent(0, 16), ridgeTent(1, 13), ridgeTent(2, 18)];
   readonly bell = bellTent();
-  readonly huts = [hut(0), hut(1), hut(2)];
+  private readonly hutKit = [hut(0), hut(1), hut(2)];
+  readonly huts = this.hutKit.map((h) => h.part);
+  readonly hutWindows = this.hutKit.map((h) => h.window);
   readonly cartOpen = cart(false);
   readonly cartHood = cart(true);
   readonly barrel = barrel();
