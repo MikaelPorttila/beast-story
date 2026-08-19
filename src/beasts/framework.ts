@@ -229,7 +229,7 @@ const ARC_TIME = 0.26;
 const ARC_TRAIL = 0.55;
 const _white = new THREE.Color(0xffffff);
 
-// Frames a strike-FX mesh stays visible-but-degenerate, so warmUpShaders LINKS ITS
+// Frames a strike-FX mesh stays visible-but-degenerate, so warmUpSteps LINKS ITS
 // PROGRAM at boot. Decremented from update(), which the warm-up never calls.
 const FX_WARM_FRAMES = 8;
 

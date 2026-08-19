@@ -6559,12 +6559,22 @@ const _warmPos = new THREE.Vector3();
 const _warmQuat = new THREE.Quaternion();
 const _warmStage = new THREE.Vector3();
 
+const renderFrame = () => {
+  engine.render();
+};
+
 // ONE warm-up render: park the camera on `stage`, add `lights` pool lights, draw, put it back. Split
 // out because a ZONE TRANSITION needs the same work against another world and cannot afford one frame
 // — ZoneManager calls this every third frame while the destination preloads. `lights` is how many to
 // ADD, not a target: at boot counts accumulate 1..10, during a transition the last step's have expired.
 // The sun focus moves with the camera, because the shadow frustum decides which casters get a depth pass.
-function warmUpFrame(stage: THREE.Vector3, lights: number, effects = false): void {
+// `present` is what a step does from the stage: draw it, or only issue its programs (`Engine.compileInView`).
+function warmUpFrame(
+  stage: THREE.Vector3,
+  lights: number,
+  effects = false,
+  present: () => void = renderFrame,
+): void {
   _warmPos.copy(engine.camera.position);
   _warmQuat.copy(engine.camera.quaternion);
   // A HIGH, WIDE view: programs do not care where the camera is, but BUFFER UPLOADS do — a geometry
@@ -6585,7 +6595,7 @@ function warmUpFrame(stage: THREE.Vector3, lights: number, effects = false): voi
   for (let i = 0; i < lights; i++) {
     combat.warmUpLight(stage);
   }
-  engine.render();
+  present();
   combat.endWarmUpDrop();
   engine.camera.position.copy(_warmPos);
   engine.camera.quaternion.copy(_warmQuat);
@@ -6601,18 +6611,19 @@ function warmUpStepCount(): number {
 }
 
 // A GENERATOR because the same sweep is driven two ways and must stay ONE sequence: the staged boot drains a few steps at a time, `menu=0`/photo in one loop.
-function* warmUpSteps(): Generator<void> {
+// And run TWICE with two `present`s: first issuing every program so the driver links them in parallel, then drawing, which finds them linked and pays only the per-draw work.
+function* warmUpSteps(present: () => void = renderFrame): Generator<void> {
   // The camera must look at the REAL WORLD: only materials actually drawn are recompiled. Staged 400 units under the map, the 12-program burst simply moved.
   _warmStage.copy(world.spawnPoint);
   _warmStage.y += 1;
 
   // One of everything, drawn once. This also takes the first pool light, so the sweep starts at 1.
-  warmUpFrame(_warmStage, 0, true);
+  warmUpFrame(_warmStage, 0, true, present);
   yield;
 
   // EXACTLY one light per pass: adding two leaves every odd count uncompiled, which recompiled twelve materials mid-fight. Nothing expires between boot steps.
   for (let i = 1; i < WARM_POOL; i++) {
-    warmUpFrame(_warmStage, 1);
+    warmUpFrame(_warmStage, 1, false, present);
     yield;
   }
 
@@ -6625,36 +6636,45 @@ function* warmUpSteps(): Generator<void> {
       continue;
     }
     _warmStage.set(town.x, world.getHeight(town.x, town.z) + 1, town.z);
-    warmUpFrame(_warmStage, 0);
+    warmUpFrame(_warmStage, 0, false, present);
     yield;
   }
   for (const r of world.towns.roads) {
     const m = Math.floor(r.path.length / 6) * 3;
     _warmStage.set(r.path[m], r.path[m + 1] + 1, r.path[m + 2]);
-    warmUpFrame(_warmStage, 0);
+    warmUpFrame(_warmStage, 0, false, present);
     yield;
   }
   _warmStage.copy(world.spawnPoint);
   _warmStage.y += 1;
 
   // The two underwater programs (tint, bubbles): nothing above draws them, and the frame they would otherwise link on is the frame the hero's head goes under.
-  underwater.warmUp(() => engine.render());
+  underwater.warmUp(present);
   yield;
 
   // World-owned effects, same reason: the sky island's waterfall hangs 190 up and 170 out, so no staged frame above ever drew it.
-  world.warmUpEffects(() => engine.render());
+  world.warmUpEffects(present);
   yield;
 
-  // NOT renderer.compile(scene, camera): measured, it linked 117 programs and made boot far worse (593/429/287 ms stalls against ~110 ms), permutations and all.
+  // NOT renderer.compile(scene, camera): measured, it linked 117 programs and made boot far worse (593/429/287 ms stalls against ~110 ms), permutations and all. `Engine.compileInView` culls to what a draw would show.
 
   // Expire everything the warm-up spawned — each effect was given a life in hundredths of a second.
   combat.update(5, player as unknown as Damageable, []);
 }
 
-/** Drain the whole sweep now. The unstaged boot path; see `warmUpSteps`. */
-function warmUpShaders(): void {
-  for (const _ of warmUpSteps()) {
-    /* every step, one task */
+// Drain a sweep on the staged boot, handing the page a frame every BOOT_SLICE_MS. `tick` reports a step done.
+async function drainWarmUp(
+  screen: LoadingScreen,
+  steps: Generator<void>,
+  tick: (() => void) | null,
+): Promise<void> {
+  let mark = performance.now();
+  for (const _ of steps) {
+    tick?.();
+    if (performance.now() - mark >= BOOT_SLICE_MS) {
+      await screen.breathe();
+      mark = performance.now();
+    }
   }
 }
 
@@ -7428,22 +7448,38 @@ function frame(): void {
 const BOOT_SLICE_MS = 10;
 
 // `warmup=0` skips it, which is how the freeze it prevents is reproduced. One slice runs FIRST so there is something to warm: enemies primed, beasts off the origin.
+// `warmup=draw` is the A/B against the compile pass: the draw sweep alone, linking one program per first draw.
 if (params.get("warmup") !== "0") {
   simulate(SIM_DT, true, !photoMode);
+  const compileFirst = params.get("warmup") !== "draw";
   if (loading) {
     await loading.stage("shaders");
-    const total = warmUpStepCount();
+    const total = warmUpStepCount() * (compileFirst ? 2 : 1);
     let done = 0;
-    let mark = performance.now();
-    for (const _ of warmUpSteps()) {
-      loading.step(++done / total);
-      if (performance.now() - mark >= BOOT_SLICE_MS) {
-        await loading.breathe();
-        mark = performance.now();
+    const tick = () => loading.step(++done / total);
+    if (compileFirst) {
+      // ISSUE, then wait once: every step's programs link on the driver's threads while the sweep walks on, and the bar moves as each step's set reports in.
+      const linking: Promise<unknown>[] = [];
+      await drainWarmUp(
+        loading,
+        warmUpSteps(() => {
+          linking.push(engine.compileInView().then(tick));
+        }),
+        null,
+      );
+      await Promise.all(linking);
+    }
+    await drainWarmUp(loading, warmUpSteps(), tick);
+  } else {
+    // SYNCHRONOUS, as before: a probe that sees the canvas must find every hook below defined. The draws block on each link, but every link was issued up front and runs in parallel.
+    if (compileFirst) {
+      for (const _ of warmUpSteps(() => void engine.compileInView())) {
+        /* every step, one issue */
       }
     }
-  } else {
-    warmUpShaders();
+    for (const _ of warmUpSteps()) {
+      /* every step, one draw */
+    }
   }
 }
 

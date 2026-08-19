@@ -19,7 +19,7 @@ const SUN_OFFSET = new THREE.Vector3(170, 160, 113);
 // only, so fill for the shaded face lands on the lit one. Directional light is a
 // function of AZIMUTH, so a sun-facing normal clamps to zero; the elevation is
 // NEGATIVE because bounce comes off the ground. Created before any world material,
-// so NUM_DIR_LIGHTS is 2 for every program and warmUpShaders() stays valid.
+// so NUM_DIR_LIGHTS is 2 for every program and warmUpSteps() stays valid.
 const BOUNCE_OFFSET = new THREE.Vector3(-160, -62, -106);
 
 /**
@@ -276,6 +276,43 @@ function makeStars(): THREE.Points {
 
 /** post.ts's grade was solved against this, so it is the BASE dimming scales. */
 const DAYLIGHT_EXPOSURE = 1.2;
+
+const _viewProj = new THREE.Matrix4();
+const _frustum = new THREE.Frustum();
+const _inView: THREE.Object3D[] = [];
+// `renderer.compile` takes ONE object and walks it. This one walks the in-view list instead of a tree, so one call covers the set and nothing is reparented.
+const _batch = new THREE.Group();
+_batch.traverse = (cb) => {
+  for (const o of _inView) {
+    cb(o);
+  }
+};
+_batch.traverseVisible = _batch.traverse;
+
+function isRenderable(o: THREE.Object3D): boolean {
+  const r = o as Partial<THREE.Mesh & THREE.Points & THREE.Line & THREE.Sprite>;
+  return r.isMesh === true || r.isPoints === true || r.isLine === true || r.isSprite === true;
+}
+
+// three's own `materialNeedsLights`: a draw re-keys only these when the light count changes, and keeps an unlit material's first program.
+function needsLights(m: THREE.Material): boolean {
+  const r = m as Partial<
+    THREE.MeshLambertMaterial &
+      THREE.MeshToonMaterial &
+      THREE.MeshPhongMaterial &
+      THREE.MeshStandardMaterial &
+      THREE.ShadowMaterial &
+      THREE.ShaderMaterial
+  >;
+  return (
+    r.isMeshLambertMaterial === true ||
+    r.isMeshToonMaterial === true ||
+    r.isMeshPhongMaterial === true ||
+    r.isMeshStandardMaterial === true ||
+    r.isShadowMaterial === true ||
+    (r.isShaderMaterial === true && r.lights === true)
+  );
+}
 
 export class Engine {
   readonly renderer: THREE.WebGLRenderer;
@@ -779,5 +816,45 @@ export class Engine {
     } else {
       this.renderer.render(this.scene, this.camera);
     }
+  }
+
+  /**
+   * Issue the programs a render from here would draw, without drawing: the same cull as
+   * `render()`, keyed against the RenderPass's target so tone mapping and colour space match.
+   * The driver links them in parallel (KHR_parallel_shader_compile) instead of one stall per
+   * first draw; resolves once every program reports linked. Shadow-depth and bloom-source
+   * variants are not in it — a draw still pays those.
+   */
+  compileInView(): Promise<unknown> {
+    this.scene.updateMatrixWorld();
+    this.camera.updateMatrixWorld();
+    _viewProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_viewProj);
+    _inView.length = 0;
+    const properties = this.renderer.properties as {
+      get: (m: THREE.Material) => { currentProgram?: unknown };
+    };
+    this.scene.traverseVisible((o) => {
+      if (
+        !isRenderable(o) ||
+        !o.layers.test(this.camera.layers) ||
+        (o.frustumCulled && !_frustum.intersectsObject(o))
+      ) {
+        return;
+      }
+      // `compile` re-keys every material at the current light count; a draw does not, and the sweep walks ten counts. So an unlit material that already has a program is left alone, as `setProgram` would leave it.
+      const m = (o as THREE.Mesh).material;
+      if (!Array.isArray(m) && !needsLights(m) && properties.get(m).currentProgram) {
+        return;
+      }
+      _inView.push(o);
+    });
+    const prev = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(this.post ? this.post.composer.readBuffer : null);
+    // `compileAsync` issues synchronously and only WAITS asynchronously, so the target is restored right away.
+    const linked = this.renderer.compileAsync(_batch, this.camera, this.scene);
+    this.renderer.setRenderTarget(prev);
+    _inView.length = 0;
+    return linked;
   }
 }

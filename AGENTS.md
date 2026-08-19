@@ -41,7 +41,7 @@ and everything browser-related goes through
 
 | Purpose                                 | Flags                                                                                                                                                               |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Boot                                    | `menu=0` skip title · `menu=1` force it · `photo=1` staged capture (implies `menu=0`) · `warmup=0` skip the shader sweep                                            |
+| Boot                                    | `menu=0` skip title · `menu=1` force it · `photo=1` staged capture (implies `menu=0`) · `warmup=0` skip the shader sweep · `warmup=draw` the sweep without its parallel compile pass |
 | Framing                                 | `cam=x,y,z` / `look=x,y,z` **offsets from `world.spawnPoint`** · `beast=<id>` · `anim=` · `a=<deg>` · `hud=0` · `npct=<s>` NPC clock · `colliders=1` draw colliders |
 | Performance                             | `fps=<n>` cap (default 120, `0` = off) · `simhz=` · `view=<n>` streaming radius · `debug=1` developer mode: F3 and the `§` console reachable, starter beast bonded · `perf=1` pin the profiler                                  |
 | A/B switches                            | `towns=0` · `solids=0` · `sway=0` · `props=0` · `clouds=0` · `water=0` · `enemies=0` · `beasts=0` · `aim=0` · `shadows=0` · `shadowcache=0` (must move no pixel)    |
