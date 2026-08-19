@@ -478,35 +478,47 @@ function hut(kind: 0 | 1 | 2): { part: Template; window: HutWindow } {
   // Thatch bracketed: its collider is a ridge cylinder, not a box (`measureRidge`).
   // Each course is a filled two-voxel band: one cell per step had daylight through it.
   // Straw runs DOWN the slope, so value varies by column and never by course.
+  const slope = (x: number, y: number, z: number, edge: boolean): void => {
+    const s = strawStreak(x) * ((x * 5 + 43) % 7 === 0 ? 0.9 : 1.0);
+    // Both cells one colour: the baked shade already parts tread from riser.
+    const c = edge ? shade(THATCH_SHADE, 0.82 * s) : shade(THATCH_GOLD, s);
+    v.set(x, y, z, c);
+    v.set(x, y + 1, z, c);
+  };
   const thatch = v.region(() => {
     for (let k = 0; k <= D + 1; k++) {
-      const y = H + 1 + k;
-      for (let x = -W - 2; x <= W + 2; x++) {
-        const edge = Math.abs(x) === W + 2;
-        const s = strawStreak(x) * ((x * 5 + 43) % 7 === 0 ? 0.9 : 1.0);
-        for (const z of [-(D + 1 - k), D + 1 - k]) {
-          // Both cells one colour: the baked shade already parts tread from riser.
-          const c = edge ? shade(THATCH_SHADE, 0.82 * s) : shade(THATCH_GOLD, s);
-          v.set(x, y, z, c);
-          v.set(x, y + 1, z, c);
-        }
+      for (let x = -W - 1; x <= W + 1; x++) {
+        slope(x, H + 1 + k, -(D + 1 - k), false);
+        slope(x, H + 1 + k, D + 1 - k, false);
       }
-    }
-    // A kicked flat eave course: the one cue that says thatch rather than tile.
-    for (let x = -W - 2; x <= W + 2; x++) {
-      v.set(x, H + 1, -(D + 2), shade(THATCH_GOLD, 0.9 * strawStreak(x)));
-      v.set(x, H + 1, D + 2, shade(THATCH_GOLD, 0.9 * strawStreak(x)));
     }
     // A rolled ridge with its spars flush in it: upright spars read as crenellations,
     // dark ones on the golden slope read as holes, and a second course proud of the
     // slope costs the ridge cylinder its fit (`test-structures` roofFit).
-    for (let x = -W - 2; x <= W + 2; x++) {
+    for (let x = -W - 1; x <= W + 1; x++) {
       v.set(x, H + D + 4, 0, shade(THATCH_SHADE, 0.96 + r() * 0.1));
     }
     for (let x = -W + 1; x <= W - 1; x += 4) {
       v.set(x, H + D + 4, 0, shade(LOG_PALE, 1.0));
     }
   });
+  // The dark verge and the kicked eave course, one voxel proud of the bracket on every
+  // side: the cue that says thatch rather than tile. Painted OUTSIDE the region so the
+  // ridge cylinder keeps the extent it had, and with it every spot the camp's NPC ring
+  // search settled on (test-content pins Gain); a 0.28 lip nobody can stand on is not
+  // worth moving a character for.
+  for (let k = 0; k <= D + 1; k++) {
+    for (const gx of [-W - 2, W + 2]) {
+      slope(gx, H + 1 + k, -(D + 1 - k), true);
+      slope(gx, H + 1 + k, D + 1 - k, true);
+    }
+  }
+  v.set(-W - 2, H + D + 4, 0, shade(THATCH_SHADE, 0.82));
+  v.set(W + 2, H + D + 4, 0, shade(THATCH_SHADE, 0.82));
+  for (let x = -W - 2; x <= W + 2; x++) {
+    v.set(x, H + 1, -(D + 2), shade(THATCH_GOLD, 0.9 * strawStreak(x)));
+    v.set(x, H + 1, D + 2, shade(THATCH_GOLD, 0.9 * strawStreak(x)));
+  }
   if (kind === 0) {
     v.box(-6, 4, -D, -3, 6, -D, shade(PLANK_DARK, 1.0));
     v.box(3, 4, -D, 6, 6, -D, shade(PLANK_DARK, 1.0));
