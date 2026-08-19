@@ -1389,7 +1389,7 @@ export class VFX {
   }
 
   // Draws one of every effect so its program links at boot, not on the first
-  // cast, which otherwise stalls a frame. See warmUpShaders() in main.ts.
+  // cast, which otherwise stalls a frame. See warmUpSteps() in main.ts.
   warmUp(x: number, y: number, z: number): void {
     const hex = 0xffffff;
     this.burst(x, y, z, hex, 6, 2, 0.3, 0.2);

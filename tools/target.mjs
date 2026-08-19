@@ -51,6 +51,10 @@ export const gameUrl = (query = "") => `${BASE}/${query.replace(/^\/?/, "")}`;
  *   ?menu=0&fs=0               20.5 s
  *   ?menu=0&fs=0&warmup=0       1.4 s
  *
+ * (Measured before the sweep issued its programs through KHR_parallel_shader_compile
+ * first; the staged "shaders" stage went 25.0 s -> 3.8 s cold with that, and
+ * `warmup=draw` is the old sweep for an A/B. The rest of this note still holds.)
+ *
  * The world is not the cost — `createWorld` is ~0.6 s of that. The shader
  * warm-up sweep is 93% of it (see warmUpSteps in src/main.ts and the STAGES
  * note in src/ui/loading.ts), and on the `menu=0` path it runs SYNCHRONOUSLY

@@ -217,7 +217,7 @@ export class Underwater {
   }
 
   /** Link the bubble program once: a first-use link stalls the GPU, and the frame
-   *  you first go under is the worst moment to pay it (warmUpShaders in main.ts).
+   *  you first go under is the worst moment to pay it (warmUpSteps in main.ts).
    *  Alpha is non-zero so the points actually rasterise. */
   warmUp(render: () => void): void {
     this.bubbles.visible = true;

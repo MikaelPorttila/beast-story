@@ -739,7 +739,7 @@ export class CombatSystem {
       }
     }
     this.numbers.spawn(at.x, at.y + 1, at.z, "1", 0xffffff, true);
-    this.pickups.spawn(at.x, at.y, at.z);
+    // No live pickup here: the caller brackets this with `warmUpDrop`, and the sweep now runs twice — a spawned shard would be two.
     this.vfx.warmUp(at.x, at.y, at.z);
     this.vfx.warmUpLights(at.x, at.y, at.z, lights);
   }
